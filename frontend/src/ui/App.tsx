@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import WebApp from '@twa-dev/sdk'
 
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000'
+// по умолчанию используем относительный путь и vite proxy
+const API_URL = import.meta.env.VITE_API_URL ?? ''
 
 type Product = {
   id?: string
