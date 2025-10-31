@@ -1,4 +1,5 @@
 import { google } from 'googleapis'
+import fs from 'node:fs'
 
 export type SheetProduct = {
   id?: string
@@ -13,9 +14,18 @@ export type SheetProduct = {
 }
 
 function getAuthFromEnv() {
+  // можно указать GOOGLE_SA_FILE=путь/к/sa.json или GOOGLE_SA_JSON=строкой
+  const filePath = process.env.GOOGLE_SA_FILE
   const raw = process.env.GOOGLE_SA_JSON
-  if (!raw) throw new Error('GOOGLE_SA_JSON is required')
-  const creds = JSON.parse(raw)
+  let creds: any
+  if (filePath) {
+    const txt = fs.readFileSync(filePath, 'utf8')
+    creds = JSON.parse(txt)
+  } else if (raw) {
+    creds = JSON.parse(raw)
+  } else {
+    throw new Error('GOOGLE_SA_JSON or GOOGLE_SA_FILE is required')
+  }
   const scopes = ['https://www.googleapis.com/auth/spreadsheets.readonly']
   return new google.auth.JWT(creds.client_email, undefined, creds.private_key, scopes)
 }

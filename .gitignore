@@ -2,6 +2,7 @@ node_modules/
 dist/
 .env
 .env.*
+backend/sa.json
 *.log
 .DS_Store
 coverage/
