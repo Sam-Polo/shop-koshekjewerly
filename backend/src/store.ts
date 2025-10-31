@@ -1,4 +1,4 @@
-import type { SheetProduct } from './sheets'
+import type { SheetProduct } from './sheets.js'
 
 type Product = SheetProduct & { createdAt: number }
 

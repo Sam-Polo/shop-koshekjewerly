@@ -2,8 +2,8 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import pino from 'pino';
-import { fetchProductsFromSheet } from './sheets';
-import { listProducts, upsertProducts } from './store';
+import { fetchProductsFromSheet } from './sheets.js';
+import { listProducts, upsertProducts } from './store.js';
 
 const logger = pino();
 const app = express();
