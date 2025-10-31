@@ -3,9 +3,21 @@ import WebApp from '@twa-dev/sdk'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000'
 
+type Product = {
+  id?: string
+  slug: string
+  title: string
+  description?: string
+  category: 'ягоды' | 'шея' | 'руки' | 'уши' | string
+  price_rub: number
+  images: string[]
+  active: boolean
+}
+
 export default function App() {
   const [ready, setReady] = useState(false)
-  const [products, setProducts] = useState<Array<{ title: string }>>([])
+  const [products, setProducts] = useState<Product[]>([])
+  const [category, setCategory] = useState<Product['category'] | 'все'>('все')
 
   useEffect(() => {
     // инициализируем тему и кнопку назад
@@ -22,15 +34,40 @@ export default function App() {
 
   const title = useMemo(() => (WebApp.initDataUnsafe?.user?.first_name ? `привет, ${WebApp.initDataUnsafe.user.first_name}` : 'магазин украшений'), [])
 
+  const categories: Array<{ key: Product['category']; title: string }> = [
+    { key: 'ягоды', title: 'ягоды' },
+    { key: 'шея', title: 'шея' },
+    { key: 'руки', title: 'руки' },
+    { key: 'уши', title: 'уши' },
+  ]
+
+  const filtered = category === 'все' ? products : products.filter(p => p.category === category)
+
   return (
     <div className="container">
       <h1>{title}</h1>
+      <div className="toolbar">
+        <button className="btn link" onClick={() => window.open('https://t.me/semyonp88', '_blank')}>написать менеджеру</button>
+        <button className="btn" onClick={() => setCategory('все')}>все</button>
+      </div>
+
+      <div className="categories">
+        {categories.map(c => (
+          <div key={c.key} className="cat-tile" onClick={() => setCategory(c.key)}>
+            <div className="cat-overlay"></div>
+            <div className="cat-title">{c.title}</div>
+          </div>
+        ))}
+      </div>
+
       {!ready && <p>загрузка…</p>}
       <div className="grid">
-        {products.length === 0 && <p>каталог скоро будет</p>}
-        {products.map((p, i) => (
-          <div className="card" key={i}>
+        {filtered.length === 0 && <p>каталог скоро будет</p>}
+        {filtered.map((p) => (
+          <div className="card" key={p.slug}>
+            <div style={{ height: 96, borderRadius: 10, background: '#222', marginBottom: 8, backgroundImage: p.images?.[0] ? `url(${p.images[0]})` : undefined, backgroundSize: 'cover', backgroundPosition: 'center' }} />
             <div className="card-title">{p.title}</div>
+            <div style={{ opacity: 0.8 }}>{Math.round(p.price_rub).toLocaleString('ru-RU')} ₽</div>
           </div>
         ))}
       </div>
