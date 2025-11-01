@@ -2,17 +2,25 @@ import { useEffect, useState } from 'react'
 import WebApp from '@twa-dev/sdk'
 import React from 'react'
 
+import berriesImage from '../../../assets/berries-category.jpg'
+import neckImage from '../../../assets/neck-category.jpg'
+import handsImage from '../../../assets/hands-category.jpg'
+import earsImage from '../../../assets/ears-category.jpg'
+import certificateImage from '../../../assets/certificate-category.jpg'
+
 type Category = {
   key: string
   title: string
-  description: string
+  description?: string
+  image: string
 }
 
 const categories: Category[] = [
-  { key: 'berries', title: 'Ягоды (special)', description: 'test' },
-  { key: 'neck', title: 'Шея', description: 'test' },
-  { key: 'hands', title: 'Руки', description: 'test' },
-  { key: 'ears', title: 'Уши', description: 'test' },
+  { key: 'berries', title: 'Ягоды (special)', description: 'Эксклюзивная коллекция KOSHEK, украшения в виде реалистичных ягод из полимерной глины', image: berriesImage },
+  { key: 'neck', title: 'Шея', description: 'Чокеры, колье, подвески, кулоны', image: neckImage },
+  { key: 'hands', title: 'Руки', description: 'Браслеты, кольца', image: handsImage },
+  { key: 'ears', title: 'Уши', description: 'Серьги, каффы', image: earsImage },
+  { key: 'certificates', title: 'Сертификаты', image: certificateImage },
 ]
 
 const AccordionItem = ({ question, children }: { question: string, children: React.ReactNode }) => {
@@ -71,16 +79,17 @@ export default function App() {
     <div className="page">
       <header className="page-header">
         <h1 className="page-header__title">Категории</h1>
-        <p className="page-header__text">Стиль, уникальность, качество и исключительно натуральные материалы.</p>
+        <p className="page-header__text">Girls выбирают KOSHEK и бриллианты.</p>
       </header>
 
       <section className="category-grid">
         {categories.map(card => (
           <article key={card.key} className="category-card">
-            <div className="category-card__media" />
+            <div className="category-card__media" style={{ backgroundImage: `url(${card.image})` }} />
+            <div className="category-card__overlay" />
             <div className="category-card__content">
               <h2 className="category-card__title">{card.title}</h2>
-              <p className="category-card__description">{card.description}</p>
+              {card.description && <p className="category-card__description">{card.description}</p>}
             </div>
           </article>
         ))}
