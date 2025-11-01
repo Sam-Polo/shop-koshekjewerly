@@ -63,7 +63,7 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 
 @media (max-width: 640px) {
   .category-grid { grid-template-columns: 1fr; }
-  .category-card { min-height: 240px; }
+  .category-card { min-height: 180px; }
 }
 
 
