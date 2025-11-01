@@ -17,4 +17,13 @@ assets/, fonts/, design-model/ — медиа и макеты
 
 переменные окружения в соответствующих `.env.example` в `frontend/`, `backend/`, `bot/`.
 
+## деплой
+
+см. подробную инструкцию: [`docs/DEPLOY.md`](docs/DEPLOY.md)
+
+кратко:
+- **frontend** → Netlify
+- **backend** → Render (Web Service)
+- **bot** → Render (Background Worker)
+
 
