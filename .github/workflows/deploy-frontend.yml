@@ -35,6 +35,7 @@ jobs:
         working-directory: ./frontend
         env:
           VITE_API_URL: ${{ secrets.VITE_API_URL || 'https://shop-koshekjewerly.onrender.com' }}
+          VITE_BASE_PATH: /shop-koshekjewerly/
         run: npm run build
 
       - name: Setup Pages
