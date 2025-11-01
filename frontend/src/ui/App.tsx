@@ -84,14 +84,14 @@ export default function App() {
 
       <section className="category-grid">
         {categories.map(card => (
-          <article key={card.key} className="category-card">
+          <button key={card.key} className="category-card">
             <div className="category-card__media" style={{ backgroundImage: `url(${card.image})` }} />
             <div className="category-card__overlay" />
             <div className="category-card__content">
               <h2 className="category-card__title">{card.title}</h2>
               {card.description && <p className="category-card__description">{card.description}</p>}
             </div>
-          </article>
+          </button>
         ))}
       </section>
 

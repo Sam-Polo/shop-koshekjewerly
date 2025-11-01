@@ -12,7 +12,7 @@
   --page-fg-muted: rgba(0, 0, 0, 0.6);
   --tile-placeholder: #888888;
   --btn-bg: #efefef;
-  --tile-overlay: linear-gradient(0deg, rgba(0, 0, 0, 0.65) 0%, rgba(0, 0, 0, 0.22) 100%);
+  --tile-overlay: rgba(0, 0, 0, 0.45);
 }
 
 * { box-sizing: border-box; }
@@ -27,9 +27,10 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 
 .category-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px; }
 
-.category-card { position: relative; overflow: hidden; min-height: 220px; }
-.category-card__media { position: absolute; inset: 0; background-size: cover; background-position: center; }
-.category-card__overlay { position: absolute; inset: 0; background: var(--tile-overlay); }
+.category-card { position: relative; overflow: hidden; min-height: 220px; border: none; padding: 0; background: none; font-family: inherit; cursor: pointer; text-align: center; }
+.category-card__media { position: absolute; inset: 0; background-size: cover; background-position: center; transition: transform 0.4s ease-out; }
+.category-card:hover .category-card__media { transform: scale(1.05); }
+.category-card__overlay { position: absolute; inset: 0; background: var(--tile-overlay); box-shadow: inset 0 0 80px 20px rgba(0,0,0,0.4); }
 .category-card__content { position: relative; z-index: 1; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; color: #ffffff; }
 .category-card__title { margin: 0; font-size: 28px; letter-spacing: 0.08em; font-weight: 400; text-transform: uppercase; }
 .category-card__description { margin: 14px 0 0; font-size: 18px; line-height: 1.35; color: rgba(255, 255, 255, 0.82); }
