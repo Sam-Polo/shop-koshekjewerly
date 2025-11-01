@@ -30,13 +30,26 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 .category-card__media { position: absolute; inset: 0; background: var(--tile-placeholder); }
 .category-card__content { position: relative; z-index: 1; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; color: #ffffff; }
 .category-card__title { margin: 0; font-size: 28px; letter-spacing: 0.08em; font-weight: 400; text-transform: uppercase; }
+.category-card__description { margin: 14px 0 0; font-size: 18px; line-height: 1.35; color: rgba(255, 255, 255, 0.82); }
 
-.page-footer { display: flex; justify-content: center; gap: 16px; margin-top: 48px; }
+.page-footer { display: flex; justify-content: center; gap: 24px; margin-top: 48px; }
 .btn { background: var(--btn-bg); color: var(--page-fg); border: none; border-radius: 8px; padding: 12px 20px; font-family: inherit; font-size: 16px; cursor: pointer; }
+.btn-text { background: none; border: none; padding: 0; color: var(--page-fg); font-family: inherit; font-size: 16px; cursor: pointer; transition: color 0.3s ease; }
+.btn-text:hover { color: #bf9243; }
 
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 100; }
 .modal-content { background: #fff; border-radius: 12px; padding: 24px; max-width: 500px; width: 90%; position: relative; }
 .modal-close { position: absolute; top: 10px; right: 10px; background: none; border: none; font-size: 24px; cursor: pointer; }
+
+.accordion-item { border-bottom: 1px solid #efefef; }
+.accordion-item:last-child { border-bottom: none; }
+.accordion-question { width: 100%; background: none; border: none; text-align: left; padding: 16px 0; font-size: 16px; font-family: inherit; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: 400; transition: color 0.3s ease; }
+.accordion-question:hover, .accordion-question.open { color: #f119ac; }
+.accordion-icon { transition: transform 0.3s ease; }
+.accordion-icon.open { transform: rotate(180deg); }
+.accordion-answer { max-height: 0; overflow: hidden; transition: max-height 0.4s ease-out; }
+.accordion-answer.open { max-height: 200px; transition: max-height 0.4s ease-in; }
+.accordion-answer-content { padding: 0 0 16px; }
 
 @media (max-width: 900px) {
   .page { padding: 48px 20px 64px; }
@@ -45,6 +58,7 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
   .category-grid { gap: 20px; }
   .category-card { min-height: 200px; }
   .category-card__title { font-size: 24px; }
+  .category-card__description { font-size: 16px; }
 }
 
 @media (max-width: 640px) {
