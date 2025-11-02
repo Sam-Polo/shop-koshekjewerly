@@ -3,6 +3,7 @@ dist/
 .env
 .env.*
 backend/sa.json
+assets/  # общие assets, теперь разделены на bot/assets и frontend/public/assets
 *.log
 .DS_Store
 coverage/
