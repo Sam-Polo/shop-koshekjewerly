@@ -24,7 +24,7 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 .page-header {
   text-align: center;
   margin-bottom: 0;
-  padding: 48px 24px;
+  padding: 80px 24px;
   position: relative;
   background-size: cover;
   background-position: center;
