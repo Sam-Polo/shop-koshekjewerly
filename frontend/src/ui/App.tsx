@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import WebApp from '@twa-dev/sdk'
 import React from 'react'
 
@@ -72,6 +72,7 @@ const AboutUsModal = ({ onClose }: { onClose: () => void }) => (
 
 export default function App() {
   const [aboutModalOpen, setAboutModalOpen] = useState(false)
+  const mainContentRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
     // инициализируем тему и кнопку назад
@@ -81,15 +82,41 @@ export default function App() {
     } catch {}
   }, [])
 
+  useEffect(() => {
+    const handleBackButtonClick = () => {
+      setAboutModalOpen(false)
+    }
+
+    if (aboutModalOpen) {
+      document.body.style.overflow = 'hidden'
+      WebApp.BackButton.show()
+      WebApp.BackButton.onClick(handleBackButtonClick)
+    } else {
+      document.body.style.overflow = 'unset'
+      WebApp.BackButton.hide()
+    }
+
+    return () => {
+      WebApp.BackButton.offClick(handleBackButtonClick)
+      document.body.style.overflow = 'unset'
+    }
+  }, [aboutModalOpen])
+
+
   return (
     <>
       <header className="page-header" style={{ backgroundImage: `url(${backgroundImage})` }}>
         <img src={logoImage} alt="KOSHEK logo" className="header-logo" />
         <h1 className="page-header__title">KOSHEK</h1>
         <p className="page-header__text">Girls выбирают KOSHEK и бриллианты.</p>
+        <button
+          className="scroll-down-btn"
+          onClick={() => mainContentRef.current?.scrollIntoView({ behavior: 'smooth' })}
+          aria-label="Scroll down"
+        />
       </header>
 
-      <main className="page">
+      <main className="page" ref={mainContentRef}>
         <section className="category-grid">
           {categories.map(card => (
             <button key={card.key} className="category-card">
