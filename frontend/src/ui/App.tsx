@@ -78,33 +78,35 @@ export default function App() {
   }, [])
 
   return (
-    <div className="page">
+    <>
       <header className="page-header">
         <img src="/logo.PNG" alt="KOSHEK logo" className="header-logo" />
         <h1 className="page-header__title">KOSHEK</h1>
         <p className="page-header__text">Girls выбирают KOSHEK и бриллианты.</p>
       </header>
 
-      <section className="category-grid">
-        {categories.map(card => (
-          <button key={card.key} className="category-card">
-            <div className="category-card__media" style={{ backgroundImage: `url(${card.image})` }} />
-            <div className="category-card__overlay" />
-            <div className="category-card__content">
-              <h2 className="category-card__title">{card.title}</h2>
-              {card.description && <p className="category-card__description">{card.description}</p>}
-            </div>
-          </button>
-        ))}
-      </section>
+      <main className="page">
+        <section className="category-grid">
+          {categories.map(card => (
+            <button key={card.key} className="category-card">
+              <div className="category-card__media" style={{ backgroundImage: `url(${card.image})` }} />
+              <div className="category-card__overlay" />
+              <div className="category-card__content">
+                <h2 className="category-card__title">{card.title}</h2>
+                {card.description && <p className="category-card__description">{card.description}</p>}
+              </div>
+            </button>
+          ))}
+        </section>
 
-      <footer className="page-footer">
-        <button className="btn-text" onClick={() => window.open('https://t.me/semyonp88', '_blank')}>Поддержка</button>
-        <button className="btn-text" onClick={() => setAboutModalOpen(true)}>О нас</button>
-      </footer>
+        <footer className="page-footer">
+          <button className="btn-text" onClick={() => window.open('https://t.me/semyonp88', '_blank')}>Поддержка</button>
+          <button className="btn-text" onClick={() => setAboutModalOpen(true)}>О нас</button>
+        </footer>
+      </main>
 
       {aboutModalOpen && <AboutUsModal onClose={() => setAboutModalOpen(false)} />}
-    </div>
+    </>
   )
 }
 
