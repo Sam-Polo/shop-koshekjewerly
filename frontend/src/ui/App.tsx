@@ -57,8 +57,10 @@ const AboutUsModal = ({ onClose }: { onClose: () => void }) => (
         <p>— изготовление и сборка занимает 2-3 дня. Изделия из special collection (ягоды) около 4-6 дней.</p>
       </AccordionItem>
       <AccordionItem question="Как происходит доставка?">
-        <p>— По России и СНГ отправляем Сдэком до пункта выдачи, 350-450₽</p>
-        <p>— В Европу отправляем ЕМС, 1500₽</p>
+        <p>— по Москве и МО 350₽ сдэк</p>
+        <p>— По России 500₽</p>
+        <p>— СНГ (Беларусь, Казахстан, Армения и все такое) 650₽</p>
+        <p>— Европа 1500₽</p>
       </AccordionItem>
     </div>
   </div>
@@ -78,7 +80,8 @@ export default function App() {
   return (
     <div className="page">
       <header className="page-header">
-        <h1 className="page-header__title">Категории</h1>
+        <img src="/logo.PNG" alt="KOSHEK logo" className="header-logo" />
+        <h1 className="page-header__title">KOSHEK</h1>
         <p className="page-header__text">Girls выбирают KOSHEK и бриллианты.</p>
       </header>
 

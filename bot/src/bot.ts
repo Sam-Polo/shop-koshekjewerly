@@ -1,5 +1,7 @@
 import 'dotenv/config';
 import { Bot, InlineKeyboard } from 'grammy';
+import { InputFile } from 'grammy';
+import path from 'path';
 
 const token = process.env.TG_BOT_TOKEN;
 if (!token) {
@@ -13,7 +15,11 @@ const SUPPORT_USERNAME = process.env.SUPPORT_USERNAME ?? 'semyonp88';
 
 bot.command('start', async (ctx) => {
   const kb = new InlineKeyboard().webApp('открыть магазин', WEBAPP_URL);
-  await ctx.reply('добро пожаловать в магазин украшений', { reply_markup: kb });
+  const photoPath = path.join(__dirname, '..', '..', 'assets', 'bot-greeting.jpg');
+  await ctx.replyWithPhoto(new InputFile(photoPath), {
+    caption: 'Добро пожаловать в мир KOSHEK.\nЗдесь вы можете оформить свой заказ. ❤️',
+    reply_markup: kb,
+  });
 });
 
 bot.command('support', async (ctx) => {
