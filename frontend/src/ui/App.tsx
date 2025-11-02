@@ -2,13 +2,13 @@ import { useEffect, useState } from 'react'
 import WebApp from '@twa-dev/sdk'
 import React from 'react'
 
-import berriesImage from '../../assets/berries-category.jpg'
-import neckImage from '../../assets/neck-category.jpg'
-import handsImage from '../../assets/hands-category.jpg'
-import earsImage from '../../assets/ears-category.jpg'
-import certificateImage from '../../assets/certificate-category.jpg'
-import logoImage from '../../assets/logo.png'
-import backgroundImage from '../../assets/background.jpg'
+import berriesImage from '../assets/berries-category.jpg'
+import neckImage from '../assets/neck-category.jpg'
+import handsImage from '../assets/hands-category.jpg'
+import earsImage from '../assets/ears-category.jpg'
+import certificateImage from '../assets/certificate-category.jpg'
+import logoImage from '../assets/logo.png'
+import backgroundImage from '../assets/background.jpg'
 
 type Category = {
   key: string
