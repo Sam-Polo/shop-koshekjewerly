@@ -26,7 +26,6 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
   margin-bottom: 0;
   padding: 48px 24px;
   position: relative;
-  background-image: url('/assets/background.jpg');
   background-size: cover;
   background-position: center;
   overflow: hidden;
@@ -36,7 +35,7 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
   content: '';
   position: absolute;
   inset: 0;
-  background-color: rgba(0,0,0,0.3);
+  background-color: rgba(0,0,0,0.5);
 }
 .header-logo {
   width: 100px;

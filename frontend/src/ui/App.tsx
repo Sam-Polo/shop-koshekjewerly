@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react'
 import WebApp from '@twa-dev/sdk'
 import React from 'react'
 
-import berriesImage from '../../../assets/berries-category.jpg'
-import neckImage from '../../../assets/neck-category.jpg'
-import handsImage from '../../../assets/hands-category.jpg'
-import earsImage from '../../../assets/ears-category.jpg'
-import certificateImage from '../../../assets/certificate-category.jpg'
+import berriesImage from '../../assets/berries-category.jpg'
+import neckImage from '../../assets/neck-category.jpg'
+import handsImage from '../../assets/hands-category.jpg'
+import earsImage from '../../assets/ears-category.jpg'
+import certificateImage from '../../assets/certificate-category.jpg'
+import logoImage from '../../assets/logo.PNG'
+import backgroundImage from '../../assets/background.jpg'
 
 type Category = {
   key: string
@@ -79,8 +81,8 @@ export default function App() {
 
   return (
     <>
-      <header className="page-header">
-        <img src="/logo.PNG" alt="KOSHEK logo" className="header-logo" />
+      <header className="page-header" style={{ backgroundImage: `url(${backgroundImage})` }}>
+        <img src={logoImage} alt="KOSHEK logo" className="header-logo" />
         <h1 className="page-header__title">KOSHEK</h1>
         <p className="page-header__text">Girls выбирают KOSHEK и бриллианты.</p>
       </header>
