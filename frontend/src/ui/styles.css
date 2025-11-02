@@ -61,8 +61,7 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
   width: 40px;
   height: 40px;
   background: transparent;
-  border: 2px solid #ffffff;
-  border-radius: 50%;
+  border: none;
   cursor: pointer;
   z-index: 2;
 }
@@ -73,8 +72,8 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
   left: 50%;
   width: 10px;
   height: 10px;
-  border-right: 2px solid #ffffff;
-  border-bottom: 2px solid #ffffff;
+  border-right: 2px solid var(--page-bg);
+  border-bottom: 2px solid var(--page-bg);
   transform: translate(-50%, -75%) rotate(45deg);
   animation: bounce 2s infinite;
 }
