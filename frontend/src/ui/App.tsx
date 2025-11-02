@@ -2,14 +2,15 @@ import { useEffect, useState } from 'react'
 import WebApp from '@twa-dev/sdk'
 import React from 'react'
 
-// изображения из public/assets доступны по абсолютным путям
-const berriesImage = '/assets/berries-category.jpg'
-const neckImage = '/assets/neck-category.jpg'
-const handsImage = '/assets/hands-category.jpg'
-const earsImage = '/assets/ears-category.jpg'
-const certificateImage = '/assets/certificate-category.jpg'
-const logoImage = '/assets/logo.png'
-const backgroundImage = '/assets/background.jpg'
+// изображения из public/assets с учетом base path
+const baseUrl = import.meta.env.BASE_URL
+const berriesImage = `${baseUrl}assets/berries-category.jpg`
+const neckImage = `${baseUrl}assets/neck-category.jpg`
+const handsImage = `${baseUrl}assets/hands-category.jpg`
+const earsImage = `${baseUrl}assets/ears-category.jpg`
+const certificateImage = `${baseUrl}assets/certificate-category.jpg`
+const logoImage = `${baseUrl}assets/logo.png`
+const backgroundImage = `${baseUrl}assets/background.jpg`
 
 type Category = {
   key: string
