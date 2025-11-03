@@ -102,7 +102,7 @@ app.post('/api/orders', async (req, res) => {
     ).join('\n')
     
     const customerMessage = `
-🎉 <b>Заказ оформлен!</b>
+🎉 <b>Ваш заказ оформлен!</b>
 
 Номер заказа: <code>${orderId}</code>
 
