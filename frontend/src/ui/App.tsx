@@ -47,6 +47,39 @@ const categories: Category[] = [
   { key: 'сертификаты', title: 'Сертификаты', image: certificateImage },
 ]
 
+const ImageWithLoader = ({ src, alt }: { src: string, alt: string }) => {
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
+
+  useEffect(() => {
+    const img = new Image()
+    img.src = src
+    img.onload = () => setLoading(false)
+    img.onerror = () => {
+      setLoading(false)
+      setError(true)
+    }
+  }, [src])
+
+  if (error) {
+    return (
+      <div className="product-card__image product-card__image--placeholder">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M21.25 10.86v7.51c0 1.9-1.53 3.43-3.43 3.43H6.18c-1.9 0-3.43-1.53-3.43-3.43V6.63c0-1.9 1.53-3.43 3.43-3.43h7.51" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          <path d="M17.82 2.29 11.19 9.89c-.38.44-.32 1.11.12 1.49l1.45 1.27c.42.36 1.05.36 1.47 0l6.63-7.6c.6-.7-.04-1.84-0.89-1.74l-8.6 1.15c-.52.07-.88.58-.73 1.08l.18.61" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          <path d="M6.88 14.13a1.9 1.9 0 1 0 0-3.8 1.9 1.9 0 0 0 0 3.8Z" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </div>
+    )
+  }
+
+  if (loading) {
+    return <div className="product-card__image shimmer-bg" />
+  }
+
+  return <div className="product-card__image" style={{ backgroundImage: `url(${src})` }} />
+}
+
 const AccordionItem = ({ question, children }: { question: string, children: React.ReactNode }) => {
   const [isOpen, setIsOpen] = useState(false)
   return (
@@ -626,7 +659,7 @@ const CheckoutForm = ({
 
       <button type="submit" className="btn btn--primary checkout-form__submit">
         Оформить заказ
-      </button>
+            </button>
     </form>
   )
 }
@@ -709,7 +742,7 @@ const CartModal = ({
                           disabled={item.quantity === 0}
                         >
                           −
-                        </button>
+        </button>
                         <span className="quantity-value">{item.quantity}</span>
                         <button 
                           className="quantity-btn" 
@@ -717,7 +750,7 @@ const CartModal = ({
                           disabled={!canAddMore}
                         >
                           +
-                        </button>
+              </button>
                         <button 
                           className="cart-item__remove"
                           onClick={() => handleRemove(item.slug)}
@@ -726,10 +759,10 @@ const CartModal = ({
                           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                             <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14zM10 11v6M14 11v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
                           </svg>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
+              </button>
+            </div>
+          </div>
+          </div>
                 )
               })}
             </div>
@@ -741,8 +774,8 @@ const CartModal = ({
               </div>
               <button className="btn btn--primary" onClick={handleCheckout}>
                 Оформить заказ
-              </button>
-            </div>
+            </button>
+          </div>
           </>
         )}
       </div>
@@ -886,6 +919,7 @@ export default function App() {
         setAboutModalOpen(false)
       } else if (selectedCategory) {
         setSelectedCategory(null)
+        mainContentRef.current?.scrollIntoView({ behavior: 'smooth' })
       }
     }
 
@@ -1014,7 +1048,7 @@ export default function App() {
                 </div>
               </button>
             ))}
-          </section>
+        </section>
         ) : (
           // грид товаров выбранной категории
           <section className="products-section">
@@ -1033,23 +1067,19 @@ export default function App() {
                     className="product-card"
                     onClick={() => setSelectedProduct(product)}
                   >
-                    {product.images && product.images.length > 0 ? (
-                      <div
-                        className="product-card__image"
-                        style={{ backgroundImage: `url(${product.images[0]})` }}
-                      />
-                    ) : (
-                      <div className="product-card__image product-card__image--placeholder" />
-                    )}
+                    <ImageWithLoader 
+                      src={product.images && product.images.length > 0 ? product.images[0] : ''}
+                      alt={product.title}
+                    />
                     <div className="product-card__info">
                       <h3 className="product-card__title">{product.title}</h3>
                       <p className="product-card__price">{product.price_rub} ₽</p>
-                    </div>
-                  </div>
+            </div>
+          </div>
                 ))}
               </div>
             )}
-          </section>
+            </section>
         )}
 
         <footer className="page-footer">
@@ -1069,7 +1099,7 @@ export default function App() {
             <path d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
           <span className="cart-button__badge">{cartTotal}</span>
-        </button>
+            </button>
       )}
 
       {/* уведомление */}
@@ -1115,7 +1145,7 @@ export default function App() {
               />
             )}
           </div>
-        </div>
+          </div>
       )}
       
           {orderSuccessOpen && (
