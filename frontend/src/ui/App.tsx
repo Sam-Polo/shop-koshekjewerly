@@ -6,11 +6,11 @@ import React from 'react'
 const baseUrl = import.meta.env.BASE_URL
 const berriesImage = `${baseUrl}assets/berries-category.jpg`
 const neckImage = `${baseUrl}assets/neck-category.jpg`
-const handsImage = `${baseUrl}assets/hands-category.jpg`
-const earsImage = `${baseUrl}assets/ears-category.jpg`
-const certificateImage = `${baseUrl}assets/certificate-category.jpg`
-const logoImage = `${baseUrl}assets/logo.png`
-const backgroundImage = `${baseUrl}assets/background.jpg`
+import handsImage from '../../assets/hands-category.jpg'
+import earsImage from '../../assets/ears-category.jpg'
+import certificateImage from '../../assets/certificate-category.jpg'
+import logoImage from '../../assets/logo_.png'
+import backgroundImage from '../../assets/background.jpg'
 
 type Category = {
   key: string
