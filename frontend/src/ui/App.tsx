@@ -299,7 +299,7 @@ const OrderSuccessModal = ({
           <div className="order-success__icon">✓</div>
           <h2 className="order-success__title">Заказ оформлен!</h2>
           <p className="order-success__text">
-            Спасибо за ваш заказ. Информация о заказе отправлена вам в Telegram, а также нашему менеджеру.
+            Спасибо за Ваш заказ! Информация отправлена Вам в Telegram, а также нашему менеджеру.
           </p>
           {orderId && (
             <p className="order-success__id">Номер заказа: {orderId}</p>
