@@ -251,18 +251,26 @@ app.post('/api/robokassa/result', express.urlencoded({ extended: true }), async 
   }
 });
 
-// успешная оплата (Success URL)
-app.get('/api/robokassa/success', (req, res) => {
-  const { InvId } = req.query
+// обработчик для Success URL (поддерживает GET и POST)
+const handleSuccessUrl = (req: express.Request, res: express.Response) => {
+  // получаем InvId из query (GET) или body (POST)
+  const InvId = req.query.InvId || req.body?.InvId
   const webappUrl = process.env.TG_WEBAPP_URL || 'https://sam-polo.github.io/shop-koshekjewerly'
   
   // редиректим на фронтенд с параметром успешной оплаты
   res.redirect(`${webappUrl}/payment/success?orderId=${InvId}`)
-});
+}
 
-// неудачная оплата (Fail URL)
-app.get('/api/robokassa/fail', (req, res) => {
-  const { InvId } = req.query
+// успешная оплата (Success URL) - GET (рекомендуемый метод)
+app.get('/api/robokassa/success', handleSuccessUrl);
+
+// успешная оплата (Success URL) - POST (для совместимости)
+app.post('/api/robokassa/success', express.urlencoded({ extended: true }), handleSuccessUrl);
+
+// обработчик для Fail URL (поддерживает GET и POST)
+const handleFailUrl = (req: express.Request, res: express.Response) => {
+  // получаем InvId из query (GET) или body (POST)
+  const InvId = req.query.InvId || req.body?.InvId
   const webappUrl = process.env.TG_WEBAPP_URL || 'https://sam-polo.github.io/shop-koshekjewerly'
   
   // обновляем статус заказа на failed
@@ -272,7 +280,13 @@ app.get('/api/robokassa/fail', (req, res) => {
   
   // редиректим на фронтенд с параметром неудачной оплаты
   res.redirect(`${webappUrl}/payment/fail?orderId=${InvId}`)
-});
+}
+
+// неудачная оплата (Fail URL) - GET (рекомендуемый метод)
+app.get('/api/robokassa/fail', handleFailUrl);
+
+// неудачная оплата (Fail URL) - POST (для совместимости)
+app.post('/api/robokassa/fail', express.urlencoded({ extended: true }), handleFailUrl);
 
 // ручной импорт (для тестов или форс-обновления)
 app.post('/admin/import/sheets', async (req, res) => {

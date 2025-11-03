@@ -58,9 +58,11 @@ curl -X POST "http://localhost:4000/admin/import/sheets" \
 **2. настройка URL для callback:**
 В настройках магазина укажи:
 - **Result URL**: `https://твой_backend.onrender.com/api/robokassa/result`
+  - **Метод отправки**: POST (обязательно)
 - **Success URL**: `https://твой_backend.onrender.com/api/robokassa/success`
+  - **Метод отправки**: GET (рекомендуется, но поддерживается и POST)
 - **Fail URL**: `https://твой_backend.onrender.com/api/robokassa/fail`
-- **Метод отправки**: POST (для Result URL)
+  - **Метод отправки**: GET (рекомендуется, но поддерживается и POST)
 - **Алгоритм хэша**: MD5
 
 **3. переменные окружения (backend на Render):**
