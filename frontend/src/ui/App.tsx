@@ -1100,7 +1100,11 @@ export default function App() {
 
   return (
     <>
-      <header className={`page-header ${headerImageLoaded ? 'image-loaded' : ''}`} style={{ backgroundImage: `url(${backgroundImage})` }}>
+      <header className={`page-header ${headerImageLoaded ? 'image-loaded' : ''}`}>
+        <div 
+          className="page-header__background"
+          style={{ backgroundImage: `url(${backgroundImage})` }}
+        />
         <img src={logoImage} alt="KOSHEK logo" className="header-logo" />
         <h1 className="page-header__title">KOSHEK</h1>
         <p className="page-header__text">Girls выбирают KOSHEK и бриллианты.</p>
