@@ -90,27 +90,51 @@ const ProductModal = ({
   product, 
   cart, 
   onAddToCart, 
-  onClose 
+  onClose,
+  onAddedToCart
 }: { 
   product: Product
   cart: CartItem[]
   onAddToCart: (slug: string, quantity: number) => void
-  onClose: () => void 
+  onClose: () => void
+  onAddedToCart: () => void
 }) => {
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0)
+  const [quantity, setQuantity] = useState(1)
   const cartItem = cart.find(item => item.slug === product.slug)
   const currentQuantity = cartItem?.quantity || 0
   const maxQuantity = product.stock !== undefined ? product.stock : 999
-  const canAddMore = currentQuantity < maxQuantity
+  const availableQuantity = Math.max(0, maxQuantity - currentQuantity)
+  const canIncrease = quantity < availableQuantity
+  const canAddToCart = quantity > 0 && quantity <= availableQuantity
 
-  const handleAdd = () => {
-    if (canAddMore) {
-      onAddToCart(product.slug, 1)
+  // сбрасываем quantity и изображение при открытии модалки
+  useEffect(() => {
+    setQuantity(1)
+    setSelectedImageIndex(0)
+  }, [product.slug])
+
+  // разбиваем описание по переносам строк
+  const descriptionLines = product.description 
+    ? product.description.split('\n').filter(line => line.trim())
+    : []
+
+  const handleIncrease = () => {
+    if (canIncrease) {
+      setQuantity(prev => prev + 1)
     }
   }
 
-  const handleRemove = () => {
-    if (currentQuantity > 0) {
-      onAddToCart(product.slug, -1)
+  const handleDecrease = () => {
+    if (quantity > 1) {
+      setQuantity(prev => prev - 1)
+    }
+  }
+
+  const handleAddToCart = () => {
+    if (canAddToCart) {
+      onAddToCart(product.slug, quantity)
+      onAddedToCart()
     }
   }
 
@@ -119,53 +143,90 @@ const ProductModal = ({
       <div className="modal-content modal-content--product" onClick={e => e.stopPropagation()}>
         <button className="modal-close" onClick={onClose}>&times;</button>
         
+        {/* фото-галерея */}
         {product.images && product.images.length > 0 && (
-          <div 
-            className="product-modal__image"
-            style={{ backgroundImage: `url(${product.images[0]})` }}
-          />
+          <div className="product-modal__gallery">
+            <div 
+              className="product-modal__image"
+              style={{ backgroundImage: `url(${product.images[selectedImageIndex]})` }}
+            />
+            {product.images.length > 1 && (
+              <div className="product-modal__thumbnails">
+                {product.images.map((img, idx) => (
+                  <button
+                    key={idx}
+                    className={`product-modal__thumbnail ${selectedImageIndex === idx ? 'active' : ''}`}
+                    onClick={() => setSelectedImageIndex(idx)}
+                    style={{ backgroundImage: `url(${img})` }}
+                    aria-label={`Фото ${idx + 1}`}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         )}
         
         <div className="product-modal__info">
           <h2 className="product-modal__title">{product.title}</h2>
           <p className="product-modal__price">{product.price_rub} ₽</p>
           
-          {product.description && (
+          {descriptionLines.length > 0 && (
             <div className="product-modal__description">
-              <p>{product.description}</p>
+              {descriptionLines.map((line, idx) => (
+                <p key={idx}>{line}</p>
+              ))}
             </div>
-          )}
-          
-          {product.stock !== undefined && (
-            <p className="product-modal__stock">
-              В наличии: {product.stock} шт.
-            </p>
           )}
           
           <div className="product-modal__cart-controls">
             <div className="cart-controls__quantity">
               <button 
                 className="quantity-btn" 
-                onClick={handleRemove}
-                disabled={currentQuantity === 0}
+                onClick={handleDecrease}
+                disabled={quantity <= 1}
               >
                 −
               </button>
-              <span className="quantity-value">{currentQuantity}</span>
+              <span className="quantity-value">{quantity}</span>
               <button 
                 className="quantity-btn" 
-                onClick={handleAdd}
-                disabled={!canAddMore}
+                onClick={handleIncrease}
+                disabled={!canIncrease}
               >
                 +
               </button>
             </div>
-            {!canAddMore && currentQuantity >= maxQuantity && (
-              <p className="cart-controls__error">Достигнут лимит остатка</p>
+            {availableQuantity === 0 && (
+              <p className="cart-controls__error">Товар закончился</p>
             )}
+            {!canAddToCart && quantity > availableQuantity && availableQuantity > 0 && (
+              <p className="cart-controls__error">Доступно только {availableQuantity} шт.</p>
+            )}
+            <button 
+              className="btn btn--add-to-cart"
+              onClick={handleAddToCart}
+              disabled={!canAddToCart}
+            >
+              Добавить в корзину
+            </button>
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+const ToastNotification = ({ message, onClose }: { message: string, onClose: () => void }) => {
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      onClose()
+    }, 2000)
+    return () => clearTimeout(timer)
+  }, [onClose])
+
+  return (
+    <div className="toast-notification">
+      <span>{message}</span>
     </div>
   )
 }
@@ -243,8 +304,11 @@ const CartModal = ({
                         <button 
                           className="cart-item__remove"
                           onClick={() => handleRemove(item.slug)}
+                          aria-label="Удалить товар"
                         >
-                          Удалить
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14zM10 11v6M14 11v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                          </svg>
                         </button>
                       </div>
                     </div>
@@ -291,6 +355,7 @@ export default function App() {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [cart, setCart] = useState<CartItem[]>([])
+  const [toastMessage, setToastMessage] = useState<string | null>(null)
   const mainContentRef = useRef<HTMLElement>(null)
 
   // управление корзиной с проверкой stock
@@ -335,6 +400,11 @@ export default function App() {
   }
 
   const cartTotal = cart.reduce((sum, item) => sum + item.quantity, 0)
+
+  const handleAddedToCart = () => {
+    setToastMessage('Товар добавлен в корзину')
+    setSelectedProduct(null) // закрываем модалку товара
+  }
 
   // загрузка товаров с бэкенда
   useEffect(() => {
@@ -479,8 +549,19 @@ export default function App() {
           onClick={() => setCartOpen(true)}
           aria-label="Корзина"
         >
-          🛒 <span className="cart-button__badge">{cartTotal}</span>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          <span className="cart-button__badge">{cartTotal}</span>
         </button>
+      )}
+
+      {/* уведомление */}
+      {toastMessage && (
+        <ToastNotification 
+          message={toastMessage} 
+          onClose={() => setToastMessage(null)}
+        />
       )}
 
       {aboutModalOpen && <AboutUsModal onClose={() => setAboutModalOpen(false)} />}
@@ -490,6 +571,7 @@ export default function App() {
           cart={cart}
           onAddToCart={updateCart}
           onClose={() => setSelectedProduct(null)}
+          onAddedToCart={handleAddedToCart}
         />
       )}
       {cartOpen && (
