@@ -1,6 +1,10 @@
 import { useEffect, useState, useRef } from 'react'
 import WebApp from '@twa-dev/sdk'
 import React from 'react'
+import { Swiper, SwiperSlide } from 'swiper/react'
+import { Pagination } from 'swiper/modules'
+import 'swiper/css'
+import 'swiper/css/pagination'
 
 // изображения из public/assets с учетом base path
 const baseUrl = import.meta.env.BASE_URL
@@ -87,44 +91,38 @@ const AboutUsModal = ({ onClose }: { onClose: () => void }) => (
 )
 
 const FullscreenImage = ({ 
-  image,
   images,
   currentIndex,
   onClose,
   onNavigate
 }: { 
-  image: string
   images: string[]
   currentIndex: number
   onClose: () => void
   onNavigate: (newIndex: number) => void
 }) => {
-  const handlePrev = (e: React.MouseEvent) => {
+  const handleClose = (e: React.MouseEvent) => {
     e.stopPropagation()
-    onNavigate(currentIndex === 0 ? images.length - 1 : currentIndex - 1)
-  }
-
-  const handleNext = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    onNavigate(currentIndex === images.length - 1 ? 0 : currentIndex + 1)
+    onClose()
   }
 
   return (
     <div className="fullscreen-image" onClick={onClose}>
-      <button className="fullscreen-image__close" onClick={onClose}>&times;</button>
+      <button className="fullscreen-image__close" onClick={handleClose}>&times;</button>
       
-      {images.length > 1 && (
-        <>
-          <button className="fullscreen-image__arrow fullscreen-image__arrow--prev" onClick={handlePrev}>
-            <svg width="24" height="24" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6" /></svg>
-          </button>
-          <button className="fullscreen-image__arrow fullscreen-image__arrow--next" onClick={handleNext}>
-            <svg width="24" height="24" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6" /></svg>
-          </button>
-        </>
-      )}
-      
-      <img src={image} alt="Товар (полный экран)" className="fullscreen-image__img" onClick={e => e.stopPropagation()} />
+      <Swiper
+        modules={[Pagination]}
+        pagination={{ clickable: true }}
+        initialSlide={currentIndex}
+        onSlideChange={(swiper) => onNavigate(swiper.activeIndex)}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {images.map((img, idx) => (
+          <SwiperSlide key={idx}>
+            <img src={img} alt={`Товар (фото ${idx + 1})`} className="fullscreen-image__img" />
+          </SwiperSlide>
+        ))}
+      </Swiper>
     </div>
   )
 }
@@ -285,7 +283,6 @@ const ProductModal = ({
       </div>
       {fullscreenImage && (
         <FullscreenImage 
-          image={fullscreenImage}
           images={product.images}
           currentIndex={selectedImageIndex}
           onClose={() => setFullscreenImage(null)}
