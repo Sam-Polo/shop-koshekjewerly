@@ -30,8 +30,8 @@ function getAuthFromEnv() {
   return new google.auth.JWT(creds.client_email, undefined, creds.private_key, scopes)
 }
 
-export async function fetchProductsFromSheet(sheetId: string, range = 'A1:I1000'): Promise<SheetProduct[]> {
-  const auth = getAuthFromEnv()
+// читаем один лист и проставляем категорию автоматически
+async function fetchSheetRange(auth: any, sheetId: string, range: string, categoryName: string): Promise<SheetProduct[]> {
   const sheets = google.sheets({ version: 'v4', auth })
   const res = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range })
   const rows = res.data.values ?? []
@@ -41,6 +41,7 @@ export async function fetchProductsFromSheet(sheetId: string, range = 'A1:I1000'
   const out: SheetProduct[] = []
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i]
+    if (!r || r.length === 0) continue // пропускаем пустые строки
     const get = (n: string) => r[idx(n)] ?? ''
     const price = Number(String(get('price_rub')).replace(',', '.'))
     const images: string[] = String(get('images'))
@@ -55,17 +56,47 @@ export async function fetchProductsFromSheet(sheetId: string, range = 'A1:I1000'
       slug: String(get('slug')).trim(),
       title: String(get('title')).trim(),
       description: String(get('description') || '').trim() || undefined,
-      category: String(get('category')).trim(),
+      category: categoryName, // категория берётся из имени листа
       price_rub: Number.isFinite(price) ? price : 0,
       images,
       active,
       stock: Number.isFinite(stock) ? stock : undefined,
     }
     // простая валидация
-    if (!item.title || !item.category || !item.slug) continue
+    if (!item.title || !item.slug) continue
     out.push(item)
   }
   return out
+}
+
+// читаем все листы с товарами (по категориям)
+export async function fetchProductsFromSheet(sheetId: string): Promise<SheetProduct[]> {
+  const auth = getAuthFromEnv()
+  
+  // названия листов по категориям (можно настроить через env)
+  const sheetNames = process.env.SHEET_NAMES?.split(',') || [
+    'ягоды',
+    'шея',
+    'руки',
+    'уши',
+    'сертификаты'
+  ]
+  
+  const allProducts: SheetProduct[] = []
+  
+  for (const sheetName of sheetNames) {
+    try {
+      // читаем диапазон A1:I1000 из каждого листа
+      const range = `${sheetName.trim()}!A1:I1000`
+      const products = await fetchSheetRange(auth, sheetId, range, sheetName.trim())
+      allProducts.push(...products)
+    } catch (e: any) {
+      // если лист не найден, пропускаем
+      console.warn(`Не удалось прочитать лист "${sheetName}": ${e.message}`)
+    }
+  }
+  
+  return allProducts
 }
 
 
