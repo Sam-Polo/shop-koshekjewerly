@@ -9,7 +9,7 @@ const neckImage = `${baseUrl}assets/neck-category.jpg`
 const handsImage = `${baseUrl}assets/hands-category.jpg`
 const earsImage = `${baseUrl}assets/ears-category.jpg`
 const certificateImage = `${baseUrl}assets/certificate-category.jpg`
-const logoImage = `${baseUrl}assets/logo.png`
+const logoImage = `${baseUrl}assets/logo_.png`
 const backgroundImage = `${baseUrl}assets/background.jpg`
 
 type Category = {
