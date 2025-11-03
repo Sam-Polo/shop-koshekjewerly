@@ -7,6 +7,21 @@ import { motion, AnimatePresence } from 'framer-motion'
 import 'swiper/css'
 import 'swiper/css/pagination'
 
+const useImageLoader = (src: string | undefined): boolean => {
+  const [loaded, setLoaded] = useState(false)
+  useEffect(() => {
+    if (!src) {
+      setLoaded(true)
+      return
+    }
+    const img = new Image()
+    img.src = src
+    img.onload = () => setLoaded(true)
+    img.onerror = () => setLoaded(true) // считаем загруженным, чтобы убрать шиммер
+  }, [src])
+  return loaded
+}
+
 // изображения из public/assets с учетом base path
 const baseUrl = import.meta.env.BASE_URL
 const berriesImage = `${baseUrl}assets/berries-category.jpg`
@@ -224,8 +239,8 @@ const ProductModal = ({
   }
 
   return (
-    <div className="modal" onClick={onClose}>
-      <div className="modal-content product-modal" onClick={e => e.stopPropagation()}>
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content modal-content--product" onClick={e => e.stopPropagation()}>
         <button className="modal-close" onClick={onClose}>&times;</button>
         
         {/* фото-галерея */}
@@ -740,27 +755,36 @@ const CartModal = ({
                     {item.images && item.images.length > 0 && (
                       <div 
                         className="cart-item__image"
-                        style={{ backgroundImage: `url(${item.images[0]})` }}
+                        style={{ backgroundImage: `url(${item.images?.[0] || ''})` }}
                       />
                     )}
                     <div className="cart-item__info">
-                      <h3 className="cart-item__title">{item.title}</h3>
-                      <p className="cart-item__price">{item.price_rub} ₽ × {item.quantity}</p>
-                      <div className="cart-item__controls">
-                        <div className="quantity-controls">
-                          <button className="quantity-controls__btn" onClick={() => handleQuantityChange(item.slug, item.quantity - 1)} disabled={item.quantity <= 1}>-</button>
-                          <span className="quantity-controls__value">{item.quantity}</span>
-                          <button className="quantity-controls__btn" onClick={() => handleQuantityChange(item.slug, item.quantity + 1)}>+</button>
-                        </div>
-                        <button onClick={() => handleRemove(item.slug)} className="cart-item__remove">
-                          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M3 6h18"></path>
-                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                            <path d="M10 11v6"></path>
-                            <path d="M14 11v6"></path>
-                          </svg>
+                      <h4 className="cart-item__title">{item.title}</h4>
+                      <p className="cart-item__price">{item.quantity} x {item.price_rub} ₽</p>
+                    </div>
+                    <div className="cart-item__controls">
+                      <div className="quantity-controls">
+                        <button
+                          className="quantity-controls__btn"
+                          onClick={() => handleQuantityChange(item.slug, -1)}
+                          disabled={item.quantity === 0}
+                        >
+                          &minus;
+                        </button>
+                        <span className="quantity-value">{item.quantity}</span>
+                        <button
+                          className="quantity-controls__btn"
+                          onClick={() => handleQuantityChange(item.slug, 1)}
+                          disabled={!canAddMore}
+                        >
+                          &plus;
                         </button>
                       </div>
+                      <button className="cart-item__remove" onClick={() => handleRemove(item.slug)}>
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" stroke="currentColor">
+                          <path d="M18 6L6 18M6 6l12 12" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      </button>
                     </div>
                   </div>
                 )
@@ -1041,16 +1065,29 @@ export default function App() {
 
   return (
     <>
-      <header className="page-header" style={{ backgroundImage: `url(${backgroundImage})` }}>
-        <img src={logoImage} alt="KOSHEK logo" className="header-logo" />
-        <h1 className="page-header__title">KOSHEK</h1>
-        <p className="page-header__text">Girls выбирают KOSHEK и бриллианты.</p>
-        <button
-          className="scroll-down-btn"
-          onClick={() => mainContentRef.current?.scrollIntoView({ behavior: 'smooth' })}
-          aria-label="Scroll down"
-        />
-      </header>
+      <div className="page-header-wrapper">
+        <div className="shimmer-bg page-header-placeholder" style={{ opacity: headerImageLoaded ? 0 : 1 }} />
+        <motion.header
+          className="page-header"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: headerImageLoaded ? 1 : 0 }}
+          transition={{ duration: 0.8 }}
+          style={{ backgroundImage: `url(${backgroundImage})` }}
+        >
+          <div className="page-header__logo">
+            <img src={logoImage} alt="KOSHEK logo" />
+          </div>
+          <div className="page-header__content">
+            <h1 className="page-header__title">KOSHEK</h1>
+            <p className="page-header__subtitle">JEWERLY</p>
+          </div>
+          <button className="scroll-down-btn" onClick={() => mainContentRef.current?.scrollIntoView({ behavior: 'smooth' })}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M19 9l-7 7-7-7" stroke="var(--page-bg)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        </motion.header>
+      </div>
 
       <main className="page" ref={mainContentRef}>
         <AnimatePresence mode="wait">
@@ -1066,18 +1103,11 @@ export default function App() {
               transition={{ duration: 0.3 }}
             >
               {categories.map(card => (
-                <button
+                <CategoryCard
                   key={card.key}
-                  className="category-card"
+                  card={card}
                   onClick={() => setSelectedCategory(card.key)}
-                >
-                  <div className="category-card__media" style={{ backgroundImage: `url(${card.image})` }} />
-                  <div className="category-card__overlay" />
-                  <div className="category-card__content">
-                    <h2 className="category-card__title">{card.title}</h2>
-                    {card.description && <p className="category-card__description">{card.description}</p>}
-                  </div>
-                </button>
+                />
               ))}
             </motion.section>
           ) : (
@@ -1119,7 +1149,7 @@ export default function App() {
                       <div className="product-card__info">
                         <h3 className="product-card__title">{product.title}</h3>
                         <p className="product-card__price">{product.price_rub} ₽</p>
-                      </div>
+          </div>
                     </motion.div>
                   ))}
                 </motion.div>
@@ -1133,19 +1163,6 @@ export default function App() {
           <button className="btn-text" onClick={() => setAboutModalOpen(true)}>О нас</button>
         </footer>
       </main>
-
-      {selectedProduct && (
-        <ProductModal
-          product={selectedProduct}
-          onClose={() => setSelectedProduct(null)}
-          onAddToCart={updateCart}
-          onAddedToCart={() => {
-            setSelectedProduct(null)
-            handleAddedToCart()
-          }}
-          cart={cart}
-        />
-      )}
 
       {/* кнопка корзины (плавающая) */}
       {cartTotal > 0 && (
@@ -1169,25 +1186,25 @@ export default function App() {
         />
       )}
 
-      <AnimatePresence>
-        {aboutModalOpen && (
-          <AboutUsModal
-            onClose={() => setAboutModalOpen(false)}
-          />
-        )}
-      </AnimatePresence>
-      
-      <AnimatePresence>
-        {cartOpen && (
-          <CartModal 
-            cart={cart}
-            products={products}
-            onUpdateCart={updateCart}
-            onClose={() => setCartOpen(false)}
-            onCheckout={handleCheckoutStart}
-          />
-        )}
-      </AnimatePresence>
+      {aboutModalOpen && <AboutUsModal onClose={() => setAboutModalOpen(false)} />}
+      {selectedProduct && (
+        <ProductModal 
+          product={selectedProduct}
+          cart={cart}
+          onAddToCart={updateCart}
+          onClose={() => setSelectedProduct(null)}
+          onAddedToCart={handleAddedToCart}
+        />
+      )}
+      {cartOpen && (
+        <CartModal 
+          cart={cart}
+          products={products}
+          onUpdateCart={updateCart}
+          onClose={() => setCartOpen(false)}
+          onCheckout={handleCheckoutStart}
+        />
+      )}
       
       {checkoutOpen && (
         <div className="modal-overlay" onClick={() => setCheckoutOpen(false)}>
@@ -1220,5 +1237,32 @@ export default function App() {
     </>
   )
 }
+
+const CategoryCard = ({ card, onClick }: { card: Category, onClick: () => void }) => {
+  const imageLoaded = useImageLoader(card.image)
+
+  return (
+    <button
+      className="category-card"
+      onClick={onClick}
+    >
+      <div className="shimmer-bg category-card__placeholder" style={{ opacity: imageLoaded ? 0 : 1 }} />
+      <div 
+        className="category-card__media" 
+        style={{ 
+          backgroundImage: `url(${card.image})`,
+          opacity: imageLoaded ? 1 : 0,
+        }} 
+      />
+      <div className="category-card__overlay" />
+      <div className="category-card__content">
+        <h2 className="category-card__title">{card.title}</h2>
+        {card.description && <p className="category-card__description">{card.description}</p>}
+      </div>
+    </button>
+  )
+}
+
+export default App
 
 
