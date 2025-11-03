@@ -104,8 +104,7 @@ bot.command('broadcast', async (ctx) => {
   console.log('[broadcast] запрос от:', { chatId, username, MANAGER_CHAT_ID, SUPPORT_USERNAME })
   
   if (!isManager(chatId, username)) {
-    const debugInfo = `\n\nDebug: chat_id=${chatId}, username=${username || 'нет'}, TG_MANAGER_CHAT_ID=${MANAGER_CHAT_ID || 'не задан'}, SUPPORT_USERNAME=${SUPPORT_USERNAME || 'не задан'}`
-    await ctx.reply('❌ У вас нет доступа к этой команде.' + debugInfo)
+    await ctx.reply('❌ У вас нет доступа к этой команде.')
     return
   }
   
