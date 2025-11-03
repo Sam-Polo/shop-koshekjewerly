@@ -128,6 +128,37 @@ bot.command('start', async (ctx) => {
     userChatIds.add(chatId)
   }
   
+  // проверяем параметры deep link (для возврата после оплаты)
+  const startParam = ctx.match || ''
+  
+  if (startParam.includes('order_') && startParam.includes('_success')) {
+    // успешная оплата
+    const orderId = startParam.replace('order_', '').replace('_success', '')
+    const kb = new InlineKeyboard().webApp('Открыть магазин 🛍️', WEBAPP_URL)
+    await ctx.reply(
+      `✅ <b>Оплата успешна!</b>\n\n` +
+      `Ваш заказ <code>${orderId}</code> успешно оплачен.\n` +
+      `Информация о заказе отправлена вам и менеджеру.\n\n` +
+      `Спасибо за покупку! 💖`,
+      { parse_mode: 'HTML', reply_markup: kb }
+    )
+    return
+  }
+  
+  if (startParam.includes('order_') && startParam.includes('_fail')) {
+    // неудачная оплата
+    const orderId = startParam.replace('order_', '').replace('_fail', '')
+    const kb = new InlineKeyboard().webApp('Попробовать снова 🔄', WEBAPP_URL)
+    await ctx.reply(
+      `❌ <b>Оплата не завершена</b>\n\n` +
+      `К сожалению, произошла ошибка при оплате заказа <code>${orderId}</code>.\n\n` +
+      `Попробуйте оформить заказ еще раз.`,
+      { parse_mode: 'HTML', reply_markup: kb }
+    )
+    return
+  }
+  
+  // обычное приветствие
   const kb = new InlineKeyboard().webApp('KOSHEK JEWERLY🐾', WEBAPP_URL);
   const photoPath = path.join(__dirname, '..', 'assets', 'bot-greeting.jpg');
   await ctx.replyWithPhoto(new InputFile(photoPath), {

@@ -255,9 +255,17 @@ app.post('/api/robokassa/result', express.urlencoded({ extended: true }), async 
 const handleSuccessUrl = (req: express.Request, res: express.Response) => {
   // получаем InvId из query (GET) или body (POST)
   const InvId = req.query.InvId || req.body?.InvId
-  const webappUrl = process.env.TG_WEBAPP_URL || 'https://sam-polo.github.io/shop-koshekjewerly'
+  const botUsername = process.env.TG_BOT_USERNAME
   
-  // редиректим на фронтенд с параметром успешной оплаты
+  // если указан username бота, редиректим на бота с deep link
+  if (botUsername) {
+    const botUsernameClean = botUsername.replace('@', '').replace('https://t.me/', '')
+    const deepLink = `https://t.me/${botUsernameClean}?start=order_${InvId}_success`
+    return res.redirect(deepLink)
+  }
+  
+  // fallback: редирект на фронтенд (если username бота не указан)
+  const webappUrl = process.env.TG_WEBAPP_URL || 'https://sam-polo.github.io/shop-koshekjewerly'
   res.redirect(`${webappUrl}/payment/success?orderId=${InvId}`)
 }
 
@@ -271,14 +279,22 @@ app.post('/api/robokassa/success', express.urlencoded({ extended: true }), handl
 const handleFailUrl = (req: express.Request, res: express.Response) => {
   // получаем InvId из query (GET) или body (POST)
   const InvId = req.query.InvId || req.body?.InvId
-  const webappUrl = process.env.TG_WEBAPP_URL || 'https://sam-polo.github.io/shop-koshekjewerly'
+  const botUsername = process.env.TG_BOT_USERNAME
   
   // обновляем статус заказа на failed
   if (InvId) {
     updateOrderStatus(String(InvId), 'failed')
   }
   
-  // редиректим на фронтенд с параметром неудачной оплаты
+  // если указан username бота, редиректим на бота с deep link
+  if (botUsername) {
+    const botUsernameClean = botUsername.replace('@', '').replace('https://t.me/', '')
+    const deepLink = `https://t.me/${botUsernameClean}?start=order_${InvId}_fail`
+    return res.redirect(deepLink)
+  }
+  
+  // fallback: редирект на фронтенд (если username бота не указан)
+  const webappUrl = process.env.TG_WEBAPP_URL || 'https://sam-polo.github.io/shop-koshekjewerly'
   res.redirect(`${webappUrl}/payment/fail?orderId=${InvId}`)
 }
 
