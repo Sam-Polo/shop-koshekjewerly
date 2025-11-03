@@ -824,6 +824,8 @@ export default function App() {
   const [paymentStatus, setPaymentStatus] = useState<'success' | 'fail' | null>(null)
   const mainContentRef = useRef<HTMLElement>(null)
   
+  const headerImageLoaded = useImageLoader(backgroundImage)
+  
   // обработка возврата после оплаты
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search)
@@ -1262,7 +1264,5 @@ const CategoryCard = ({ card, onClick }: { card: Category, onClick: () => void }
     </button>
   )
 }
-
-export default App
 
 
