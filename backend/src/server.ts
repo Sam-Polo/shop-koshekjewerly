@@ -145,6 +145,8 @@ ${orderData.comments ? `Комментарии: ${orderData.comments}` : ''}
     
     // получаем username менеджера из env
     const managerUsername = (process.env.SUPPORT_USERNAME || 'semyonp88').replace('@', '')
+    const customerUsername = (orderData.username || '').replace('@', '').toLowerCase()
+    const isManager = customerUsername === managerUsername.toLowerCase()
     
     // отправляем покупателю если есть chat_id
     if (customerChatId) {
@@ -153,11 +155,18 @@ ${orderData.comments ? `Комментарии: ${orderData.comments}` : ''}
       logger.warn('chat_id покупателя не найден, сообщение покупателю не отправлено')
     }
     
-    // отправляем менеджеру по username
-    // важно: менеджер должен начать диалог с ботом (написать /start), иначе отправка по username не сработает
-    const managerSent = await sendTelegramMessage(`@${managerUsername}`, managerMessage)
-    if (!managerSent) {
-      logger.warn(`не удалось отправить сообщение менеджеру @${managerUsername}. Менеджер должен начать диалог с ботом (/start)`)
+    // отправляем менеджеру
+    if (isManager && customerChatId) {
+      // если покупатель - менеджер, отправляем ему сообщение для менеджера по его chat_id
+      await sendTelegramMessage(customerChatId, managerMessage)
+      logger.info('покупатель является менеджером, сообщение менеджеру отправлено по chat_id')
+    } else {
+      // если покупатель не менеджер, пытаемся отправить менеджеру по username
+      // это может не сработать если менеджер не начинал диалог с ботом
+      const managerSent = await sendTelegramMessage(`@${managerUsername}`, managerMessage)
+      if (!managerSent) {
+        logger.warn(`не удалось отправить сообщение менеджеру @${managerUsername}. Если менеджер оформляет заказ сам, он получит оба сообщения.`)
+      }
     }
     
     logger.info({ orderId }, 'заказ оформлен')

@@ -12,7 +12,7 @@ if (!token) {
 const bot = new Bot(token);
 
 const WEBAPP_URL = process.env.TG_WEBAPP_URL ?? 'http://localhost:5173';
-const SUPPORT_USERNAME = process.env.SUPPORT_USERNAME ?? 'semyonp88';
+const SUPPORT_USERNAME = process.env.SUPPORT_USERNAME;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
