@@ -237,18 +237,38 @@ bot.on('message', async (ctx) => {
 async function keepAlive() {
   try {
     const healthUrl = `${BACKEND_URL}/health`;
+    const startTime = Date.now();
     const response = await fetch(healthUrl, {
       method: 'GET',
       headers: { 'User-Agent': 'TelegramBot-KeepAlive' }
     });
+    const responseTime = Date.now() - startTime;
+    const timestamp = new Date().toLocaleString('ru-RU', { 
+      timeZone: 'Europe/Moscow',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
     
     if (response.ok) {
-      console.log('[keep-alive] бэкенд активен');
+      console.log(`[keep-alive] бэкенд активен | ${timestamp} | время ответа: ${responseTime}мс`);
     } else {
-      console.warn('[keep-alive] бэкенд вернул ошибку:', response.status);
+      console.warn(`[keep-alive] бэкенд вернул ошибку: ${response.status} | ${timestamp}`);
     }
   } catch (error: any) {
-    console.warn('[keep-alive] ошибка при проверке бэкенда:', error?.message);
+    const timestamp = new Date().toLocaleString('ru-RU', { 
+      timeZone: 'Europe/Moscow',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+    console.warn(`[keep-alive] ошибка при проверке бэкенда: ${error?.message} | ${timestamp}`);
   }
 }
 
