@@ -747,33 +747,22 @@ const CartModal = ({
                       <h3 className="cart-item__title">{item.title}</h3>
                       <p className="cart-item__price">{item.price_rub} ₽ × {item.quantity}</p>
                       <div className="cart-item__controls">
-                        <button 
-                          className="quantity-btn" 
-                          onClick={() => handleQuantityChange(item.slug, -1)}
-                          disabled={item.quantity === 0}
-                        >
-                          −
-        </button>
-                        <span className="quantity-value">{item.quantity}</span>
-                        <button 
-                          className="quantity-btn" 
-                          onClick={() => handleQuantityChange(item.slug, 1)}
-                          disabled={!canAddMore}
-                        >
-                          +
-              </button>
-                        <button 
-                          className="cart-item__remove"
-                          onClick={() => handleRemove(item.slug)}
-                          aria-label="Удалить товар"
-                        >
-                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14zM10 11v6M14 11v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                        <div className="quantity-controls">
+                          <button className="quantity-controls__btn" onClick={() => handleQuantityChange(item.slug, item.quantity - 1)} disabled={item.quantity <= 1}>-</button>
+                          <span className="quantity-controls__value">{item.quantity}</span>
+                          <button className="quantity-controls__btn" onClick={() => handleQuantityChange(item.slug, item.quantity + 1)}>+</button>
+                        </div>
+                        <button onClick={() => handleRemove(item.slug)} className="cart-item__remove">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M3 6h18"></path>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                            <path d="M10 11v6"></path>
+                            <path d="M14 11v6"></path>
                           </svg>
-              </button>
-            </div>
-          </div>
-          </div>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 )
               })}
             </div>
