@@ -143,10 +143,8 @@ ${orderData.comments ? `Комментарии: ${orderData.comments}` : ''}
     // получаем chat_id покупателя из initData
     const customerChatId = orderData.initData ? extractChatIdFromInitData(orderData.initData) : null
     
-    // получаем username менеджера из env
-    const managerUsername = (process.env.SUPPORT_USERNAME || 'semyonp88').replace('@', '')
-    const customerUsername = (orderData.username || '').replace('@', '').toLowerCase()
-    const isManager = customerUsername === managerUsername.toLowerCase()
+    // ID чата менеджера из env
+    const managerChatId = process.env.TG_MANAGER_CHAT_ID
     
     // отправляем покупателю если есть chat_id
     if (customerChatId) {
@@ -156,17 +154,18 @@ ${orderData.comments ? `Комментарии: ${orderData.comments}` : ''}
     }
     
     // отправляем менеджеру
-    if (isManager && customerChatId) {
-      // если покупатель - менеджер, отправляем ему сообщение для менеджера по его chat_id
-      await sendTelegramMessage(customerChatId, managerMessage)
-      logger.info('покупатель является менеджером, сообщение менеджеру отправлено по chat_id')
-    } else {
-      // если покупатель не менеджер, пытаемся отправить менеджеру по username
-      // это может не сработать если менеджер не начинал диалог с ботом
-      const managerSent = await sendTelegramMessage(`@${managerUsername}`, managerMessage)
-      if (!managerSent) {
-        logger.warn(`не удалось отправить сообщение менеджеру @${managerUsername}. Если менеджер оформляет заказ сам, он получит оба сообщения.`)
+    if (managerChatId) {
+      // если покупатель - менеджер, не дублируем сообщение
+      if (customerChatId !== managerChatId) {
+        await sendTelegramMessage(managerChatId, managerMessage)
+      } else {
+        // если это менеджер, он уже получил сообщение как покупатель,
+        // отправляем ему второе (менеджерское)
+        await sendTelegramMessage(managerChatId, managerMessage)
+        logger.info('покупатель является менеджером, отправлено второе сообщение')
       }
+    } else {
+      logger.warn(`TG_MANAGER_CHAT_ID не задан, сообщение менеджеру не отправлено`)
     }
     
     logger.info({ orderId }, 'заказ оформлен')

@@ -87,16 +87,44 @@ const AboutUsModal = ({ onClose }: { onClose: () => void }) => (
 )
 
 const FullscreenImage = ({ 
-  image, 
-  onClose 
+  image,
+  images,
+  currentIndex,
+  onClose,
+  onNavigate
 }: { 
   image: string
-  onClose: () => void 
+  images: string[]
+  currentIndex: number
+  onClose: () => void
+  onNavigate: (newIndex: number) => void
 }) => {
+  const handlePrev = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    onNavigate(currentIndex === 0 ? images.length - 1 : currentIndex - 1)
+  }
+
+  const handleNext = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    onNavigate(currentIndex === images.length - 1 ? 0 : currentIndex + 1)
+  }
+
   return (
     <div className="fullscreen-image" onClick={onClose}>
       <button className="fullscreen-image__close" onClick={onClose}>&times;</button>
-      <img src={image} alt="Товар" className="fullscreen-image__img" onClick={e => e.stopPropagation()} />
+      
+      {images.length > 1 && (
+        <>
+          <button className="fullscreen-image__arrow fullscreen-image__arrow--prev" onClick={handlePrev}>
+            <svg width="24" height="24" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6" /></svg>
+          </button>
+          <button className="fullscreen-image__arrow fullscreen-image__arrow--next" onClick={handleNext}>
+            <svg width="24" height="24" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6" /></svg>
+          </button>
+        </>
+      )}
+      
+      <img src={image} alt="Товар (полный экран)" className="fullscreen-image__img" onClick={e => e.stopPropagation()} />
     </div>
   )
 }
@@ -178,9 +206,7 @@ const ProductModal = ({
                     }}
                     aria-label="Предыдущее фото"
                   >
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
+                    <svg width="24" height="24" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6" /></svg>
                   </button>
                   <button
                     className="product-modal__arrow product-modal__arrow--next"
@@ -190,9 +216,7 @@ const ProductModal = ({
                     }}
                     aria-label="Следующее фото"
                   >
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
+                    <svg width="24" height="24" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6" /></svg>
                   </button>
                 </>
               )}
@@ -261,8 +285,14 @@ const ProductModal = ({
       </div>
       {fullscreenImage && (
         <FullscreenImage 
-          image={fullscreenImage} 
-          onClose={() => setFullscreenImage(null)} 
+          image={fullscreenImage}
+          images={product.images}
+          currentIndex={selectedImageIndex}
+          onClose={() => setFullscreenImage(null)}
+          onNavigate={(newIndex) => {
+            setSelectedImageIndex(newIndex)
+            setFullscreenImage(product.images[newIndex])
+          }}
         />
       )}
     </div>
