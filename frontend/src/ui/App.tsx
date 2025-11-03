@@ -7,21 +7,6 @@ import { motion, AnimatePresence } from 'framer-motion'
 import 'swiper/css'
 import 'swiper/css/pagination'
 
-const useImageLoader = (src: string | undefined): boolean => {
-  const [loaded, setLoaded] = useState(false)
-  useEffect(() => {
-    if (!src) {
-      setLoaded(true)
-      return
-    }
-    const img = new Image()
-    img.src = src
-    img.onload = () => setLoaded(true)
-    img.onerror = () => setLoaded(true) // считаем загруженным, чтобы убрать шиммер
-  }, [src])
-  return loaded
-}
-
 // изображения из public/assets с учетом base path
 const baseUrl = import.meta.env.BASE_URL
 const berriesImage = `${baseUrl}assets/berries-category.jpg`
@@ -755,38 +740,40 @@ const CartModal = ({
                     {item.images && item.images.length > 0 && (
                       <div 
                         className="cart-item__image"
-                        style={{ backgroundImage: `url(${item.images?.[0] || ''})` }}
+                        style={{ backgroundImage: `url(${item.images[0]})` }}
                       />
                     )}
                     <div className="cart-item__info">
-                      <h4 className="cart-item__title">{item.title}</h4>
-                      <p className="cart-item__price">{item.quantity} x {item.price_rub} ₽</p>
-                    </div>
-                    <div className="cart-item__controls">
-                      <div className="quantity-controls">
-                        <button
-                          className="quantity-controls__btn"
+                      <h3 className="cart-item__title">{item.title}</h3>
+                      <p className="cart-item__price">{item.price_rub} ₽ × {item.quantity}</p>
+                      <div className="cart-item__controls">
+                        <button 
+                          className="quantity-btn" 
                           onClick={() => handleQuantityChange(item.slug, -1)}
                           disabled={item.quantity === 0}
                         >
-                          &minus;
-                        </button>
+                          −
+        </button>
                         <span className="quantity-value">{item.quantity}</span>
-                        <button
-                          className="quantity-controls__btn"
+                        <button 
+                          className="quantity-btn" 
                           onClick={() => handleQuantityChange(item.slug, 1)}
                           disabled={!canAddMore}
                         >
-                          &plus;
-                        </button>
-                      </div>
-                      <button className="cart-item__remove" onClick={() => handleRemove(item.slug)}>
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" stroke="currentColor">
-                          <path d="M18 6L6 18M6 6l12 12" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
+                          +
+              </button>
+                        <button 
+                          className="cart-item__remove"
+                          onClick={() => handleRemove(item.slug)}
+                          aria-label="Удалить товар"
+                        >
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14zM10 11v6M14 11v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                          </svg>
+              </button>
+            </div>
+          </div>
+          </div>
                 )
               })}
             </div>
@@ -807,6 +794,51 @@ const CartModal = ({
   )
 }
 
+// хук для предзагрузки изображения
+function useImagePreload(src: string) {
+  const [loaded, setLoaded] = useState(false)
+  const [error, setError] = useState(false)
+
+  useEffect(() => {
+    if (!src) return
+    
+    const img = new Image()
+    img.src = src
+    img.onload = () => setLoaded(true)
+    img.onerror = () => {
+      setError(true)
+      setLoaded(true) // показываем даже при ошибке
+    }
+
+    return () => {
+      img.onload = null
+      img.onerror = null
+    }
+  }, [src])
+
+  return { loaded, error }
+}
+
+// компонент категории с предзагрузкой изображения
+const CategoryCard = ({ card, onSelect }: { card: Category, onSelect: () => void }) => {
+  const { loaded } = useImagePreload(card.image)
+  
+  return (
+    <button
+      key={card.key}
+      className={`category-card ${loaded ? 'image-loaded' : ''}`}
+      onClick={onSelect}
+    >
+      <div className="category-card__media" style={{ backgroundImage: `url(${card.image})` }} />
+      <div className="category-card__overlay" />
+      <div className="category-card__content">
+        <h2 className="category-card__title">{card.title}</h2>
+        {card.description && <p className="category-card__description">{card.description}</p>}
+      </div>
+    </button>
+  )
+}
+
 export default function App() {
   const [aboutModalOpen, setAboutModalOpen] = useState(false)
   const [cartOpen, setCartOpen] = useState(false)
@@ -824,7 +856,8 @@ export default function App() {
   const [paymentStatus, setPaymentStatus] = useState<'success' | 'fail' | null>(null)
   const mainContentRef = useRef<HTMLElement>(null)
   
-  const headerImageLoaded = useImageLoader(backgroundImage)
+  // предзагрузка фонового изображения
+  const { loaded: headerImageLoaded } = useImagePreload(backgroundImage)
   
   // обработка возврата после оплаты
   useEffect(() => {
@@ -1067,29 +1100,16 @@ export default function App() {
 
   return (
     <>
-      <div className="page-header-wrapper">
-        <div className="shimmer-bg page-header-placeholder" style={{ opacity: headerImageLoaded ? 0 : 1 }} />
-        <motion.header
-          className="page-header"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: headerImageLoaded ? 1 : 0 }}
-          transition={{ duration: 0.8 }}
-          style={{ backgroundImage: `url(${backgroundImage})` }}
-        >
-          <div className="page-header__logo">
-            <img src={logoImage} alt="KOSHEK logo" />
-          </div>
-          <div className="page-header__content">
-            <h1 className="page-header__title">KOSHEK</h1>
-            <p className="page-header__subtitle">JEWERLY</p>
-          </div>
-          <button className="scroll-down-btn" onClick={() => mainContentRef.current?.scrollIntoView({ behavior: 'smooth' })}>
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M19 9l-7 7-7-7" stroke="var(--page-bg)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
-        </motion.header>
-      </div>
+      <header className={`page-header ${headerImageLoaded ? 'image-loaded' : ''}`} style={{ backgroundImage: `url(${backgroundImage})` }}>
+        <img src={logoImage} alt="KOSHEK logo" className="header-logo" />
+        <h1 className="page-header__title">KOSHEK</h1>
+        <p className="page-header__text">Girls выбирают KOSHEK и бриллианты.</p>
+        <button
+          className="scroll-down-btn"
+          onClick={() => mainContentRef.current?.scrollIntoView({ behavior: 'smooth' })}
+          aria-label="Scroll down"
+        />
+      </header>
 
       <main className="page" ref={mainContentRef}>
         <AnimatePresence mode="wait">
@@ -1108,7 +1128,7 @@ export default function App() {
                 <CategoryCard
                   key={card.key}
                   card={card}
-                  onClick={() => setSelectedCategory(card.key)}
+                  onSelect={() => setSelectedCategory(card.key)}
                 />
               ))}
             </motion.section>
@@ -1237,31 +1257,6 @@ export default function App() {
             />
           )}
     </>
-  )
-}
-
-const CategoryCard = ({ card, onClick }: { card: Category, onClick: () => void }) => {
-  const imageLoaded = useImageLoader(card.image)
-
-  return (
-    <button
-      className="category-card"
-      onClick={onClick}
-    >
-      <div className="shimmer-bg category-card__placeholder" style={{ opacity: imageLoaded ? 0 : 1 }} />
-      <div 
-        className="category-card__media" 
-        style={{ 
-          backgroundImage: `url(${card.image})`,
-          opacity: imageLoaded ? 1 : 0,
-        }} 
-      />
-      <div className="category-card__overlay" />
-      <div className="category-card__content">
-        <h2 className="category-card__title">{card.title}</h2>
-        {card.description && <p className="category-card__description">{card.description}</p>}
-      </div>
-    </button>
   )
 }
 
