@@ -19,12 +19,23 @@ type Category = {
   image: string
 }
 
+type Product = {
+  slug: string
+  title: string
+  description?: string
+  category: string
+  price_rub: number
+  images: string[]
+  active: boolean
+  stock?: number
+}
+
 const categories: Category[] = [
-  { key: 'berries', title: 'Ягоды (special)', description: 'Эксклюзивная коллекция KOSHEK, украшения в виде реалистичных ягод из полимерной глины', image: berriesImage },
-  { key: 'neck', title: 'Шея', description: 'Чокеры, колье, подвески, кулоны', image: neckImage },
-  { key: 'hands', title: 'Руки', description: 'Браслеты, кольца', image: handsImage },
-  { key: 'ears', title: 'Уши', description: 'Серьги, каффы', image: earsImage },
-  { key: 'certificates', title: 'Сертификаты', image: certificateImage },
+  { key: 'ягоды', title: 'Ягоды (special)', description: 'Эксклюзивная коллекция KOSHEK, украшения в виде реалистичных ягод из полимерной глины', image: berriesImage },
+  { key: 'шея', title: 'Шея', description: 'Чокеры, колье, подвески, кулоны', image: neckImage },
+  { key: 'руки', title: 'Руки', description: 'Браслеты, кольца', image: handsImage },
+  { key: 'уши', title: 'Уши', description: 'Серьги, каффы', image: earsImage },
+  { key: 'сертификаты', title: 'Сертификаты', image: certificateImage },
 ]
 
 const AccordionItem = ({ question, children }: { question: string, children: React.ReactNode }) => {
@@ -72,36 +83,67 @@ const AboutUsModal = ({ onClose }: { onClose: () => void }) => (
 
 export default function App() {
   const [aboutModalOpen, setAboutModalOpen] = useState(false)
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
+  const [products, setProducts] = useState<Product[]>([])
+  const [loading, setLoading] = useState(true)
   const mainContentRef = useRef<HTMLElement>(null)
+
+  // загрузка товаров с бэкенда
+  useEffect(() => {
+    const apiUrl = import.meta.env.VITE_API_URL || '/api'
+    fetch(`${apiUrl}/api/products`)
+      .then(res => res.json())
+      .then(data => {
+        setProducts(data.items || [])
+        setLoading(false)
+      })
+      .catch(err => {
+        console.error('ошибка загрузки товаров:', err)
+        setLoading(false)
+      })
+  }, [])
 
   useEffect(() => {
     // инициализируем тему и кнопку назад
     try {
       WebApp.ready()
-      WebApp.BackButton.show()
+      WebApp.BackButton.hide()
     } catch {}
   }, [])
 
   useEffect(() => {
     const handleBackButtonClick = () => {
-      setAboutModalOpen(false)
+      if (aboutModalOpen) {
+        setAboutModalOpen(false)
+      } else if (selectedCategory) {
+        setSelectedCategory(null)
+      }
+    }
+
+    if (aboutModalOpen || selectedCategory) {
+      WebApp.BackButton.show()
+      WebApp.BackButton.onClick(handleBackButtonClick)
+    } else {
+      WebApp.BackButton.hide()
     }
 
     if (aboutModalOpen) {
       document.body.style.overflow = 'hidden'
-      WebApp.BackButton.show()
-      WebApp.BackButton.onClick(handleBackButtonClick)
     } else {
       document.body.style.overflow = 'unset'
-      WebApp.BackButton.hide()
     }
 
     return () => {
       WebApp.BackButton.offClick(handleBackButtonClick)
       document.body.style.overflow = 'unset'
     }
-  }, [aboutModalOpen])
+  }, [aboutModalOpen, selectedCategory])
 
+
+  // фильтруем товары по категории
+  const filteredProducts = selectedCategory
+    ? products.filter(p => p.category === selectedCategory)
+    : products
 
   return (
     <>
@@ -117,18 +159,52 @@ export default function App() {
       </header>
 
       <main className="page" ref={mainContentRef}>
-        <section className="category-grid">
-          {categories.map(card => (
-            <button key={card.key} className="category-card">
-              <div className="category-card__media" style={{ backgroundImage: `url(${card.image})` }} />
-              <div className="category-card__overlay" />
-              <div className="category-card__content">
-                <h2 className="category-card__title">{card.title}</h2>
-                {card.description && <p className="category-card__description">{card.description}</p>}
+        {!selectedCategory ? (
+          // сетка категорий
+          <section className="category-grid">
+            {categories.map(card => (
+              <button
+                key={card.key}
+                className="category-card"
+                onClick={() => setSelectedCategory(card.key)}
+              >
+                <div className="category-card__media" style={{ backgroundImage: `url(${card.image})` }} />
+                <div className="category-card__overlay" />
+                <div className="category-card__content">
+                  <h2 className="category-card__title">{card.title}</h2>
+                  {card.description && <p className="category-card__description">{card.description}</p>}
+                </div>
+              </button>
+            ))}
+          </section>
+        ) : (
+          // грид товаров выбранной категории
+          <section className="products-section">
+            <h2 className="products-section__title">
+              {categories.find(c => c.key === selectedCategory)?.title}
+            </h2>
+            {loading ? (
+              <p className="products-loading">Загрузка...</p>
+            ) : filteredProducts.length === 0 ? (
+              <p className="products-empty">Товары скоро появятся</p>
+            ) : (
+              <div className="products-grid">
+                {filteredProducts.map(product => (
+                  <div key={product.slug} className="product-card">
+                    <div
+                      className="product-card__image"
+                      style={{ backgroundImage: `url(${product.images[0]})` }}
+                    />
+                    <div className="product-card__info">
+                      <h3 className="product-card__title">{product.title}</h3>
+                      <p className="product-card__price">{product.price_rub} ₽</p>
+                    </div>
+                  </div>
+                ))}
               </div>
-            </button>
-          ))}
-        </section>
+            )}
+          </section>
+        )}
 
         <footer className="page-footer">
           <button className="btn-text" onClick={() => window.open('https://t.me/semyonp88', '_blank')}>Поддержка</button>
