@@ -49,6 +49,7 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
   margin-bottom: 16px;
   position: relative;
   z-index: 1;
+  border: 2px solid #ffffff;
 }
 .page-header__title { margin: 0 0 16px; font-size: 48px; letter-spacing: 0.06em; font-weight: 400; position: relative; z-index: 1; color: #ffffff; }
 .page-header__text { margin: 0; font-size: 20px; line-height: 1.4; font-weight: 400; position: relative; z-index: 1; color: #ffffff; }
