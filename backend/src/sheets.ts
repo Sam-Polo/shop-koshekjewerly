@@ -44,8 +44,10 @@ async function fetchSheetRange(auth: any, sheetId: string, range: string, catego
     if (!r || r.length === 0) continue // пропускаем пустые строки
     const get = (n: string) => r[idx(n)] ?? ''
     const price = Number(String(get('price_rub')).replace(',', '.'))
-    const images: string[] = String(get('images'))
-      .split(',')
+    // парсим изображения: разделители могут быть запятая или перенос строки
+    const imagesRaw = String(get('images'))
+    const images: string[] = imagesRaw
+      .split(/[,\n]/) // разбиваем по запятой или переносу строки
       .map(s => s.trim())
       .filter(Boolean)
     const activeVal = String(get('active')).toLowerCase()
