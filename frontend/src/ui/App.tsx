@@ -3,6 +3,7 @@ import WebApp from '@twa-dev/sdk'
 import React from 'react'
 import { Swiper, SwiperSlide, type SwiperClass } from 'swiper/react'
 import { Pagination } from 'swiper/modules'
+import { motion, AnimatePresence } from 'framer-motion'
 import 'swiper/css'
 import 'swiper/css/pagination'
 
@@ -175,6 +176,8 @@ const ProductModal = ({
   const [selectedImageIndex, setSelectedImageIndex] = useState(0)
   const [quantity, setQuantity] = useState(1)
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null)
+  const [isAdding, setIsAdding] = useState(false)
+  const [addedState, setAddedState] = useState(false)
   const cartItem = cart.find(item => item.slug === product.slug)
   const currentQuantity = cartItem?.quantity || 0
   const maxQuantity = product.stock !== undefined ? product.stock : 999
@@ -206,9 +209,17 @@ const ProductModal = ({
   }
 
   const handleAddToCart = () => {
-    if (canAddToCart) {
-      onAddToCart(product.slug, quantity)
-      onAddedToCart()
+    if (canAddToCart && !isAdding) {
+      setIsAdding(true)
+      setTimeout(() => {
+        onAddToCart(product.slug, quantity)
+        setAddedState(true)
+        setIsAdding(false)
+        setTimeout(() => {
+          onAddedToCart()
+          setAddedState(false)
+        }, 1000)
+      }, 500)
     }
   }
 
@@ -304,11 +315,11 @@ const ProductModal = ({
               <p className="cart-controls__error">Доступно только {availableQuantity} шт.</p>
             )}
             <button 
-              className="btn btn--add-to-cart"
+              className={`btn btn--add-to-cart ${addedState ? 'added' : ''}`}
               onClick={handleAddToCart}
-              disabled={!canAddToCart}
+              disabled={!canAddToCart || isAdding || addedState}
             >
-              Добавить в корзину
+              {isAdding ? 'Добавляем...' : addedState ? 'Добавлено ✓' : 'Добавить в корзину'}
             </button>
           </div>
         </div>
@@ -1017,6 +1028,28 @@ export default function App() {
     ? products.filter(p => p.category === selectedCategory)
     : products
 
+  const pageVariants = {
+    initial: { opacity: 0, y: 20 },
+    in: { opacity: 1, y: 0 },
+    out: { opacity: 0, y: -20 },
+  }
+
+  const gridVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        when: "beforeChildren",
+        staggerChildren: 0.1,
+      },
+    },
+  }
+
+  const itemVariants = {
+    hidden: { y: 20, opacity: 0 },
+    visible: { y: 0, opacity: 1 },
+  }
+
   return (
     <>
       <header className="page-header" style={{ backgroundImage: `url(${backgroundImage})` }}>
@@ -1031,56 +1064,80 @@ export default function App() {
       </header>
 
       <main className="page" ref={mainContentRef}>
-        {!selectedCategory ? (
-          // сетка категорий
-          <section className="category-grid">
-            {categories.map(card => (
-              <button
-                key={card.key}
-                className="category-card"
-                onClick={() => setSelectedCategory(card.key)}
-              >
-                <div className="category-card__media" style={{ backgroundImage: `url(${card.image})` }} />
-                <div className="category-card__overlay" />
-                <div className="category-card__content">
-                  <h2 className="category-card__title">{card.title}</h2>
-                  {card.description && <p className="category-card__description">{card.description}</p>}
-                </div>
-              </button>
-            ))}
-        </section>
-        ) : (
-          // грид товаров выбранной категории
-          <section className="products-section">
-            <h2 className="products-section__title">
-              {categories.find(c => c.key === selectedCategory)?.title}
-            </h2>
-            {loading ? (
-              <p className="products-loading">Загрузка...</p>
-            ) : filteredProducts.length === 0 ? (
-              <p className="products-empty">Товары скоро появятся</p>
-            ) : (
-              <div className="products-grid">
-                {filteredProducts.map(product => (
-                  <div 
-                    key={product.slug} 
-                    className="product-card"
-                    onClick={() => setSelectedProduct(product)}
-                  >
-                    <ImageWithLoader 
-                      src={product.images && product.images.length > 0 ? product.images[0] : ''}
-                      alt={product.title}
-                    />
-                    <div className="product-card__info">
-                      <h3 className="product-card__title">{product.title}</h3>
-                      <p className="product-card__price">{product.price_rub} ₽</p>
-            </div>
-          </div>
-                ))}
-              </div>
-            )}
-            </section>
-        )}
+        <AnimatePresence mode="wait">
+          {!selectedCategory ? (
+            // сетка категорий
+            <motion.section
+              key="categories"
+              className="category-grid"
+              variants={pageVariants}
+              initial="initial"
+              animate="in"
+              exit="out"
+              transition={{ duration: 0.3 }}
+            >
+              {categories.map(card => (
+                <button
+                  key={card.key}
+                  className="category-card"
+                  onClick={() => setSelectedCategory(card.key)}
+                >
+                  <div className="category-card__media" style={{ backgroundImage: `url(${card.image})` }} />
+                  <div className="category-card__overlay" />
+                  <div className="category-card__content">
+                    <h2 className="category-card__title">{card.title}</h2>
+                    {card.description && <p className="category-card__description">{card.description}</p>}
+                  </div>
+                </button>
+              ))}
+            </motion.section>
+          ) : (
+            // грид товаров выбранной категории
+            <motion.section
+              key="products"
+              className="products-section"
+              variants={pageVariants}
+              initial="initial"
+              animate="in"
+              exit="out"
+              transition={{ duration: 0.3 }}
+            >
+              <h2 className="products-section__title">
+                {categories.find(c => c.key === selectedCategory)?.title}
+              </h2>
+              {loading ? (
+                <p className="products-loading">Загрузка...</p>
+              ) : filteredProducts.length === 0 ? (
+                <p className="products-empty">Товары скоро появятся</p>
+              ) : (
+                <motion.div
+                  className="products-grid"
+                  variants={gridVariants}
+                  initial="hidden"
+                  animate="visible"
+                >
+                  {filteredProducts.map(product => (
+                    <motion.div
+                      key={product.slug}
+                      className="product-card"
+                      onClick={() => setSelectedProduct(product)}
+                      variants={itemVariants}
+                    >
+                      <ImageWithLoader
+                        src={product.images && product.images.length > 0 ? product.images[0] : ''}
+                        alt={product.title}
+                      />
+                      <div className="product-card__info">
+                        <h3 className="product-card__title">{product.title}</h3>
+                        <p className="product-card__price">{product.price_rub} ₽</p>
+                      </div>
+                    </motion.div>
+                  ))}
+                </motion.div>
+              )}
+            </motion.section>
+          )}
+        </AnimatePresence>
 
         <footer className="page-footer">
           <button className="btn-text" onClick={() => window.open('https://t.me/semyonp88', '_blank')}>Поддержка</button>

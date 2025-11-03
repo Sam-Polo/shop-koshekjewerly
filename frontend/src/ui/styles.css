@@ -207,7 +207,26 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 .quantity-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .quantity-value { font-size: 18px; font-weight: 600; min-width: 30px; text-align: center; }
 .cart-controls__error { margin-top: 8px; font-size: 14px; color: #d32f2f; }
-.btn--add-to-cart { width: 100%; padding: 14px; background: #d480e0; color: #fff; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+.btn--add-to-cart {
+  width: 100%;
+  background-color: var(--button-bg);
+  color: var(--button-text);
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: background-color 0.3s, color 0.3s;
+}
+
+.btn--add-to-cart.added {
+  background-color: #28a745; /* зеленый цвет успеха */
+  color: white;
+}
+
+.btn--add-to-cart:disabled {
+  background-color: #cccccc;
+  cursor: not-allowed;
+}
 .btn--add-to-cart:hover:not(:disabled) { background: #c069d0; }
 .btn--add-to-cart:active:not(:disabled) { transform: scale(0.98); }
 .btn--add-to-cart:disabled { opacity: 0.5; cursor: not-allowed; }
