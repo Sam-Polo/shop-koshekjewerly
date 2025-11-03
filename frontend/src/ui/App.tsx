@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import WebApp from '@twa-dev/sdk'
 import React from 'react'
-import { Swiper, SwiperSlide } from 'swiper/react'
+import { Swiper, SwiperSlide, type SwiperClass } from 'swiper/react'
 import { Pagination } from 'swiper/modules'
 import 'swiper/css'
 import 'swiper/css/pagination'
@@ -114,8 +114,8 @@ const FullscreenImage = ({
         modules={[Pagination]}
         pagination={{ clickable: true }}
         initialSlide={currentIndex}
-        onSlideChange={(swiper) => onNavigate(swiper.activeIndex)}
-        onClick={(e) => e.stopPropagation()}
+        onSlideChange={(swiper: SwiperClass) => onNavigate(swiper.activeIndex)}
+        onClick={(e: React.MouseEvent) => e.stopPropagation()}
       >
         {images.map((img, idx) => (
           <SwiperSlide key={idx}>
