@@ -224,8 +224,22 @@ const ProductModal = ({
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content modal-content--product" onClick={e => e.stopPropagation()}>
+    <motion.div 
+      className="modal" 
+      onClick={onClose}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.3 }}
+    >
+      <motion.div 
+        className="modal-content product-modal" 
+        onClick={e => e.stopPropagation()}
+        initial={{ scale: 0.9, y: 20, opacity: 0 }}
+        animate={{ scale: 1, y: 0, opacity: 1 }}
+        exit={{ scale: 0.9, y: 20, opacity: 0 }}
+        transition={{ duration: 0.2 }}
+      >
         <button className="modal-close" onClick={onClose}>&times;</button>
         
         {/* фото-галерея */}
@@ -323,7 +337,7 @@ const ProductModal = ({
             </button>
           </div>
         </div>
-      </div>
+      </motion.div>
       {fullscreenImage && (
         <FullscreenImage 
           images={product.images}
@@ -335,7 +349,7 @@ const ProductModal = ({
           }}
         />
       )}
-    </div>
+    </motion.div>
   )
 }
 
@@ -1134,6 +1148,22 @@ export default function App() {
         </footer>
       </main>
 
+      <AnimatePresence>
+        {selectedProduct && (
+          <ProductModal
+            product={selectedProduct}
+            onClose={() => setSelectedProduct(null)}
+            onAddToCart={updateCart}
+            onAddedToCart={() => {
+              setSelectedProduct(null)
+              handleAddedToCart()
+            }}
+            cart={cart}
+            key={selectedProduct.slug}
+          />
+        )}
+      </AnimatePresence>
+
       {/* кнопка корзины (плавающая) */}
       {cartTotal > 0 && (
         <button 
@@ -1156,25 +1186,25 @@ export default function App() {
         />
       )}
 
-      {aboutModalOpen && <AboutUsModal onClose={() => setAboutModalOpen(false)} />}
-      {selectedProduct && (
-        <ProductModal 
-          product={selectedProduct}
-          cart={cart}
-          onAddToCart={updateCart}
-          onClose={() => setSelectedProduct(null)}
-          onAddedToCart={handleAddedToCart}
-        />
-      )}
-      {cartOpen && (
-        <CartModal 
-          cart={cart}
-          products={products}
-          onUpdateCart={updateCart}
-          onClose={() => setCartOpen(false)}
-          onCheckout={handleCheckoutStart}
-        />
-      )}
+      <AnimatePresence>
+        {aboutModalOpen && (
+          <AboutUsModal
+            onClose={() => setAboutModalOpen(false)}
+          />
+        )}
+      </AnimatePresence>
+      
+      <AnimatePresence>
+        {cartOpen && (
+          <CartModal 
+            cart={cart}
+            products={products}
+            onUpdateCart={updateCart}
+            onClose={() => setCartOpen(false)}
+            onCheckout={handleCheckoutStart}
+          />
+        )}
+      </AnimatePresence>
       
       {checkoutOpen && (
         <div className="modal-overlay" onClick={() => setCheckoutOpen(false)}>

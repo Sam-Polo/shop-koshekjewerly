@@ -241,17 +241,27 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 .modal-content--cart { max-width: 600px; max-height: 85vh; display: flex; flex-direction: column; }
 .cart-modal__title { margin: 0 0 24px; font-size: 24px; font-weight: 400; }
 .cart-modal__empty { text-align: center; padding: 40px 20px; color: #666; }
-.cart-modal__items { flex: 1; overflow-y: auto; margin-bottom: 20px; }
+.cart-modal__items {
+  flex: 1;
+  overflow-y: auto;
+  margin-bottom: 20px;
+}
+
 .cart-item {
   display: flex;
   align-items: center;
-  margin-bottom: 15px;
-  gap: 10px;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.cart-item:last-child {
+  border-bottom: none;
 }
 
 .cart-item__image {
-  width: 60px;
-  height: 60px;
+  width: 65px;
+  height: 65px;
   object-fit: cover;
   border-radius: 8px;
   flex-shrink: 0;
@@ -259,11 +269,19 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 
 .cart-item__details {
   flex-grow: 1;
-  min-width: 0; /* Для корректного переноса текста в flex-контейнере */
+  min-width: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.cart-item__info {
+  min-width: 0;
 }
 
 .cart-item__title {
-  margin: 0;
+  margin: 0 0 4px;
   font-size: 16px;
   white-space: nowrap;
   overflow: hidden;
@@ -271,35 +289,37 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 }
 
 .cart-item__price {
-  margin: 5px 0 0;
+  margin: 0;
   font-size: 14px;
-  color: #666;
+  color: #888;
 }
 
 .cart-item__controls {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   flex-shrink: 0;
 }
 
 .quantity-controls {
   display: flex;
   align-items: center;
-  gap: 8px;
-  border: 1px solid #eee;
-  border-radius: 20px;
-  padding: 2px 8px;
+  gap: 10px;
 }
 
 .quantity-controls__btn {
   background: none;
   border: none;
   cursor: pointer;
-  font-size: 20px;
+  font-size: 22px;
   line-height: 1;
   color: #333;
-  padding: 0;
+  padding: 4px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .quantity-controls__btn:disabled {
@@ -318,8 +338,8 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
   background: none;
   border: none;
   cursor: pointer;
-  padding: 5px;
-  color: #999;
+  padding: 0;
+  color: #b0b0b0;
   transition: color 0.2s;
 }
 
@@ -328,8 +348,8 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 }
 
 .cart-item__remove svg {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   display: block;
 }
 
