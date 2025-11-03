@@ -185,6 +185,14 @@ const port = Number(process.env.PORT ?? 4000);
 app.listen(port, async () => {
   logger.info({ port }, 'backend started');
   
+  // проверяем наличие TG_BOT_TOKEN
+  if (!process.env.TG_BOT_TOKEN) {
+    logger.warn('⚠️  TG_BOT_TOKEN не задан! Сообщения о заказах не будут отправляться.');
+    logger.warn('Добавь переменную TG_BOT_TOKEN в Environment Variables на Render');
+  } else {
+    logger.info('TG_BOT_TOKEN настроен, отправка сообщений доступна');
+  }
+  
   // импорт при запуске
   await importProducts();
   
