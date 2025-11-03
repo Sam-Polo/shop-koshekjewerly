@@ -7,7 +7,7 @@
 }
 
 :root {
-  --page-bg: #f7d3f1;
+  --page-bg: #f5dcf1;
   --page-fg: #000000;
   --page-fg-muted: rgba(0, 0, 0, 0.6);
   --tile-placeholder: #888888;
@@ -126,7 +126,7 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 .products-loading, .products-empty { text-align: center; padding: 40px 20px; font-size: 18px; color: var(--page-fg); opacity: 0.6; }
 
 .products-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 24px; }
-.product-card { background: var(--page-bg); border-radius: 8px; overflow: hidden; cursor: pointer; transition: transform 0.3s ease, box-shadow 0.3s ease; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+.product-card { background: #ffffff; border-radius: 0; overflow: hidden; cursor: pointer; transition: transform 0.3s ease, box-shadow 0.3s ease; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
 .product-card:hover { transform: translateY(-4px); box-shadow: 0 4px 16px rgba(0,0,0,0.15); }
 .product-card__image { width: 100%; height: 280px; background-size: cover; background-position: center; background-repeat: no-repeat; background-color: #f0f0f0; }
 .product-card__info { padding: 16px; }
