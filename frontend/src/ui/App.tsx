@@ -406,24 +406,38 @@ const CheckoutForm = ({
     
     if (!formData.fullName.trim()) {
       newErrors.fullName = 'Обязательное поле'
+    } else if (formData.fullName.length > 100) {
+      newErrors.fullName = 'Максимум 100 символов'
     }
     
     if (!formData.phone.trim()) {
       newErrors.phone = 'Обязательное поле'
     } else if (!/^[\d\s\-\+\(\)]+$/.test(formData.phone)) {
       newErrors.phone = 'Некорректный номер телефона'
+    } else if (formData.phone.length > 20) {
+      newErrors.phone = 'Максимум 20 символов'
     }
     
     if (!formData.country.trim()) {
       newErrors.country = 'Обязательное поле'
+    } else if (formData.country.length > 50) {
+      newErrors.country = 'Максимум 50 символов'
     }
     
     if (!formData.city.trim()) {
       newErrors.city = 'Обязательное поле'
+    } else if (formData.city.length > 50) {
+      newErrors.city = 'Максимум 50 символов'
     }
     
     if (!formData.address.trim()) {
       newErrors.address = 'Обязательное поле'
+    } else if (formData.address.length > 200) {
+      newErrors.address = 'Максимум 200 символов'
+    }
+    
+    if (formData.comments && formData.comments.length > 500) {
+      newErrors.comments = 'Максимум 500 символов'
     }
     
     setErrors(newErrors)
@@ -466,6 +480,7 @@ const CheckoutForm = ({
             value={formData.fullName}
             onChange={(e) => handleChange('fullName', e.target.value)}
             placeholder={isEurope ? "Full Name" : "Иванов Иван Иванович"}
+            maxLength={100}
           />
           {errors.fullName && <span className="checkout-form__error">{errors.fullName}</span>}
         </label>
@@ -478,6 +493,7 @@ const CheckoutForm = ({
             value={formData.phone}
             onChange={(e) => handleChange('phone', e.target.value)}
             placeholder={isEurope ? "+1234567890" : "+7 (999) 123-45-67"}
+            maxLength={20}
           />
           {errors.phone && <span className="checkout-form__error">{errors.phone}</span>}
         </label>
@@ -501,6 +517,7 @@ const CheckoutForm = ({
             value={formData.country}
             onChange={(e) => handleChange('country', e.target.value)}
             placeholder={isEurope ? "Country" : "Россия"}
+            maxLength={50}
           />
           {errors.country && <span className="checkout-form__error">{errors.country}</span>}
         </label>
@@ -513,6 +530,7 @@ const CheckoutForm = ({
             value={formData.city}
             onChange={(e) => handleChange('city', e.target.value)}
             placeholder={isEurope ? "City" : "Москва"}
+            maxLength={50}
           />
           {errors.city && <span className="checkout-form__error">{errors.city}</span>}
         </label>
@@ -525,19 +543,24 @@ const CheckoutForm = ({
             value={formData.address}
             onChange={(e) => handleChange('address', e.target.value)}
             placeholder={isEurope ? "Street, Building, Apartment" : "Адрес пункта выдачи СДЭК"}
+            maxLength={200}
           />
+          <span className="checkout-form__char-count">{formData.address.length}/200</span>
           {errors.address && <span className="checkout-form__error">{errors.address}</span>}
         </label>
 
         <label className="checkout-form__label">
           Комментарии
           <textarea
-            className="checkout-form__textarea"
+            className={`checkout-form__textarea ${errors.comments ? 'error' : ''}`}
             value={formData.comments}
             onChange={(e) => handleChange('comments', e.target.value)}
             placeholder={isEurope ? "Additional comments" : "Дополнительная информация к заказу"}
             rows={3}
+            maxLength={500}
           />
+          <span className="checkout-form__char-count">{formData.comments.length}/500</span>
+          {errors.comments && <span className="checkout-form__error">{errors.comments}</span>}
         </label>
       </div>
 
