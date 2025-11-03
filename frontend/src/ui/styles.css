@@ -138,14 +138,13 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 .modal-content--product { max-width: 600px; padding: 0; }
 .product-modal__gallery { position: relative; }
 .product-modal__image-wrapper { position: relative; }
-.product-modal__image { width: 100%; height: 400px; background-size: cover; background-position: center; background-repeat: no-repeat; background-color: #f0f0f0; }
-.product-modal__arrow { position: absolute; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; background: rgba(255, 255, 255, 0.7); border: none; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s; z-index: 10; }
-.product-modal__arrow:hover { background: rgba(255, 255, 255, 0.85); }
+.product-modal__image { width: 100%; height: 400px; background-size: cover; background-position: center; background-repeat: no-repeat; background-color: #f0f0f0; cursor: zoom-in; }
+.product-modal__arrow { position: absolute; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; background: rgba(255, 255, 255, 0.7) !important; border: none !important; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s; z-index: 10; }
+.product-modal__arrow:hover { background: rgba(255, 255, 255, 0.85) !important; }
 .product-modal__arrow:active { transform: translateY(-50%) scale(0.95); }
 .product-modal__arrow--prev { left: 12px; }
 .product-modal__arrow--next { right: 12px; }
-.product-modal__arrow svg { stroke: #d480e0; stroke-width: 2.5; }
-.product-modal__image { cursor: zoom-in; }
+.product-modal__arrow svg { stroke: #d480e0 !important; stroke-width: 2.5; fill: none; }
 .product-modal__thumbnails { display: flex; gap: 8px; padding: 12px; overflow-x: auto; background: #fff; }
 .product-modal__thumbnail { width: 60px; height: 60px; flex-shrink: 0; border: 2px solid transparent; border-radius: 4px; background-size: cover; background-position: center; cursor: pointer; transition: all 0.2s; opacity: 0.6; }
 .product-modal__thumbnail:hover { opacity: 0.8; }
