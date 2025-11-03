@@ -224,22 +224,8 @@ const ProductModal = ({
   }
 
   return (
-    <motion.div 
-      className="modal" 
-      onClick={onClose}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.3 }}
-    >
-      <motion.div 
-        className="modal-content product-modal" 
-        onClick={e => e.stopPropagation()}
-        initial={{ scale: 0.9, y: 20, opacity: 0 }}
-        animate={{ scale: 1, y: 0, opacity: 1 }}
-        exit={{ scale: 0.9, y: 20, opacity: 0 }}
-        transition={{ duration: 0.2 }}
-      >
+    <div className="modal" onClick={onClose}>
+      <div className="modal-content product-modal" onClick={e => e.stopPropagation()}>
         <button className="modal-close" onClick={onClose}>&times;</button>
         
         {/* фото-галерея */}
@@ -337,7 +323,7 @@ const ProductModal = ({
             </button>
           </div>
         </div>
-      </motion.div>
+      </div>
       {fullscreenImage && (
         <FullscreenImage 
           images={product.images}
@@ -349,7 +335,7 @@ const ProductModal = ({
           }}
         />
       )}
-    </motion.div>
+    </div>
   )
 }
 
@@ -1148,21 +1134,18 @@ export default function App() {
         </footer>
       </main>
 
-      <AnimatePresence>
-        {selectedProduct && (
-          <ProductModal
-            product={selectedProduct}
-            onClose={() => setSelectedProduct(null)}
-            onAddToCart={updateCart}
-            onAddedToCart={() => {
-              setSelectedProduct(null)
-              handleAddedToCart()
-            }}
-            cart={cart}
-            key={selectedProduct.slug}
-          />
-        )}
-      </AnimatePresence>
+      {selectedProduct && (
+        <ProductModal
+          product={selectedProduct}
+          onClose={() => setSelectedProduct(null)}
+          onAddToCart={updateCart}
+          onAddedToCart={() => {
+            setSelectedProduct(null)
+            handleAddedToCart()
+          }}
+          cart={cart}
+        />
+      )}
 
       {/* кнопка корзины (плавающая) */}
       {cartTotal > 0 && (
