@@ -39,6 +39,133 @@ app.get('/api/products', (_req, res) => {
   res.json({ items, total: items.length });
 });
 
+// отправка сообщения через Telegram Bot API
+async function sendTelegramMessage(chatId: string | number, text: string) {
+  const token = process.env.TG_BOT_TOKEN
+  if (!token) {
+    logger.warn('TG_BOT_TOKEN не задан, сообщение не отправлено')
+    return false
+  }
+  
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        parse_mode: 'HTML'
+      })
+    })
+    
+    if (!response.ok) {
+      const error = await response.text()
+      logger.error({ error }, 'ошибка отправки сообщения в telegram')
+      return false
+    }
+    
+    return true
+  } catch (e: any) {
+    logger.error({ error: e?.message }, 'ошибка отправки сообщения в telegram')
+    return false
+  }
+}
+
+// извлекаем chat_id из initData (упрощенная версия без проверки подписи для MVP)
+function extractChatIdFromInitData(initData: string): string | null {
+  if (!initData) return null
+  
+  try {
+    // парсим initData и ищем user
+    const params = new URLSearchParams(initData)
+    const userParam = params.get('user')
+    if (userParam) {
+      const user = JSON.parse(userParam)
+      return user.id?.toString() || null
+    }
+  } catch (e: any) {
+    logger.warn({ error: e?.message }, 'не удалось извлечь chat_id из initData')
+  }
+  
+  return null
+}
+
+// оформление заказа
+app.post('/api/orders', async (req, res) => {
+  try {
+    const orderData = req.body
+    const orderId = `ORD-${Date.now()}`
+    
+    // формируем сообщение для покупателя
+    const itemsText = orderData.items.map((item: any) => 
+      `• ${item.title} × ${item.quantity} — ${item.price * item.quantity} ₽`
+    ).join('\n')
+    
+    const customerMessage = `
+🎉 <b>Заказ оформлен!</b>
+
+Номер заказа: <code>${orderId}</code>
+
+Товары:
+${itemsText}
+
+Доставка: ${orderData.deliveryCost} ₽
+Итого: ${orderData.total} ₽
+
+${orderData.deliveryRegion === 'europe' ? '📍 Адрес доставки:' : '📍 Пункт СДЭК:'}
+${orderData.address}
+
+💬 Для связи: @${orderData.username?.replace('@', '') || 'менеджер'}
+    `.trim()
+    
+    // формируем сообщение для менеджера
+    const managerMessage = `
+🛒 <b>Новый заказ!</b>
+
+Номер: <code>${orderId}</code>
+Покупатель: ${orderData.fullName}
+Телефон: ${orderData.phone}
+TG: ${orderData.username || 'не указан'}
+
+${orderData.deliveryRegion === 'europe' ? '📍 Адрес доставки:' : '📍 Пункт СДЭК:'}
+${orderData.country}, ${orderData.city}
+${orderData.address}
+
+Товары:
+${itemsText}
+
+Доставка: ${orderData.deliveryCost} ₽ (${orderData.deliveryRegion})
+Итого: ${orderData.total} ₽
+
+${orderData.comments ? `Комментарии: ${orderData.comments}` : ''}
+    `.trim()
+    
+    // получаем chat_id покупателя из initData
+    const customerChatId = orderData.initData ? extractChatIdFromInitData(orderData.initData) : null
+    
+    // отправляем менеджеру
+    const managerUsername = process.env.SUPPORT_USERNAME || 'semyonp88'
+    await sendTelegramMessage(`@${managerUsername}`, managerMessage)
+    
+    // отправляем покупателю если есть chat_id
+    if (customerChatId) {
+      await sendTelegramMessage(customerChatId, customerMessage)
+    } else {
+      logger.warn('chat_id покупателя не найден, сообщение покупателю не отправлено')
+    }
+    
+    logger.info({ orderId }, 'заказ оформлен')
+    
+    res.json({ 
+      ok: true, 
+      orderId 
+    })
+  } catch (e: any) {
+    logger.error({ error: e?.message }, 'ошибка оформления заказа')
+    res.status(500).json({ error: e?.message || 'order_failed' })
+  }
+});
+
 // ручной импорт (для тестов или форс-обновления)
 app.post('/admin/import/sheets', async (req, res) => {
   const key = req.header('x-admin-key');

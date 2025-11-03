@@ -86,6 +86,21 @@ const AboutUsModal = ({ onClose }: { onClose: () => void }) => (
   </div>
 )
 
+const FullscreenImage = ({ 
+  image, 
+  onClose 
+}: { 
+  image: string
+  onClose: () => void 
+}) => {
+  return (
+    <div className="fullscreen-image" onClick={onClose}>
+      <button className="fullscreen-image__close" onClick={onClose}>&times;</button>
+      <img src={image} alt="Товар" className="fullscreen-image__img" onClick={e => e.stopPropagation()} />
+    </div>
+  )
+}
+
 const ProductModal = ({ 
   product, 
   cart, 
@@ -101,6 +116,7 @@ const ProductModal = ({
 }) => {
   const [selectedImageIndex, setSelectedImageIndex] = useState(0)
   const [quantity, setQuantity] = useState(1)
+  const [fullscreenImage, setFullscreenImage] = useState<string | null>(null)
   const cartItem = cart.find(item => item.slug === product.slug)
   const currentQuantity = cartItem?.quantity || 0
   const maxQuantity = product.stock !== undefined ? product.stock : 999
@@ -150,6 +166,7 @@ const ProductModal = ({
               <div 
                 className="product-modal__image"
                 style={{ backgroundImage: `url(${product.images[selectedImageIndex]})` }}
+                onClick={() => setFullscreenImage(product.images[selectedImageIndex])}
               />
               {product.images.length > 1 && (
                 <>
@@ -242,6 +259,12 @@ const ProductModal = ({
           </div>
         </div>
       </div>
+      {fullscreenImage && (
+        <FullscreenImage 
+          image={fullscreenImage} 
+          onClose={() => setFullscreenImage(null)} 
+        />
+      )}
     </div>
   )
 }
@@ -257,6 +280,35 @@ const ToastNotification = ({ message, onClose }: { message: string, onClose: () 
   return (
     <div className="toast-notification">
       <span>{message}</span>
+    </div>
+  )
+}
+
+const OrderSuccessModal = ({ 
+  orderId, 
+  onClose 
+}: { 
+  orderId?: string
+  onClose: () => void 
+}) => {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content modal-content--success" onClick={e => e.stopPropagation()}>
+        <button className="modal-close" onClick={onClose}>&times;</button>
+        <div className="order-success">
+          <div className="order-success__icon">✓</div>
+          <h2 className="order-success__title">Заказ оформлен!</h2>
+          <p className="order-success__text">
+            Спасибо за ваш заказ. Информация о заказе отправлена вам в Telegram, а также нашему менеджеру.
+          </p>
+          {orderId && (
+            <p className="order-success__id">Номер заказа: {orderId}</p>
+          )}
+          <button className="btn btn--primary order-success__button" onClick={onClose}>
+            Понятно
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -285,7 +337,7 @@ const DeliveryRegionSelector = ({
 }) => {
   return (
     <div className="delivery-region-selector">
-      <h3 className="delivery-region-selector__title">Выберите регион доставки</h3>
+      <h3 className="delivery-region-selector__title">Куда отправляем?</h3>
       <div className="delivery-region-selector__grid">
         {Object.entries(DELIVERY_LABELS).map(([key, label]) => (
           <button
@@ -294,7 +346,6 @@ const DeliveryRegionSelector = ({
             onClick={() => onSelect(key as DeliveryRegion)}
           >
             <span className="delivery-region-selector__label">{label}</span>
-            <span className="delivery-region-selector__cost">{DELIVERY_COSTS[key as DeliveryRegion]} ₽</span>
           </button>
         ))}
       </div>
@@ -467,7 +518,7 @@ const CheckoutForm = ({
         </label>
 
         <label className="checkout-form__label">
-          {isEurope ? 'Домашний адрес' : 'Адрес пункта СДЭК'} <span className="checkout-form__required">*</span>
+          {isEurope ? 'Домашний адрес' : 'СДЭК'} <span className="checkout-form__required">*</span>
           <input
             type="text"
             className={`checkout-form__input ${errors.address ? 'error' : ''}`}
@@ -643,6 +694,8 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [cart, setCart] = useState<CartItem[]>([])
   const [toastMessage, setToastMessage] = useState<string | null>(null)
+  const [orderSuccessOpen, setOrderSuccessOpen] = useState(false)
+  const [orderId, setOrderId] = useState<string | null>(null)
   const mainContentRef = useRef<HTMLElement>(null)
 
   // управление корзиной с проверкой stock
@@ -773,12 +826,53 @@ export default function App() {
     setCheckoutStep('form')
   }
 
-  const handleCheckoutSubmit = (data: any) => {
-    // TODO: отправка заказа на бэкенд
-    console.log('Order data:', data)
-    alert('Заказ оформлен! Данные будут отправлены менеджеру.')
-    setCheckoutOpen(false)
-    setCart([])
+  const handleCheckoutSubmit = async (data: any) => {
+    try {
+      // собираем данные заказа с товарами из корзины
+      const orderItems = cart.map(item => {
+        const product = products.find(p => p.slug === item.slug)
+        return product ? {
+          slug: product.slug,
+          title: product.title,
+          price: product.price_rub,
+          quantity: item.quantity
+        } : null
+      }).filter(Boolean)
+
+      // получаем initData из Telegram для отправки сообщения покупателю
+      let initData = ''
+      try {
+        initData = WebApp.initData || ''
+      } catch {}
+
+      const orderData = {
+        ...data,
+        items: orderItems,
+        initData // передаем initData для проверки подписи и получения chat_id
+      }
+
+      const apiUrl = import.meta.env.VITE_API_URL || '/api'
+      const response = await fetch(`${apiUrl}/api/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(orderData)
+      })
+
+      if (!response.ok) {
+        throw new Error('Ошибка оформления заказа')
+      }
+
+      const result = await response.json()
+      
+      // показываем информационное окно
+      setOrderId(result.orderId || null)
+      setCheckoutOpen(false)
+      setOrderSuccessOpen(true)
+      setCart([])
+    } catch (error) {
+      console.error('Ошибка оформления заказа:', error)
+      alert('Произошла ошибка при оформлении заказа. Попробуйте еще раз.')
+    }
   }
 
 
@@ -920,6 +1014,13 @@ export default function App() {
             )}
           </div>
         </div>
+      )}
+      
+      {orderSuccessOpen && (
+        <OrderSuccessModal 
+          orderId={orderId || undefined}
+          onClose={() => setOrderSuccessOpen(false)}
+        />
       )}
     </>
   )
