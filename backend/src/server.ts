@@ -4,6 +4,8 @@ import cors from 'cors';
 import pino from 'pino';
 import { fetchProductsFromSheet } from './sheets.js';
 import { listProducts, upsertProducts } from './store.js';
+import { createOrder, getOrder, updateOrderStatus, type OrderStatus } from './orders.js';
+import { generatePaymentUrl, verifyResultSignature } from './robokassa.js';
 
 const logger = pino();
 const app = express();
@@ -90,96 +92,186 @@ function extractChatIdFromInitData(initData: string): string | null {
   return null
 }
 
-// оформление заказа
+// отправка уведомлений о заказе (вызывается после успешной оплаты)
+async function sendOrderNotifications(order: any) {
+  const itemsText = order.orderData.items.map((item: any) => 
+    `• ${item.title} × ${item.quantity} — ${item.price * item.quantity} ₽`
+  ).join('\n')
+  
+  const customerMessage = `
+🎉 <b>Ваш заказ оформлен!</b>
+
+Номер заказа: <code>${order.orderId}</code>
+
+Товары:
+${itemsText}
+
+Доставка: ${order.orderData.deliveryCost} ₽
+Итого: ${order.orderData.total} ₽
+
+${order.orderData.deliveryRegion === 'europe' ? '📍 Адрес доставки:' : '📍 Пункт СДЭК:'}
+${order.orderData.address}
+
+Ваш заказ будет отправлен в течении 3-5 дней, мы пришлем уведомление с трек номером для отслеживания. Благодарим за заказ 🤍
+
+💬 Для связи: @${(process.env.SUPPORT_USERNAME || 'semyonp88').replace('@', '')}
+  `.trim()
+  
+  const managerMessage = `
+🛒 <b>Новый заказ!</b>
+
+Номер: <code>${order.orderId}</code>
+Покупатель: ${order.orderData.fullName}
+Телефон: ${order.orderData.phone}
+TG: ${order.orderData.username || 'не указан'}
+
+${order.orderData.deliveryRegion === 'europe' ? '📍 Адрес доставки:' : '📍 Пункт СДЭК:'}
+${order.orderData.country}, ${order.orderData.city}
+${order.orderData.address}
+
+Товары:
+${itemsText}
+
+Доставка: ${order.orderData.deliveryCost} ₽ (${order.orderData.deliveryRegion})
+Итого: ${order.orderData.total} ₽
+
+${order.orderData.comments ? `Комментарии: ${order.orderData.comments}` : ''}
+  `.trim()
+  
+  // отправляем покупателю если есть chat_id
+  if (order.customerChatId) {
+    await sendTelegramMessage(order.customerChatId, customerMessage)
+  } else {
+    logger.warn('chat_id покупателя не найден, сообщение покупателю не отправлено')
+  }
+  
+  // отправляем менеджеру
+  const managerChatId = process.env.TG_MANAGER_CHAT_ID
+  if (managerChatId) {
+    if (order.customerChatId !== managerChatId) {
+      await sendTelegramMessage(managerChatId, managerMessage)
+    } else {
+      await sendTelegramMessage(managerChatId, managerMessage)
+      logger.info('покупатель является менеджером, отправлено второе сообщение')
+    }
+  } else {
+    logger.warn(`TG_MANAGER_CHAT_ID не задан, сообщение менеджеру не отправлено`)
+  }
+}
+
+// оформление заказа (создаем заказ и возвращаем URL для оплаты)
 app.post('/api/orders', async (req, res) => {
   try {
     const orderData = req.body
     const orderId = `ORD-${Date.now()}`
     
-    // формируем сообщение для покупателя
-    const itemsText = orderData.items.map((item: any) => 
-      `• ${item.title} × ${item.quantity} — ${item.price * item.quantity} ₽`
-    ).join('\n')
-    
-    const customerMessage = `
-🎉 <b>Ваш заказ оформлен!</b>
-
-Номер заказа: <code>${orderId}</code>
-
-Товары:
-${itemsText}
-
-Доставка: ${orderData.deliveryCost} ₽
-Итого: ${orderData.total} ₽
-
-${orderData.deliveryRegion === 'europe' ? '📍 Адрес доставки:' : '📍 Пункт СДЭК:'}
-${orderData.address}
-
-Ваш заказ будет отправлен в течении 3-5 дней, мы пришлем уведомление с трек номером для отслеживания. Благодарим за заказ 🤍
-
-💬 Для связи: @${(process.env.SUPPORT_USERNAME || 'semyonp88').replace('@', '')}
-    `.trim()
-    
-    // формируем сообщение для менеджера
-    const managerMessage = `
-🛒 <b>Новый заказ!</b>
-
-Номер: <code>${orderId}</code>
-Покупатель: ${orderData.fullName}
-Телефон: ${orderData.phone}
-TG: ${orderData.username || 'не указан'}
-
-${orderData.deliveryRegion === 'europe' ? '📍 Адрес доставки:' : '📍 Пункт СДЭК:'}
-${orderData.country}, ${orderData.city}
-${orderData.address}
-
-Товары:
-${itemsText}
-
-Доставка: ${orderData.deliveryCost} ₽ (${orderData.deliveryRegion})
-Итого: ${orderData.total} ₽
-
-${orderData.comments ? `Комментарии: ${orderData.comments}` : ''}
-    `.trim()
-    
     // получаем chat_id покупателя из initData
     const customerChatId = orderData.initData ? extractChatIdFromInitData(orderData.initData) : null
     
-    // ID чата менеджера из env
-    const managerChatId = process.env.TG_MANAGER_CHAT_ID
+    // создаем заказ со статусом pending
+    const order = createOrder(orderId, {
+      items: orderData.items,
+      fullName: orderData.fullName,
+      phone: orderData.phone,
+      username: orderData.username,
+      country: orderData.country,
+      city: orderData.city,
+      address: orderData.address,
+      deliveryRegion: orderData.deliveryRegion,
+      deliveryCost: orderData.deliveryCost,
+      total: orderData.total,
+      comments: orderData.comments
+    }, customerChatId)
     
-    // отправляем покупателю если есть chat_id
-    if (customerChatId) {
-      await sendTelegramMessage(customerChatId, customerMessage)
-    } else {
-      logger.warn('chat_id покупателя не найден, сообщение покупателю не отправлено')
-    }
+    logger.info({ orderId }, 'заказ создан, ожидает оплаты')
     
-    // отправляем менеджеру
-    if (managerChatId) {
-      // если покупатель - менеджер, не дублируем сообщение
-      if (customerChatId !== managerChatId) {
-        await sendTelegramMessage(managerChatId, managerMessage)
-      } else {
-        // если это менеджер, он уже получил сообщение как покупатель,
-        // отправляем ему второе (менеджерское)
-        await sendTelegramMessage(managerChatId, managerMessage)
-        logger.info('покупатель является менеджером, отправлено второе сообщение')
-      }
-    } else {
-      logger.warn(`TG_MANAGER_CHAT_ID не задан, сообщение менеджеру не отправлено`)
-    }
-    
-    logger.info({ orderId }, 'заказ оформлен')
+    // генерируем URL для оплаты
+    const webappUrl = process.env.TG_WEBAPP_URL || 'https://sam-polo.github.io/shop-koshekjewerly'
+    const paymentUrl = generatePaymentUrl({
+      orderId,
+      amount: orderData.total,
+      description: `Заказ ${orderId}`,
+      successUrl: `${webappUrl}/payment/success`,
+      failUrl: `${webappUrl}/payment/fail`
+    })
     
     res.json({ 
       ok: true, 
-      orderId 
+      orderId,
+      paymentUrl // URL для редиректа на оплату
     })
   } catch (e: any) {
-    logger.error({ error: e?.message }, 'ошибка оформления заказа')
+    logger.error({ error: e?.message }, 'ошибка создания заказа')
     res.status(500).json({ error: e?.message || 'order_failed' })
   }
+});
+
+// callback от Робокассы при успешной оплате (Result URL)
+app.post('/api/robokassa/result', express.urlencoded({ extended: true }), async (req, res) => {
+  try {
+    const { OutSum, InvId, SignatureValue, ...additionalParams } = req.body
+    
+    logger.info({ OutSum, InvId, SignatureValue }, 'получен callback от Робокассы')
+    
+    // проверяем подпись
+    const isValid = verifyResultSignature({
+      outSum: OutSum,
+      invoiceId: InvId,
+      signature: SignatureValue,
+      additionalParams
+    })
+    
+    if (!isValid) {
+      logger.error({ InvId }, 'неверная подпись от Робокассы')
+      return res.status(400).send('ERROR')
+    }
+    
+    // находим заказ
+    const order = getOrder(InvId)
+    if (!order) {
+      logger.error({ InvId }, 'заказ не найден')
+      return res.status(404).send('ERROR')
+    }
+    
+    // обновляем статус на оплачен
+    if (order.status === 'pending') {
+      updateOrderStatus(InvId, 'paid')
+      
+      // отправляем уведомления
+      await sendOrderNotifications(order)
+      
+      logger.info({ InvId }, 'заказ оплачен, уведомления отправлены')
+    }
+    
+    // Робокасса ожидает ответ "OK<InvId>"
+    res.send(`OK${InvId}`)
+  } catch (e: any) {
+    logger.error({ error: e?.message }, 'ошибка обработки callback от Робокассы')
+    res.status(500).send('ERROR')
+  }
+});
+
+// успешная оплата (Success URL)
+app.get('/api/robokassa/success', (req, res) => {
+  const { InvId } = req.query
+  const webappUrl = process.env.TG_WEBAPP_URL || 'https://sam-polo.github.io/shop-koshekjewerly'
+  
+  // редиректим на фронтенд с параметром успешной оплаты
+  res.redirect(`${webappUrl}/payment/success?orderId=${InvId}`)
+});
+
+// неудачная оплата (Fail URL)
+app.get('/api/robokassa/fail', (req, res) => {
+  const { InvId } = req.query
+  const webappUrl = process.env.TG_WEBAPP_URL || 'https://sam-polo.github.io/shop-koshekjewerly'
+  
+  // обновляем статус заказа на failed
+  if (InvId) {
+    updateOrderStatus(String(InvId), 'failed')
+  }
+  
+  // редиректим на фронтенд с параметром неудачной оплаты
+  res.redirect(`${webappUrl}/payment/fail?orderId=${InvId}`)
 });
 
 // ручной импорт (для тестов или форс-обновления)

@@ -312,23 +312,42 @@ const ToastNotification = ({ message, onClose }: { message: string, onClose: () 
 
 const OrderSuccessModal = ({ 
   orderId, 
+  paymentStatus,
   onClose 
 }: { 
   orderId?: string
+  paymentStatus?: 'success' | 'fail' | null
   onClose: () => void 
 }) => {
+  const isSuccess = paymentStatus !== 'fail'
+  
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content modal-content--success" onClick={e => e.stopPropagation()}>
         <button className="modal-close" onClick={onClose}>&times;</button>
         <div className="order-success">
-          <div className="order-success__icon">✓</div>
-          <h2 className="order-success__title">Заказ оформлен!</h2>
-          <p className="order-success__text">
-            Спасибо за Ваш заказ! Информация отправлена Вам в Telegram, а также нашему менеджеру.
-          </p>
-          {orderId && (
-            <p className="order-success__id">Номер заказа: {orderId}</p>
+          {isSuccess ? (
+            <>
+              <div className="order-success__icon">✓</div>
+              <h2 className="order-success__title">Оплата успешна!</h2>
+              <p className="order-success__text">
+                Спасибо за Ваш заказ! Информация отправлена Вам в Telegram, а также нашему менеджеру.
+              </p>
+              {orderId && (
+                <p className="order-success__id">Номер заказа: {orderId}</p>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="order-success__icon" style={{ background: '#d32f2f' }}>✕</div>
+              <h2 className="order-success__title">Оплата не завершена</h2>
+              <p className="order-success__text">
+                К сожалению, произошла ошибка при оплате заказа. Попробуйте оформить заказ еще раз.
+              </p>
+              {orderId && (
+                <p className="order-success__id">Номер заказа: {orderId}</p>
+              )}
+            </>
           )}
           <button className="btn btn--primary order-success__button" onClick={onClose}>
             Понятно
@@ -745,7 +764,33 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null)
   const [orderSuccessOpen, setOrderSuccessOpen] = useState(false)
   const [orderId, setOrderId] = useState<string | null>(null)
+  const [paymentStatus, setPaymentStatus] = useState<'success' | 'fail' | null>(null)
   const mainContentRef = useRef<HTMLElement>(null)
+  
+  // обработка возврата после оплаты
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search)
+    const orderIdFromUrl = urlParams.get('orderId')
+    const path = window.location.pathname
+    
+    // если вернулись со страницы успешной оплаты
+    if (path.includes('/payment/success') && orderIdFromUrl) {
+      setOrderId(orderIdFromUrl)
+      setPaymentStatus('success')
+      setOrderSuccessOpen(true)
+      // очищаем URL
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+    
+    // если вернулись со страницы неудачной оплаты
+    if (path.includes('/payment/fail') && orderIdFromUrl) {
+      setOrderId(orderIdFromUrl)
+      setPaymentStatus('fail')
+      setOrderSuccessOpen(true)
+      // очищаем URL
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+  }, [])
 
   // управление корзиной с проверкой stock
   const updateCart = (slug: string, delta: number) => {
@@ -913,11 +958,19 @@ export default function App() {
 
       const result = await response.json()
       
-      // показываем информационное окно
-      setOrderId(result.orderId || null)
-      setCheckoutOpen(false)
-      setOrderSuccessOpen(true)
-      setCart([])
+      // если есть URL оплаты, редиректим на оплату
+      if (result.paymentUrl) {
+        setCheckoutOpen(false)
+        setCart([])
+        // открываем страницу оплаты в новом окне или редиректим
+        window.location.href = result.paymentUrl
+      } else {
+        // если оплата не требуется (на всякий случай fallback)
+        setOrderId(result.orderId || null)
+        setCheckoutOpen(false)
+        setOrderSuccessOpen(true)
+        setCart([])
+      }
     } catch (error) {
       console.error('Ошибка оформления заказа:', error)
       alert('Произошла ошибка при оформлении заказа. Попробуйте еще раз.')
@@ -1065,12 +1118,16 @@ export default function App() {
         </div>
       )}
       
-      {orderSuccessOpen && (
-        <OrderSuccessModal 
-          orderId={orderId || undefined}
-          onClose={() => setOrderSuccessOpen(false)}
-        />
-      )}
+          {orderSuccessOpen && (
+            <OrderSuccessModal 
+              orderId={orderId || undefined}
+              paymentStatus={paymentStatus || undefined}
+              onClose={() => {
+                setOrderSuccessOpen(false)
+                setPaymentStatus(null)
+              }}
+            />
+          )}
     </>
   )
 }
