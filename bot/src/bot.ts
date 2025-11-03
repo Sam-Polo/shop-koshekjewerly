@@ -12,6 +12,12 @@ if (!token) {
 const bot = new Bot(token);
 
 const WEBAPP_URL = process.env.TG_WEBAPP_URL ?? 'http://localhost:5173';
+// URL бэкенда для keep-alive
+// если не указан BACKEND_URL, пытаемся определить из окружения или используем дефолт
+const BACKEND_URL = process.env.BACKEND_URL || 
+  (process.env.NODE_ENV === 'production' 
+    ? 'https://shop-koshekjewerly.onrender.com' // дефолтный URL для продакшена
+    : 'http://localhost:4000'); // дефолт для локальной разработки
 const SUPPORT_USERNAME = process.env.SUPPORT_USERNAME;
 const MANAGER_CHAT_ID = process.env.TG_MANAGER_CHAT_ID;
 
@@ -226,6 +232,36 @@ bot.on('message', async (ctx) => {
   // обычное сообщение
   await ctx.reply('используй /start чтобы открыть мини‑приложение')
 });
+
+// keep-alive для бэкенда (чтобы не засыпал на Render)
+async function keepAlive() {
+  try {
+    const healthUrl = `${BACKEND_URL}/health`;
+    const response = await fetch(healthUrl, {
+      method: 'GET',
+      headers: { 'User-Agent': 'TelegramBot-KeepAlive' }
+    });
+    
+    if (response.ok) {
+      console.log('[keep-alive] бэкенд активен');
+    } else {
+      console.warn('[keep-alive] бэкенд вернул ошибку:', response.status);
+    }
+  } catch (error: any) {
+    console.warn('[keep-alive] ошибка при проверке бэкенда:', error?.message);
+  }
+}
+
+// запускаем keep-alive каждые 5 минут (300000 мс)
+// это разбудит бэкенд если он спит и не даст ему заснуть
+const KEEP_ALIVE_INTERVAL = 5 * 60 * 1000; // 5 минут
+setInterval(keepAlive, KEEP_ALIVE_INTERVAL);
+
+// сразу делаем первый запрос при запуске
+keepAlive();
+
+console.log(`[keep-alive] настроен, интервал: ${KEEP_ALIVE_INTERVAL / 1000} секунд`);
+console.log(`[keep-alive] URL бэкенда: ${BACKEND_URL}/health`);
 
 bot.start();
 

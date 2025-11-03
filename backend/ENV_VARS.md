@@ -35,6 +35,8 @@ curl -X POST "http://localhost:4000/admin/import/sheets" \
 
 опциональные:
 - TG_WEBAPP_URL — url фронтенда (по умолчанию: `http://localhost:5173`)
+- BACKEND_URL — url бэкенда для keep-alive (по умолчанию: берется из TG_WEBAPP_URL или `http://localhost:4000`)
+  - используется ботом для периодических запросов, чтобы бэкенд не засыпал на Render
 - SUPPORT_USERNAME — username менеджера без @ (для проверки доступа к команде `/broadcast`)
 - TG_MANAGER_CHAT_ID — chat_id менеджера (для проверки доступа к команде `/broadcast`)
 
@@ -53,8 +55,11 @@ curl -X POST "http://localhost:4000/admin/import/sheets" \
 ## настройка робокассы
 
 **1. в личном кабинете Робокассы:**
-- Создай магазин
-- Запиши: Merchant Login, Password #1, Password #2
+- Создай магазин (если еще не создан)
+- Найди в настройках магазина:
+  - **Merchant Login** — это идентификатор/логин магазина (уникальное имя магазина, например: `koshekjewerly`)
+  - **Password #1** — пароль для создания платежей (в разделе "Технические настройки" или "Пароли")
+  - **Password #2** — пароль для проверки callback (там же)
 
 **2. настройка URL для callback:**
 В настройках магазина укажи:
@@ -68,7 +73,7 @@ curl -X POST "http://localhost:4000/admin/import/sheets" \
 
 **3. переменные окружения (backend на Render):**
 ```
-ROBOKASSA_MERCHANT_LOGIN=твой_логин
+ROBOKASSA_MERCHANT_LOGIN=твой_merchant_login  # идентификатор магазина (не email!)
 ROBOKASSA_PASSWORD_1=пароль_1
 ROBOKASSA_PASSWORD_2=пароль_2
 ROBOKASSA_TEST=true  # для тестирования, потом убрать или false
