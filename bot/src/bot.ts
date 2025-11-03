@@ -23,22 +23,38 @@ const userChatIds = new Set<string | number>();
 
 // проверка что пользователь - менеджер
 function isManager(chatId: string | number | undefined, username?: string): boolean {
-  if (!chatId) return false
+  if (!chatId) {
+    console.log('[isManager] chatId отсутствует')
+    return false
+  }
+  
+  console.log('[isManager] проверка:', { chatId, username, MANAGER_CHAT_ID, SUPPORT_USERNAME })
   
   // проверка по chat_id
-  if (MANAGER_CHAT_ID && String(chatId) === String(MANAGER_CHAT_ID)) {
-    return true
+  if (MANAGER_CHAT_ID) {
+    const isMatch = String(chatId) === String(MANAGER_CHAT_ID)
+    console.log('[isManager] проверка по chat_id:', isMatch, { chatId, MANAGER_CHAT_ID })
+    if (isMatch) {
+      return true
+    }
+  } else {
+    console.log('[isManager] TG_MANAGER_CHAT_ID не задан')
   }
   
   // проверка по username
   if (SUPPORT_USERNAME && username) {
     const supportUsername = SUPPORT_USERNAME.replace('@', '').toLowerCase()
     const userUsername = username.replace('@', '').toLowerCase()
-    if (userUsername === supportUsername) {
+    const isMatch = userUsername === supportUsername
+    console.log('[isManager] проверка по username:', isMatch, { userUsername, supportUsername })
+    if (isMatch) {
       return true
     }
+  } else {
+    console.log('[isManager] SUPPORT_USERNAME не задан или username отсутствует', { SUPPORT_USERNAME, username })
   }
   
+  console.log('[isManager] доступ запрещен')
   return false
 }
 
@@ -85,8 +101,11 @@ bot.command('broadcast', async (ctx) => {
   const chatId = ctx.from?.id
   const username = ctx.from?.username
   
+  console.log('[broadcast] запрос от:', { chatId, username, MANAGER_CHAT_ID, SUPPORT_USERNAME })
+  
   if (!isManager(chatId, username)) {
-    await ctx.reply('❌ У вас нет доступа к этой команде.')
+    const debugInfo = `\n\nDebug: chat_id=${chatId}, username=${username || 'нет'}, TG_MANAGER_CHAT_ID=${MANAGER_CHAT_ID || 'не задан'}, SUPPORT_USERNAME=${SUPPORT_USERNAME || 'не задан'}`
+    await ctx.reply('❌ У вас нет доступа к этой команде.' + debugInfo)
     return
   }
   
