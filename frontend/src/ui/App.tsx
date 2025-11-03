@@ -146,10 +146,40 @@ const ProductModal = ({
         {/* фото-галерея */}
         {product.images && product.images.length > 0 && (
           <div className="product-modal__gallery">
-            <div 
-              className="product-modal__image"
-              style={{ backgroundImage: `url(${product.images[selectedImageIndex]})` }}
-            />
+            <div className="product-modal__image-wrapper">
+              <div 
+                className="product-modal__image"
+                style={{ backgroundImage: `url(${product.images[selectedImageIndex]})` }}
+              />
+              {product.images.length > 1 && (
+                <>
+                  <button
+                    className="product-modal__arrow product-modal__arrow--prev"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setSelectedImageIndex(prev => prev === 0 ? product.images.length - 1 : prev - 1)
+                    }}
+                    aria-label="Предыдущее фото"
+                  >
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </button>
+                  <button
+                    className="product-modal__arrow product-modal__arrow--next"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setSelectedImageIndex(prev => prev === product.images.length - 1 ? 0 : prev + 1)
+                    }}
+                    aria-label="Следующее фото"
+                  >
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </button>
+                </>
+              )}
+            </div>
             {product.images.length > 1 && (
               <div className="product-modal__thumbnails">
                 {product.images.map((img, idx) => (
@@ -231,16 +261,269 @@ const ToastNotification = ({ message, onClose }: { message: string, onClose: () 
   )
 }
 
+type DeliveryRegion = 'moscow' | 'russia' | 'cis' | 'europe'
+
+const DELIVERY_COSTS: Record<DeliveryRegion, number> = {
+  moscow: 350,
+  russia: 500,
+  cis: 650,
+  europe: 1500
+}
+
+const DELIVERY_LABELS: Record<DeliveryRegion, string> = {
+  moscow: 'По Москве и МО',
+  russia: 'По России',
+  cis: 'СНГ',
+  europe: 'Европа'
+}
+
+// компонент выбора региона доставки
+const DeliveryRegionSelector = ({ 
+  onSelect 
+}: { 
+  onSelect: (region: DeliveryRegion) => void 
+}) => {
+  return (
+    <div className="delivery-region-selector">
+      <h3 className="delivery-region-selector__title">Выберите регион доставки</h3>
+      <div className="delivery-region-selector__grid">
+        {Object.entries(DELIVERY_LABELS).map(([key, label]) => (
+          <button
+            key={key}
+            className="delivery-region-selector__option"
+            onClick={() => onSelect(key as DeliveryRegion)}
+          >
+            <span className="delivery-region-selector__label">{label}</span>
+            <span className="delivery-region-selector__cost">{DELIVERY_COSTS[key as DeliveryRegion]} ₽</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// компонент формы оформления заказа
+const CheckoutForm = ({
+  deliveryRegion,
+  cartTotal,
+  onBack,
+  onSubmit
+}: {
+  deliveryRegion: DeliveryRegion
+  cartTotal: number
+  onBack: () => void
+  onSubmit: (data: any) => void
+}) => {
+  const [formData, setFormData] = useState({
+    fullName: '',
+    phone: '',
+    username: '',
+    country: '',
+    city: '',
+    address: '',
+    comments: ''
+  })
+  const [errors, setErrors] = useState<Record<string, string>>({})
+
+  // получаем username из Telegram
+  useEffect(() => {
+    try {
+      const tgUser = WebApp.initDataUnsafe?.user
+      if (tgUser?.username) {
+        setFormData(prev => ({ ...prev, username: `@${tgUser.username}` }))
+      }
+    } catch {}
+  }, [])
+
+  // автозаполнение страны
+  useEffect(() => {
+    if (deliveryRegion === 'moscow' || deliveryRegion === 'russia') {
+      setFormData(prev => ({ ...prev, country: 'Россия' }))
+    } else if (deliveryRegion === 'cis') {
+      setFormData(prev => ({ ...prev, country: '' })) // пользователь выбирает
+    } else if (deliveryRegion === 'europe') {
+      setFormData(prev => ({ ...prev, country: '' })) // пользователь заполняет на латинице
+    }
+  }, [deliveryRegion])
+
+  const isEurope = deliveryRegion === 'europe'
+  const deliveryCost = DELIVERY_COSTS[deliveryRegion]
+  const total = cartTotal + deliveryCost
+
+  const validate = () => {
+    const newErrors: Record<string, string> = {}
+    
+    if (!formData.fullName.trim()) {
+      newErrors.fullName = 'Обязательное поле'
+    }
+    
+    if (!formData.phone.trim()) {
+      newErrors.phone = 'Обязательное поле'
+    } else if (!/^[\d\s\-\+\(\)]+$/.test(formData.phone)) {
+      newErrors.phone = 'Некорректный номер телефона'
+    }
+    
+    if (!formData.country.trim()) {
+      newErrors.country = 'Обязательное поле'
+    }
+    
+    if (!formData.city.trim()) {
+      newErrors.city = 'Обязательное поле'
+    }
+    
+    if (!formData.address.trim()) {
+      newErrors.address = 'Обязательное поле'
+    }
+    
+    setErrors(newErrors)
+    return Object.keys(newErrors).length === 0
+  }
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (validate()) {
+      onSubmit({
+        ...formData,
+        deliveryRegion,
+        deliveryCost,
+        total
+      })
+    }
+  }
+
+  const handleChange = (field: string, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }))
+    if (errors[field]) {
+      setErrors(prev => ({ ...prev, [field]: '' }))
+    }
+  }
+
+  return (
+    <form className="checkout-form" onSubmit={handleSubmit}>
+      <button type="button" className="checkout-form__back" onClick={onBack}>
+        ← Назад
+      </button>
+      
+      <h3 className="checkout-form__title">Оформление заказа</h3>
+      
+      <div className="checkout-form__section">
+        <label className="checkout-form__label">
+          ФИО <span className="checkout-form__required">*</span>
+          <input
+            type="text"
+            className={`checkout-form__input ${errors.fullName ? 'error' : ''}`}
+            value={formData.fullName}
+            onChange={(e) => handleChange('fullName', e.target.value)}
+            placeholder={isEurope ? "Full Name" : "Иванов Иван Иванович"}
+          />
+          {errors.fullName && <span className="checkout-form__error">{errors.fullName}</span>}
+        </label>
+
+        <label className="checkout-form__label">
+          Номер телефона <span className="checkout-form__required">*</span>
+          <input
+            type="tel"
+            className={`checkout-form__input ${errors.phone ? 'error' : ''}`}
+            value={formData.phone}
+            onChange={(e) => handleChange('phone', e.target.value)}
+            placeholder={isEurope ? "+1234567890" : "+7 (999) 123-45-67"}
+          />
+          {errors.phone && <span className="checkout-form__error">{errors.phone}</span>}
+        </label>
+
+        <label className="checkout-form__label">
+          Telegram username
+          <input
+            type="text"
+            className="checkout-form__input"
+            value={formData.username}
+            disabled
+            placeholder="@username"
+          />
+        </label>
+
+        <label className="checkout-form__label">
+          Страна <span className="checkout-form__required">*</span>
+          <input
+            type="text"
+            className={`checkout-form__input ${errors.country ? 'error' : ''}`}
+            value={formData.country}
+            onChange={(e) => handleChange('country', e.target.value)}
+            placeholder={isEurope ? "Country" : "Россия"}
+          />
+          {errors.country && <span className="checkout-form__error">{errors.country}</span>}
+        </label>
+
+        <label className="checkout-form__label">
+          Город <span className="checkout-form__required">*</span>
+          <input
+            type="text"
+            className={`checkout-form__input ${errors.city ? 'error' : ''}`}
+            value={formData.city}
+            onChange={(e) => handleChange('city', e.target.value)}
+            placeholder={isEurope ? "City" : "Москва"}
+          />
+          {errors.city && <span className="checkout-form__error">{errors.city}</span>}
+        </label>
+
+        <label className="checkout-form__label">
+          {isEurope ? 'Домашний адрес' : 'Адрес пункта СДЭК'} <span className="checkout-form__required">*</span>
+          <input
+            type="text"
+            className={`checkout-form__input ${errors.address ? 'error' : ''}`}
+            value={formData.address}
+            onChange={(e) => handleChange('address', e.target.value)}
+            placeholder={isEurope ? "Street, Building, Apartment" : "Адрес пункта выдачи СДЭК"}
+          />
+          {errors.address && <span className="checkout-form__error">{errors.address}</span>}
+        </label>
+
+        <label className="checkout-form__label">
+          Комментарии
+          <textarea
+            className="checkout-form__textarea"
+            value={formData.comments}
+            onChange={(e) => handleChange('comments', e.target.value)}
+            placeholder={isEurope ? "Additional comments" : "Дополнительная информация к заказу"}
+            rows={3}
+          />
+        </label>
+      </div>
+
+      <div className="checkout-form__summary">
+        <div className="checkout-form__summary-row">
+          <span>Товары:</span>
+          <span>{cartTotal} ₽</span>
+        </div>
+        <div className="checkout-form__summary-row">
+          <span>Доставка ({DELIVERY_LABELS[deliveryRegion]}):</span>
+          <span>{deliveryCost} ₽</span>
+        </div>
+        <div className="checkout-form__summary-row checkout-form__summary-row--total">
+          <span>Итого:</span>
+          <strong>{total} ₽</strong>
+        </div>
+      </div>
+
+      <button type="submit" className="btn btn--primary checkout-form__submit">
+        Оформить заказ
+      </button>
+    </form>
+  )
+}
+
 const CartModal = ({ 
   cart, 
   products, 
   onUpdateCart, 
-  onClose 
+  onClose,
+  onCheckout
 }: { 
   cart: CartItem[]
   products: Product[]
   onUpdateCart: (slug: string, delta: number) => void
-  onClose: () => void 
+  onClose: () => void
+  onCheckout: () => void
 }) => {
   const cartItems = cart
     .map(item => {
@@ -257,6 +540,21 @@ const CartModal = ({
 
   const handleQuantityChange = (slug: string, delta: number) => {
     onUpdateCart(slug, delta)
+  }
+
+  const handleCheckout = () => {
+    // проверка stock перед оформлением заказа
+    const invalidItems = cartItems.filter(item => {
+      const maxQuantity = item.stock !== undefined ? item.stock : 999
+      return item.quantity > maxQuantity
+    })
+    
+    if (invalidItems.length > 0) {
+      alert(`Недостаточно товара в наличии для:\n${invalidItems.map(i => i.title).join('\n')}`)
+      return
+    }
+    
+    onCheckout()
   }
 
   return (
@@ -322,21 +620,7 @@ const CartModal = ({
                 <span>Итого:</span>
                 <strong>{total} ₽</strong>
               </div>
-              <button className="btn btn--primary" onClick={() => {
-                // проверка stock перед оформлением заказа
-                const invalidItems = cartItems.filter(item => {
-                  const maxQuantity = item.stock !== undefined ? item.stock : 999
-                  return item.quantity > maxQuantity
-                })
-                
-                if (invalidItems.length > 0) {
-                  alert(`Недостаточно товара в наличии для:\n${invalidItems.map(i => i.title).join('\n')}`)
-                  return
-                }
-                
-                // TODO: отправка заказа на бэкенд
-                alert('Оформление заказа скоро будет доступно')
-              }}>
+              <button className="btn btn--primary" onClick={handleCheckout}>
                 Оформить заказ
               </button>
             </div>
@@ -350,6 +634,9 @@ const CartModal = ({
 export default function App() {
   const [aboutModalOpen, setAboutModalOpen] = useState(false)
   const [cartOpen, setCartOpen] = useState(false)
+  const [checkoutOpen, setCheckoutOpen] = useState(false)
+  const [checkoutStep, setCheckoutStep] = useState<'region' | 'form'>('region')
+  const [deliveryRegion, setDeliveryRegion] = useState<DeliveryRegion | null>(null)
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [products, setProducts] = useState<Product[]>([])
@@ -400,6 +687,12 @@ export default function App() {
   }
 
   const cartTotal = cart.reduce((sum, item) => sum + item.quantity, 0)
+  
+  // расчет суммы корзины
+  const cartTotalPrice = cart.reduce((sum, item) => {
+    const product = products.find(p => p.slug === item.slug)
+    return sum + (product ? product.price_rub * item.quantity : 0)
+  }, 0)
 
   const handleAddedToCart = () => {
     setToastMessage('Товар добавлен в корзину')
@@ -431,7 +724,14 @@ export default function App() {
 
   useEffect(() => {
     const handleBackButtonClick = () => {
-      if (selectedProduct) {
+      if (checkoutOpen) {
+        if (checkoutStep === 'form') {
+          setCheckoutStep('region')
+        } else {
+          setCheckoutOpen(false)
+          setCartOpen(true)
+        }
+      } else if (selectedProduct) {
         setSelectedProduct(null)
       } else if (cartOpen) {
         setCartOpen(false)
@@ -442,14 +742,14 @@ export default function App() {
       }
     }
 
-    if (selectedProduct || cartOpen || aboutModalOpen || selectedCategory) {
+    if (selectedProduct || cartOpen || aboutModalOpen || selectedCategory || checkoutOpen) {
       WebApp.BackButton.show()
       WebApp.BackButton.onClick(handleBackButtonClick)
     } else {
       WebApp.BackButton.hide()
     }
 
-    if (selectedProduct || cartOpen || aboutModalOpen) {
+    if (selectedProduct || cartOpen || aboutModalOpen || checkoutOpen) {
       document.body.style.overflow = 'hidden'
     } else {
       document.body.style.overflow = 'unset'
@@ -459,7 +759,27 @@ export default function App() {
       WebApp.BackButton.offClick(handleBackButtonClick)
       document.body.style.overflow = 'unset'
     }
-  }, [selectedProduct, cartOpen, aboutModalOpen, selectedCategory])
+  }, [selectedProduct, cartOpen, aboutModalOpen, selectedCategory, checkoutOpen, checkoutStep])
+
+  const handleCheckoutStart = () => {
+    setCartOpen(false)
+    setCheckoutOpen(true)
+    setCheckoutStep('region')
+    setDeliveryRegion(null)
+  }
+
+  const handleDeliveryRegionSelect = (region: DeliveryRegion) => {
+    setDeliveryRegion(region)
+    setCheckoutStep('form')
+  }
+
+  const handleCheckoutSubmit = (data: any) => {
+    // TODO: отправка заказа на бэкенд
+    console.log('Order data:', data)
+    alert('Заказ оформлен! Данные будут отправлены менеджеру.')
+    setCheckoutOpen(false)
+    setCart([])
+  }
 
 
   // фильтруем товары по категории
@@ -580,7 +900,26 @@ export default function App() {
           products={products}
           onUpdateCart={updateCart}
           onClose={() => setCartOpen(false)}
+          onCheckout={handleCheckoutStart}
         />
+      )}
+      
+      {checkoutOpen && (
+        <div className="modal-overlay" onClick={() => setCheckoutOpen(false)}>
+          <div className="modal-content modal-content--checkout" onClick={e => e.stopPropagation()}>
+            <button className="modal-close" onClick={() => setCheckoutOpen(false)}>&times;</button>
+            {checkoutStep === 'region' ? (
+              <DeliveryRegionSelector onSelect={handleDeliveryRegionSelect} />
+            ) : deliveryRegion && (
+              <CheckoutForm
+                deliveryRegion={deliveryRegion}
+                cartTotal={cartTotalPrice}
+                onBack={() => setCheckoutStep('region')}
+                onSubmit={handleCheckoutSubmit}
+              />
+            )}
+          </div>
+        </div>
       )}
     </>
   )
