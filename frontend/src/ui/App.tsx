@@ -115,10 +115,9 @@ const FullscreenImage = ({
         pagination={{ clickable: true }}
         initialSlide={currentIndex}
         onSlideChange={(swiper: SwiperClass) => onNavigate(swiper.activeIndex)}
-        onClick={(e: React.MouseEvent) => e.stopPropagation()}
       >
         {images.map((img, idx) => (
-          <SwiperSlide key={idx}>
+          <SwiperSlide key={idx} onClick={(e) => e.stopPropagation()}>
             <img src={img} alt={`Товар (фото ${idx + 1})`} className="fullscreen-image__img" />
           </SwiperSlide>
         ))}
