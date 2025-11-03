@@ -33,8 +33,10 @@
 - ссылка на таблицу: `https://docs.google.com/spreadsheets/d/1aqnsr0oseSfm5ZErHaz9sl_eUMdJQGpnERrdf3ztZvI/edit?usp=sharing`
 - структура: **5 листов по категориям** — `ягоды`, `шея`, `руки`, `уши`, `сертификаты`
 - колонки в каждом листе (первая строка — заголовки):
-  - `id`, `slug`, `title`, `description`, `price_rub`, `images`, `active`, `stock`
+  - **обязательные**: `slug`, `title`, `price_rub`, `images`, `active`
+  - **опциональные**: `id`, `description`, `stock`
   - колонка `category` не нужна — категория проставляется автоматически по имени листа
+  - `id` можно не заполнять — товары идентифицируются по `slug`
   - `images`: список url через запятую
 - определения:
   - slug — человеко‑читаемый уникальный идентификатор товара в url/ссылках (латиница, дефисы), пример: `berry-bracelet-rose`.
