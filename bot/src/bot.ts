@@ -3,6 +3,7 @@ import { Bot, InlineKeyboard } from 'grammy';
 import { InputFile } from 'grammy';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'node:fs';
 
 const token = process.env.TG_BOT_TOKEN;
 if (!token) {
@@ -24,8 +25,55 @@ const MANAGER_CHAT_ID = process.env.TG_MANAGER_CHAT_ID;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// путь к файлу для хранения chat_id пользователей
+const USER_CHAT_IDS_FILE = path.join(__dirname, '..', 'user-chat-ids.json');
+
 // хранилище chat_id всех пользователей для рассылки
 const userChatIds = new Set<string | number>();
+
+// загружаем список chat_id из файла при запуске
+function loadUserChatIds(): Set<string | number> {
+  try {
+    if (fs.existsSync(USER_CHAT_IDS_FILE)) {
+      const data = fs.readFileSync(USER_CHAT_IDS_FILE, 'utf8');
+      const ids = JSON.parse(data);
+      if (Array.isArray(ids)) {
+        const set = new Set<string | number>();
+        ids.forEach(id => set.add(id));
+        console.log(`[loadUserChatIds] загружено ${set.size} chat_id из файла`);
+        return set;
+      }
+    }
+  } catch (error: any) {
+    console.warn('[loadUserChatIds] ошибка при загрузке файла:', error?.message);
+  }
+  return new Set<string | number>();
+}
+
+// сохраняем список chat_id в файл
+function saveUserChatIds(set: Set<string | number>) {
+  try {
+    const ids = Array.from(set);
+    fs.writeFileSync(USER_CHAT_IDS_FILE, JSON.stringify(ids, null, 2), 'utf8');
+    console.log(`[saveUserChatIds] сохранено ${ids.length} chat_id в файл`);
+  } catch (error: any) {
+    console.error('[saveUserChatIds] ошибка при сохранении файла:', error?.message);
+  }
+}
+
+// добавляем chat_id и сохраняем в файл
+function addUserChatId(chatId: string | number) {
+  if (!chatId) return
+  const wasNew = !userChatIds.has(chatId)
+  userChatIds.add(chatId)
+  if (wasNew) {
+    saveUserChatIds(userChatIds)
+  }
+}
+
+// инициализируем список при запуске
+const loadedIds = loadUserChatIds()
+loadedIds.forEach(id => userChatIds.add(id))
 
 // проверка что пользователь - менеджер
 function isManager(chatId: string | number | undefined, username?: string): boolean {
@@ -131,7 +179,7 @@ bot.command('start', async (ctx) => {
   // сохраняем chat_id пользователя для рассылки
   const chatId = ctx.from?.id
   if (chatId) {
-    userChatIds.add(chatId)
+    addUserChatId(chatId)
   }
   
   // проверяем параметры deep link (для возврата после оплаты)
@@ -184,7 +232,7 @@ bot.on('message', async (ctx) => {
   
   // сохраняем chat_id пользователя
   if (chatId) {
-    userChatIds.add(chatId)
+    addUserChatId(chatId)
   }
   
   // если менеджер в режиме рассылки
