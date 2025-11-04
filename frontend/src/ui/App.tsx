@@ -855,9 +855,19 @@ export default function App() {
   const [orderId, setOrderId] = useState<string | null>(null)
   const [paymentStatus, setPaymentStatus] = useState<'success' | 'fail' | null>(null)
   const mainContentRef = useRef<HTMLElement>(null)
+  const productsTitleRef = useRef<HTMLHeadingElement>(null)
   
   // предзагрузка фонового изображения
   const { loaded: headerImageLoaded } = useImagePreload(backgroundImage)
+  
+  // прокрутка к заголовку категории при выборе категории
+  useEffect(() => {
+    if (selectedCategory && productsTitleRef.current) {
+      setTimeout(() => {
+        productsTitleRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 100) // небольшая задержка чтобы анимация успела начаться
+    }
+  }, [selectedCategory])
   
   // обработка возврата после оплаты
   useEffect(() => {
@@ -1147,7 +1157,7 @@ export default function App() {
               exit="out"
               transition={{ duration: 0.3 }}
             >
-              <h2 className="products-section__title">
+              <h2 ref={productsTitleRef} className="products-section__title">
                 {categories.find(c => c.key === selectedCategory)?.title}
               </h2>
               {loading ? (

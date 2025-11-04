@@ -216,7 +216,7 @@ bot.command('start', async (ctx) => {
   const kb = new InlineKeyboard().webApp('KOSHEK JEWERLY🐾', WEBAPP_URL);
   const photoPath = path.join(__dirname, '..', 'assets', 'bot-greeting.jpg');
   await ctx.replyWithPhoto(new InputFile(photoPath), {
-    caption: 'Добро пожаловать в мир KOSHEK.\nЗдесь вы можете оформить свой заказ. 💖',
+    caption: 'Нажми на кнопку, чтоб перейти в каталог 👇🏽',
     reply_markup: kb,
   });
 });
