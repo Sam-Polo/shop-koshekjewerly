@@ -862,10 +862,21 @@ export default function App() {
   
   // прокрутка к заголовку категории при выборе категории
   useEffect(() => {
-    if (selectedCategory && productsTitleRef.current) {
-      setTimeout(() => {
-        productsTitleRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      }, 100) // небольшая задержка чтобы анимация успела начаться
+    if (selectedCategory) {
+      // используем requestAnimationFrame для ожидания рендера
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          // ищем заголовок по селектору, так как ref может быть не готов
+          const titleElement = document.querySelector('.products-section__title') as HTMLElement
+          if (titleElement) {
+            const offset = titleElement.getBoundingClientRect().top + window.pageYOffset - 20 // небольшой отступ сверху
+            window.scrollTo({
+              top: offset,
+              behavior: 'smooth'
+            })
+          }
+        })
+      })
     }
   }, [selectedCategory])
   
