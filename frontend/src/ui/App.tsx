@@ -860,12 +860,12 @@ export default function App() {
   // предзагрузка фонового изображения
   const { loaded: headerImageLoaded } = useImagePreload(backgroundImage)
   
-  // прокрутка к началу списка товаров при выборе категории (как при выходе из категории)
+  // прокрутка к началу списка товаров при выборе категории
   useEffect(() => {
-    if (selectedCategory && mainContentRef.current) {
+    if (selectedCategory) {
       // небольшая задержка чтобы анимация успела начаться
       setTimeout(() => {
-        mainContentRef.current?.scrollIntoView({ behavior: 'smooth' })
+        productsTitleRef.current?.scrollIntoView({ behavior: 'smooth' })
       }, 50)
     }
   }, [selectedCategory])
