@@ -860,16 +860,6 @@ export default function App() {
   // предзагрузка фонового изображения
   const { loaded: headerImageLoaded } = useImagePreload(backgroundImage)
   
-  // прокрутка к началу списка товаров при выборе категории
-  useEffect(() => {
-    if (selectedCategory) {
-      // небольшая задержка чтобы анимация успела начаться
-      setTimeout(() => {
-        productsTitleRef.current?.scrollIntoView({ behavior: 'smooth' })
-      }, 50)
-    }
-  }, [selectedCategory])
-  
   // обработка возврата после оплаты
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search)
@@ -1157,6 +1147,9 @@ export default function App() {
               animate="in"
               exit="out"
               transition={{ duration: 0.3 }}
+              onAnimationComplete={() => {
+                productsTitleRef.current?.scrollIntoView({ behavior: 'smooth' })
+              }}
             >
               <h2 ref={productsTitleRef} className="products-section__title">
                 {categories.find(c => c.key === selectedCategory)?.title}
