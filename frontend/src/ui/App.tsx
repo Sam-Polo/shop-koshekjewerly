@@ -860,23 +860,13 @@ export default function App() {
   // предзагрузка фонового изображения
   const { loaded: headerImageLoaded } = useImagePreload(backgroundImage)
   
-  // прокрутка к заголовку категории при выборе категории
+  // прокрутка к началу списка товаров при выборе категории (как при выходе из категории)
   useEffect(() => {
-    if (selectedCategory) {
-      // используем requestAnimationFrame для ожидания рендера
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          // ищем заголовок по селектору, так как ref может быть не готов
-          const titleElement = document.querySelector('.products-section__title') as HTMLElement
-          if (titleElement) {
-            const offset = titleElement.getBoundingClientRect().top + window.pageYOffset - 20 // небольшой отступ сверху
-            window.scrollTo({
-              top: offset,
-              behavior: 'smooth'
-            })
-          }
-        })
-      })
+    if (selectedCategory && mainContentRef.current) {
+      // небольшая задержка чтобы анимация успела начаться
+      setTimeout(() => {
+        mainContentRef.current?.scrollIntoView({ behavior: 'smooth' })
+      }, 50)
     }
   }, [selectedCategory])
   
