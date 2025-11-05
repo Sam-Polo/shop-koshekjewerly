@@ -49,18 +49,7 @@ const categories: Category[] = [
 ]
 
 const ImageWithLoader = ({ src, alt }: { src: string, alt: string }) => {
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(false)
-
-  useEffect(() => {
-    const img = new Image()
-    img.src = src
-    img.onload = () => setLoading(false)
-    img.onerror = () => {
-      setLoading(false)
-      setError(true)
-    }
-  }, [src])
+  const { loading, error } = useImageLoader(src)
 
   if (error) {
     return (
@@ -74,11 +63,12 @@ const ImageWithLoader = ({ src, alt }: { src: string, alt: string }) => {
     )
   }
 
-  if (loading) {
-    return <div className="product-card__image shimmer-bg" />
-  }
-
-  return <div className="product-card__image" style={{ backgroundImage: `url(${src})` }} />
+  return (
+    <div
+      className={`product-card__image ${loading ? 'shimmer-bg' : 'fade-in-image'}`}
+      style={loading ? {} : { backgroundImage: `url(${src})` }}
+    />
+  )
 }
 
 const AccordionItem = ({ question, children }: { question: string, children: React.ReactNode }) => {
@@ -236,7 +226,7 @@ const ProductModal = ({
           <div className="product-modal__gallery">
             <div className="product-modal__image-wrapper">
               <div 
-                className={`product-modal__image ${mainImageLoading ? 'shimmer-bg' : ''}`}
+                className={`product-modal__image ${mainImageLoading ? 'shimmer-bg' : 'fade-in-image'}`}
                 style={
                   mainImageLoading 
                     ? {} 
@@ -888,7 +878,7 @@ const ThumbnailButton = ({
 
   return (
     <button
-      className={`product-modal__thumbnail ${isActive ? 'active' : ''} ${loading ? 'shimmer-bg' : ''}`}
+      className={`product-modal__thumbnail ${isActive ? 'active' : ''} ${loading ? 'shimmer-bg' : 'fade-in-image'}`}
       onClick={onClick}
       style={loading ? {} : { backgroundImage: `url(${src})` }}
       aria-label={ariaLabel}

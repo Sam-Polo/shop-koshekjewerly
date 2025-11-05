@@ -413,3 +413,13 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 }
 
 
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.fade-in-image {
+  animation: fadeIn 0.5s ease-in-out;
+}
+
+
