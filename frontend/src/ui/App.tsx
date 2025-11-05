@@ -237,11 +237,11 @@ const ProductModal = ({
             <div className="product-modal__image-wrapper">
               <div 
                 className={`product-modal__image ${mainImageLoading ? 'shimmer-bg' : ''}`}
-                style={{ 
-                  backgroundImage: mainImageLoading 
-                    ? 'none' 
-                    : `url(${product.images[selectedImageIndex]})` 
-                }}
+                style={
+                  mainImageLoading 
+                    ? {} 
+                    : { backgroundImage: `url(${product.images[selectedImageIndex]})` }
+                }
                 onClick={() => setFullscreenImage(product.images[selectedImageIndex])}
               />
               {product.images.length > 1 && (
@@ -890,7 +890,7 @@ const ThumbnailButton = ({
     <button
       className={`product-modal__thumbnail ${isActive ? 'active' : ''} ${loading ? 'shimmer-bg' : ''}`}
       onClick={onClick}
-      style={{ backgroundImage: loading ? 'none' : `url(${src})` }}
+      style={loading ? {} : { backgroundImage: `url(${src})` }}
       aria-label={ariaLabel}
     />
   )
