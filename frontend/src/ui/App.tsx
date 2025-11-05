@@ -49,21 +49,16 @@ const categories: Category[] = [
 ]
 
 const ImageWithLoader = ({ src, alt }: { src: string, alt: string }) => {
-  const [loaded, setLoaded] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
 
   useEffect(() => {
-    if (!src) {
-      setError(true)
-      setLoaded(true)
-      return
-    }
     const img = new Image()
     img.src = src
-    img.onload = () => setLoaded(true)
+    img.onload = () => setLoading(false)
     img.onerror = () => {
+      setLoading(false)
       setError(true)
-      setLoaded(true)
     }
   }, [src])
 
@@ -79,13 +74,11 @@ const ImageWithLoader = ({ src, alt }: { src: string, alt: string }) => {
     )
   }
 
-  return (
-    <div 
-      className={`product-card__image ${loaded ? 'loaded' : 'loading'}`} 
-      style={{ backgroundImage: `url(${src})` }} 
-      aria-label={alt}
-    />
-  )
+  if (loading) {
+    return <div className="product-card__image shimmer-bg" />
+  }
+
+  return <div className="product-card__image" style={{ backgroundImage: `url(${src})` }} />
 }
 
 const AccordionItem = ({ question, children }: { question: string, children: React.ReactNode }) => {
@@ -185,6 +178,9 @@ const ProductModal = ({
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null)
   const [isAdding, setIsAdding] = useState(false)
   const [addedState, setAddedState] = useState(false)
+  const { loading: mainImageLoading } = useImageLoader(
+    product.images?.[selectedImageIndex] || ''
+  )
   const cartItem = cart.find(item => item.slug === product.slug)
   const currentQuantity = cartItem?.quantity || 0
   const maxQuantity = product.stock !== undefined ? product.stock : 999
@@ -240,8 +236,12 @@ const ProductModal = ({
           <div className="product-modal__gallery">
             <div className="product-modal__image-wrapper">
               <div 
-                className="product-modal__image"
-                style={{ backgroundImage: `url(${product.images[selectedImageIndex]})` }}
+                className={`product-modal__image ${mainImageLoading ? 'shimmer-bg' : ''}`}
+                style={{ 
+                  backgroundImage: mainImageLoading 
+                    ? 'none' 
+                    : `url(${product.images[selectedImageIndex]})` 
+                }}
                 onClick={() => setFullscreenImage(product.images[selectedImageIndex])}
               />
               {product.images.length > 1 && (
@@ -272,11 +272,11 @@ const ProductModal = ({
             {product.images.length > 1 && (
               <div className="product-modal__thumbnails">
                 {product.images.map((img, idx) => (
-                  <button
+                  <ThumbnailButton
                     key={idx}
-                    className={`product-modal__thumbnail ${selectedImageIndex === idx ? 'active' : ''}`}
+                    src={img}
+                    isActive={selectedImageIndex === idx}
                     onClick={() => setSelectedImageIndex(idx)}
-                    style={{ backgroundImage: `url(${img})` }}
                     aria-label={`Фото ${idx + 1}`}
                   />
                 ))}
@@ -826,6 +826,33 @@ function useImagePreload(src: string) {
   return { loaded, error }
 }
 
+// хук для отслеживания загрузки изображений в модалке
+function useImageLoader(src: string) {
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
+
+  useEffect(() => {
+    setLoading(true)
+    setError(false)
+    
+    if (!src) {
+      setError(true)
+      setLoading(false)
+      return
+    }
+    
+    const img = new Image()
+    img.src = src
+    img.onload = () => setLoading(false)
+    img.onerror = () => {
+      setError(true)
+      setLoading(false)
+    }
+  }, [src])
+
+  return { loading, error }
+}
+
 // компонент категории с предзагрузкой изображения
 const CategoryCard = ({ card, onSelect }: { card: Category, onSelect: () => void }) => {
   const { loaded } = useImagePreload(card.image)
@@ -843,6 +870,29 @@ const CategoryCard = ({ card, onSelect }: { card: Category, onSelect: () => void
         {card.description && <p className="category-card__description">{card.description}</p>}
       </div>
     </button>
+  )
+}
+
+const ThumbnailButton = ({ 
+  src, 
+  isActive, 
+  onClick,
+  'aria-label': ariaLabel
+}: { 
+  src: string
+  isActive: boolean
+  onClick: () => void
+  'aria-label': string
+}) => {
+  const { loading } = useImageLoader(src)
+
+  return (
+    <button
+      className={`product-modal__thumbnail ${isActive ? 'active' : ''} ${loading ? 'shimmer-bg' : ''}`}
+      onClick={onClick}
+      style={{ backgroundImage: loading ? 'none' : `url(${src})` }}
+      aria-label={ariaLabel}
+    />
   )
 }
 
