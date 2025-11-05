@@ -49,16 +49,21 @@ const categories: Category[] = [
 ]
 
 const ImageWithLoader = ({ src, alt }: { src: string, alt: string }) => {
-  const [loading, setLoading] = useState(true)
+  const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState(false)
 
   useEffect(() => {
+    if (!src) {
+      setError(true)
+      setLoaded(true)
+      return
+    }
     const img = new Image()
     img.src = src
-    img.onload = () => setLoading(false)
+    img.onload = () => setLoaded(true)
     img.onerror = () => {
-      setLoading(false)
       setError(true)
+      setLoaded(true)
     }
   }, [src])
 
@@ -74,11 +79,13 @@ const ImageWithLoader = ({ src, alt }: { src: string, alt: string }) => {
     )
   }
 
-  if (loading) {
-    return <div className="product-card__image shimmer-bg" />
-  }
-
-  return <div className="product-card__image" style={{ backgroundImage: `url(${src})` }} />
+  return (
+    <div 
+      className={`product-card__image ${loaded ? 'loaded' : 'loading'}`} 
+      style={{ backgroundImage: `url(${src})` }} 
+      aria-label={alt}
+    />
+  )
 }
 
 const AccordionItem = ({ question, children }: { question: string, children: React.ReactNode }) => {
@@ -859,6 +866,7 @@ export default function App() {
   
   // предзагрузка фонового изображения
   const { loaded: headerImageLoaded } = useImagePreload(backgroundImage)
+  const { loaded: logoImageLoaded } = useImagePreload(logoImage)
   
   // обработка возврата после оплаты
   useEffect(() => {
@@ -1106,7 +1114,7 @@ export default function App() {
           className="page-header__background"
           style={{ backgroundImage: `url(${backgroundImage})` }}
         />
-        <img src={logoImage} alt="KOSHEK logo" className="header-logo" />
+        <img src={logoImage} alt="KOSHEK logo" className={`header-logo ${logoImageLoaded ? 'image-loaded' : ''}`} />
         <h1 className="page-header__title">KOSHEK</h1>
         <p className="page-header__text">Girls выбирают KOSHEK и бриллианты.</p>
         <button
