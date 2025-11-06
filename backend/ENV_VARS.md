@@ -57,6 +57,7 @@ curl -X POST "http://localhost:4000/admin/import/sheets" \
 опциональные:
 - VITE_API_URL — url бэкенда (по умолчанию: `/api`)
 - VITE_SUPPORT_USERNAME — username менеджера без @ (для ссылок на менеджера, по умолчанию: `koshekmanager`)
+- VITE_BOT_USERNAME — username бота без @ (для ссылок на бота в модалке "заказ через Telegram", по умолчанию: `koshekjewerlybot`)
 - VITE_TEST_PRODUCT_SLUG — slug тестового товара (для отключения доставки при тестировании оплаты)
   - если в корзине только тестовый товар - доставка будет бесплатной
   - если есть обычные товары - доставка считается как обычно

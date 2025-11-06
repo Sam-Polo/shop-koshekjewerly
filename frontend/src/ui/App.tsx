@@ -379,6 +379,69 @@ const ToastNotification = ({ message, onClose }: { message: string, onClose: () 
   )
 }
 
+// модальное окно с информацией о необходимости зайти через Telegram
+const TelegramRequiredModal = ({ 
+  onClose
+}: { 
+  onClose: () => void
+}) => {
+  const botUsername = import.meta.env.VITE_BOT_USERNAME || 'koshekjewerlybot'
+  
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content modal-content--success" onClick={e => e.stopPropagation()}>
+        <button className="modal-close" onClick={onClose}>&times;</button>
+        <div className="order-success">
+          <div className="order-success__icon" style={{ background: '#bf9243' }}>📱</div>
+          <h2 className="order-success__title">Заказ через Telegram</h2>
+          <p className="order-success__text">
+            Для оформления заказа необходимо зайти через Telegram бота.
+          </p>
+          <p className="order-success__text" style={{ marginTop: '16px' }}>
+            Перейдите в бота: <strong>@{botUsername}</strong>
+          </p>
+          <button className="btn btn--primary order-success__button" onClick={onClose} style={{ marginTop: '24px' }}>
+            Понятно
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// модальное окно перед перенаправлением на оплату
+const PaymentRedirectModal = ({ 
+  onConfirm,
+  onCancel
+}: { 
+  onConfirm: () => void
+  onCancel: () => void
+}) => {
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal-content modal-content--success" onClick={e => e.stopPropagation()}>
+        <button className="modal-close" onClick={onCancel}>&times;</button>
+        <div className="order-success">
+          <div className="order-success__icon" style={{ background: '#bf9243' }}>💳</div>
+          <h2 className="order-success__title">Переход к оплате</h2>
+          <p className="order-success__text">
+            Вы будете перенаправлены на сайт платежной системы.<br/><br/>
+            Сразу после оплаты бот отправит Вам информацию о заказе в сообщениях.
+          </p>
+          <div style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
+            <button className="btn btn--primary order-success__button" onClick={onConfirm} style={{ flex: 1 }}>
+              Перейти к оплате
+            </button>
+            <button className="btn" onClick={onCancel} style={{ flex: 1, background: '#f5f5f5', color: '#666' }}>
+              Отмена
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const OrderSuccessModal = ({ 
   orderId, 
   paymentStatus,
@@ -1005,6 +1068,9 @@ export default function App() {
   const [orderSuccessOpen, setOrderSuccessOpen] = useState(false)
   const [orderId, setOrderId] = useState<string | null>(null)
   const [paymentStatus, setPaymentStatus] = useState<'success' | 'fail' | null>(null)
+  const [paymentRedirectOpen, setPaymentRedirectOpen] = useState(false)
+  const [pendingPaymentUrl, setPendingPaymentUrl] = useState<string | null>(null)
+  const [telegramRequiredOpen, setTelegramRequiredOpen] = useState(false)
   const mainContentRef = useRef<HTMLElement>(null)
   const productsTitleRef = useRef<HTMLHeadingElement>(null)
   
@@ -1114,9 +1180,21 @@ export default function App() {
     } catch {}
   }, [])
 
+  // обработчик отмены перехода к оплате
+  const handlePaymentCancel = () => {
+    setPaymentRedirectOpen(false)
+    setPendingPaymentUrl(null)
+    // возвращаемся к оформлению заказа
+    setCheckoutOpen(true)
+  }
+
   useEffect(() => {
     const handleBackButtonClick = () => {
-      if (checkoutOpen) {
+      if (telegramRequiredOpen) {
+        setTelegramRequiredOpen(false)
+      } else if (paymentRedirectOpen) {
+        handlePaymentCancel()
+      } else if (checkoutOpen) {
         if (checkoutStep === 'form') {
           setCheckoutStep('region')
         } else {
@@ -1135,14 +1213,14 @@ export default function App() {
       }
     }
 
-    if (selectedProduct || cartOpen || aboutModalOpen || selectedCategory || checkoutOpen) {
+    if (selectedProduct || cartOpen || aboutModalOpen || selectedCategory || checkoutOpen || paymentRedirectOpen || telegramRequiredOpen) {
       WebApp.BackButton.show()
       WebApp.BackButton.onClick(handleBackButtonClick)
     } else {
       WebApp.BackButton.hide()
     }
 
-    if (selectedProduct || cartOpen || aboutModalOpen || checkoutOpen) {
+    if (selectedProduct || cartOpen || aboutModalOpen || checkoutOpen || paymentRedirectOpen || telegramRequiredOpen) {
       document.body.style.overflow = 'hidden'
     } else {
       document.body.style.overflow = 'unset'
@@ -1152,13 +1230,69 @@ export default function App() {
       WebApp.BackButton.offClick(handleBackButtonClick)
       document.body.style.overflow = 'unset'
     }
-  }, [selectedProduct, cartOpen, aboutModalOpen, selectedCategory, checkoutOpen, checkoutStep])
+  }, [selectedProduct, cartOpen, aboutModalOpen, selectedCategory, checkoutOpen, checkoutStep, paymentRedirectOpen, telegramRequiredOpen])
+
+  // проверяем наличие валидного initData от Telegram
+  const hasValidInitData = (): boolean => {
+    try {
+      const initData = WebApp.initData || ''
+      if (!initData) {
+        return false
+      }
+      
+      // проверяем что initData содержит хотя бы user параметр
+      const params = new URLSearchParams(initData)
+      const userParam = params.get('user')
+      if (!userParam) {
+        return false
+      }
+      
+      // проверяем что user содержит id
+      try {
+        const user = JSON.parse(userParam)
+        if (!user.id) {
+          return false
+        }
+      } catch {
+        return false
+      }
+      
+      return true
+    } catch {
+      return false
+    }
+  }
 
   const handleCheckoutStart = () => {
+    // проверяем наличие валидного initData
+    if (!hasValidInitData()) {
+      setCartOpen(false)
+      setTelegramRequiredOpen(true)
+      return
+    }
+    
     setCartOpen(false)
     setCheckoutOpen(true)
     setCheckoutStep('region')
     setDeliveryRegion(null)
+  }
+
+  // обработчик подтверждения перехода к оплате
+  const handlePaymentConfirm = () => {
+    if (pendingPaymentUrl) {
+      setPaymentRedirectOpen(false)
+      setCart([])
+      // используем Telegram WebApp API для открытия внешней ссылки
+      // это позволяет вернуться назад в приложение
+      try {
+        WebApp.openLink(pendingPaymentUrl)
+      } catch (e) {
+        // fallback если WebApp API недоступен
+        console.warn('WebApp.openLink недоступен, используем window.open')
+        window.open(pendingPaymentUrl, '_blank')
+      }
+      setPendingPaymentUrl(null)
+    }
   }
 
   const handleDeliveryRegionSelect = (region: DeliveryRegion) => {
@@ -1204,19 +1338,11 @@ export default function App() {
 
       const result = await response.json()
       
-      // если есть URL оплаты, открываем через Telegram WebApp API
+      // если есть URL оплаты, показываем информационное окно перед редиректом
       if (result.paymentUrl) {
+        setPendingPaymentUrl(result.paymentUrl)
         setCheckoutOpen(false)
-        setCart([])
-        // используем Telegram WebApp API для открытия внешней ссылки
-        // это позволяет вернуться назад в приложение
-        try {
-          WebApp.openLink(result.paymentUrl)
-        } catch (e) {
-          // fallback если WebApp API недоступен
-          console.warn('WebApp.openLink недоступен, используем window.open')
-          window.open(result.paymentUrl, '_blank')
-        }
+        setPaymentRedirectOpen(true)
       } else {
         // если оплата не требуется (на всякий случай fallback)
         setOrderId(result.orderId || null)
@@ -1418,6 +1544,19 @@ export default function App() {
           </div>
       )}
       
+          {telegramRequiredOpen && (
+            <TelegramRequiredModal
+              onClose={() => setTelegramRequiredOpen(false)}
+            />
+          )}
+          
+          {paymentRedirectOpen && (
+            <PaymentRedirectModal
+              onConfirm={handlePaymentConfirm}
+              onCancel={handlePaymentCancel}
+            />
+          )}
+          
           {orderSuccessOpen && (
             <OrderSuccessModal 
               orderId={orderId || undefined}
