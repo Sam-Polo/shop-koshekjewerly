@@ -88,31 +88,59 @@ const AccordionItem = ({ question, children }: { question: string, children: Rea
   )
 }
 
-const AboutUsModal = ({ onClose }: { onClose: () => void }) => (
-  <div className="modal-overlay" onClick={onClose}>
-    <div className="modal-content" onClick={e => e.stopPropagation()}>
-      <button className="modal-close" onClick={onClose}>&times;</button>
-      <h3>О нас</h3>
-      <p>ИП Силинская Олеся Станиславовна</p>
-      <p>ИНН: 644112679372</p>
-      <p>ОГРН: 318645100109495</p>
-      <br />
-      <p>Пока у нас нет оффлайн магазина, но мы принимаем заказы онлайн.</p>
-      <p>Больше ассортимента и интересных предложений в наших социальных сетях.</p>
-      <br />
-      <h4>Ответы на ваши вопросы:</h4>
-      <AccordionItem question="Как долго ждать?">
-        <p>— Изготовление и сборка занимает 2-3 дня. Изделия из special collection (ягоды) около 4-6 дней.</p>
-      </AccordionItem>
-      <AccordionItem question="Как происходит доставка?">
-        <p>— По Москве и МО: 350₽</p>
-        <p>— По России: 500₽</p>
-        <p>— СНГ: 650₽</p>
-        <p>— Европа: 1500₽</p>
-      </AccordionItem>
+// получаем username менеджера из переменных окружения
+const getSupportUsername = () => {
+  return import.meta.env.VITE_SUPPORT_USERNAME || 'koshekmanager'
+}
+
+// компонент для кликабельной ссылки на менеджера
+const ManagerLink = ({ children }: { children: React.ReactNode }) => {
+  const username = getSupportUsername()
+  const handleClick = (e: React.MouseEvent) => {
+    e.preventDefault()
+    window.open(`https://t.me/${username.replace('@', '')}`, '_blank')
+  }
+  return (
+    <a href={`https://t.me/${username.replace('@', '')}`} onClick={handleClick} className="manager-link">
+      {children}
+    </a>
+  )
+}
+
+const AboutUsModal = ({ onClose }: { onClose: () => void }) => {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={e => e.stopPropagation()}>
+        <button className="modal-close" onClick={onClose}>&times;</button>
+        <h3>О нас</h3>
+        <p>ИП Силинская Олеся Станиславовна</p>
+        <p>ИНН: 644112679372</p>
+        <p>ОГРН: 318645100109495</p>
+        <br />
+        <p>Пока у нас нет оффлайн магазина, но мы принимаем заказы онлайн.</p>
+        <p>Больше ассортимента и интересных предложений в наших социальных сетях.</p>
+        <br />
+        <h4>Ответы на ваши вопросы:</h4>
+        <AccordionItem question="Как долго ждать?">
+          <p>— Изготовление и сборка занимает 2-3 дня. Изделия из special collection (ягоды) около 4-6 дней.</p>
+        </AccordionItem>
+        <AccordionItem question="Как происходит доставка?">
+          <p>— По Москве и МО: 350₽</p>
+          <p>— По России: 500₽</p>
+          <p>— СНГ: 650₽</p>
+          <p>— Европа: 1500₽</p>
+        </AccordionItem>
+        <AccordionItem question="Условия возврата товара и денежных средств">
+          <p>— Возврат товара надлежащего качества возможен в течение 14 дней с момента получения заказа.</p>
+          <p>— Товар должен быть в оригинальном виде, с бирками, без следов использования, в оригинальной упаковке.</p>
+          <p>— Возврат денежных средств осуществляется на ту же карту, с которой была произведена оплата, в течение 10 рабочих дней.</p>
+          <p>— При обнаружении брака или несоответствия описанию товар можно вернуть в течение гарантийного срока.</p>
+          <p>— Для оформления возврата свяжитесь с <ManagerLink>менеджером</ManagerLink></p>
+        </AccordionItem>
+      </div>
     </div>
-  </div>
-)
+  )
+}
 
 const FullscreenImage = ({ 
   images,
@@ -1237,7 +1265,10 @@ export default function App() {
         </AnimatePresence>
 
         <footer className="page-footer">
-          <button className="btn-text" onClick={() => window.open('https://t.me/semyonp88', '_blank')}>Поддержка</button>
+          <button className="btn-text" onClick={() => {
+            const username = getSupportUsername()
+            window.open(`https://t.me/${username.replace('@', '')}`, '_blank')
+          }}>Поддержка</button>
           <button className="btn-text" onClick={() => setAboutModalOpen(true)}>О нас</button>
         </footer>
       </main>

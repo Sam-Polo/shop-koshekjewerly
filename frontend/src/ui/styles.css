@@ -143,8 +143,10 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 .accordion-icon { transition: transform 0.3s ease; }
 .accordion-icon.open { transform: rotate(180deg); }
 .accordion-answer { max-height: 0; overflow: hidden; transition: max-height 0.4s ease-out; }
-.accordion-answer.open { max-height: 200px; transition: max-height 0.4s ease-in; }
+.accordion-answer.open { max-height: 500px; transition: max-height 0.4s ease-in; }
 .accordion-answer-content { padding: 0 0 16px; }
+.accordion-answer-content .manager-link { color: #d480e0; text-decoration: underline; cursor: pointer; transition: color 0.2s; }
+.accordion-answer-content .manager-link:hover { color: #c069d0; }
 
 /* товары */
 .products-section { width: 100%; }
