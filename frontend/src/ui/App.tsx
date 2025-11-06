@@ -480,15 +480,40 @@ const isTestProduct = (slug: string): boolean => {
 
 // проверяем, содержит ли корзина только тестовые товары
 const isCartOnlyTestProducts = (cart: CartItem[], products: Product[]): boolean => {
-  if (cart.length === 0) return false
+  if (cart.length === 0) {
+    console.log('[isCartOnlyTestProducts] корзина пуста')
+    return false
+  }
+  
   const testSlug = getTestProductSlug()
-  if (!testSlug) return false // если не задан тестовый товар, считаем что все обычные
+  console.log('[isCartOnlyTestProducts] testSlug из env:', testSlug)
+  
+  if (!testSlug) {
+    console.log('[isCartOnlyTestProducts] тестовый товар не задан, считаем что все обычные')
+    return false // если не задан тестовый товар, считаем что все обычные
+  }
   
   // проверяем что все товары в корзине - тестовые
-  return cart.every(item => {
+  const cartItems = cart.map(item => {
     const product = products.find(p => p.slug === item.slug)
-    return product && isTestProduct(product.slug)
+    const isTest = product ? isTestProduct(product.slug) : false
+    console.log('[isCartOnlyTestProducts] товар:', {
+      slug: item.slug,
+      found: !!product,
+      isTest,
+      testSlug
+    })
+    return { item, product, isTest }
   })
+  
+  const allTest = cartItems.every(({ isTest }) => isTest)
+  console.log('[isCartOnlyTestProducts] результат:', {
+    cartLength: cart.length,
+    allTest,
+    items: cartItems.map(({ item, isTest }) => ({ slug: item.slug, isTest }))
+  })
+  
+  return allTest
 }
 
 // компонент формы оформления заказа
@@ -544,6 +569,16 @@ const CheckoutForm = ({
   const isOnlyTestProducts = isCartOnlyTestProducts(cart, products)
   const deliveryCost = isOnlyTestProducts ? 0 : DELIVERY_COSTS[deliveryRegion]
   const total = cartTotal + deliveryCost
+  
+  console.log('[CheckoutForm] расчет доставки:', {
+    cartLength: cart.length,
+    isOnlyTestProducts,
+    deliveryRegion,
+    deliveryCost,
+    cartTotal,
+    total,
+    testSlug: getTestProductSlug()
+  })
 
   const validate = () => {
     const newErrors: Record<string, string> = {}
