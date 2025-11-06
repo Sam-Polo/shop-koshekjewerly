@@ -16,6 +16,7 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: github-pages  # указываем environment для доступа к Environment secrets
     steps:
       - name: Checkout
         uses: actions/checkout@v4
