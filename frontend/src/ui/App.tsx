@@ -1128,12 +1128,19 @@ export default function App() {
 
       const result = await response.json()
       
-      // если есть URL оплаты, редиректим на оплату
+      // если есть URL оплаты, открываем через Telegram WebApp API
       if (result.paymentUrl) {
         setCheckoutOpen(false)
         setCart([])
-        // открываем страницу оплаты в новом окне или редиректим
-        window.location.href = result.paymentUrl
+        // используем Telegram WebApp API для открытия внешней ссылки
+        // это позволяет вернуться назад в приложение
+        try {
+          WebApp.openLink(result.paymentUrl)
+        } catch (e) {
+          // fallback если WebApp API недоступен
+          console.warn('WebApp.openLink недоступен, используем window.open')
+          window.open(result.paymentUrl, '_blank')
+        }
       } else {
         // если оплата не требуется (на всякий случай fallback)
         setOrderId(result.orderId || null)

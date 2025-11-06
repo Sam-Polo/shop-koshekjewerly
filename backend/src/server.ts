@@ -163,7 +163,11 @@ ${order.orderData.comments ? `Комментарии: ${order.orderData.comments
 app.post('/api/orders', async (req, res) => {
   try {
     const orderData = req.body
-    const orderId = `ORD-${Date.now()}`
+    // Робокасса требует числовой InvId, используем timestamp
+    // но сохраняем префикс для внутреннего использования
+    const timestamp = Date.now()
+    const orderId = `ORD-${timestamp}`
+    const invoiceId = String(timestamp) // числовой ID для Робокассы
     
     // получаем chat_id покупателя из initData
     const customerChatId = orderData.initData ? extractChatIdFromInitData(orderData.initData) : null
@@ -187,13 +191,31 @@ app.post('/api/orders', async (req, res) => {
     
     // генерируем URL для оплаты
     const webappUrl = process.env.TG_WEBAPP_URL || 'https://sam-polo.github.io/shop-koshekjewerly'
+    
+    // проверяем наличие обязательных переменных для Робокассы
+    if (!process.env.ROBOKASSA_MERCHANT_LOGIN || !process.env.ROBOKASSA_PASSWORD_1) {
+      logger.error('ROBOKASSA_MERCHANT_LOGIN или ROBOKASSA_PASSWORD_1 не заданы')
+      return res.status(500).json({ error: 'payment_config_error' })
+    }
+    
     const paymentUrl = generatePaymentUrl({
-      orderId,
+      orderId, // внутренний ID для логирования
+      invoiceId, // числовой ID для Робокассы
       amount: orderData.total,
       description: `Заказ ${orderId}`,
       successUrl: `${webappUrl}/payment/success`,
       failUrl: `${webappUrl}/payment/fail`
     })
+    
+    // логируем сгенерированный URL для отладки (без паролей)
+    logger.info({ 
+      orderId,
+      invoiceId, // числовой ID для Робокассы
+      amount: orderData.total,
+      merchantLogin: process.env.ROBOKASSA_MERCHANT_LOGIN,
+      isTest: process.env.ROBOKASSA_TEST,
+      paymentUrlLength: paymentUrl.length
+    }, 'URL для оплаты сгенерирован')
     
     res.json({ 
       ok: true, 
@@ -226,21 +248,23 @@ app.post('/api/robokassa/result', express.urlencoded({ extended: true }), async 
       return res.status(400).send('ERROR')
     }
     
-    // находим заказ
-    const order = getOrder(InvId)
+    // находим заказ по invoiceId (преобразуем в orderId)
+    // Робокасса возвращает числовой InvId, а у нас заказ хранится по orderId (ORD-timestamp)
+    const orderId = `ORD-${InvId}`
+    const order = getOrder(orderId)
     if (!order) {
-      logger.error({ InvId }, 'заказ не найден')
+      logger.error({ InvId, orderId }, 'заказ не найден')
       return res.status(404).send('ERROR')
     }
     
     // обновляем статус на оплачен
     if (order.status === 'pending') {
-      updateOrderStatus(InvId, 'paid')
+      updateOrderStatus(orderId, 'paid')
       
       // отправляем уведомления
       await sendOrderNotifications(order)
       
-      logger.info({ InvId }, 'заказ оплачен, уведомления отправлены')
+      logger.info({ InvId, orderId }, 'заказ оплачен, уведомления отправлены')
     }
     
     // Робокасса ожидает ответ "OK<InvId>"
@@ -281,9 +305,11 @@ const handleFailUrl = (req: express.Request, res: express.Response) => {
   const InvId = req.query.InvId || req.body?.InvId
   const botUsername = process.env.TG_BOT_USERNAME
   
-  // обновляем статус заказа на failed
+  // обновляем статус заказа на failed (преобразуем invoiceId в orderId)
   if (InvId) {
-    updateOrderStatus(String(InvId), 'failed')
+    const orderId = `ORD-${InvId}`
+    updateOrderStatus(orderId, 'failed')
+    logger.info({ InvId, orderId }, 'статус заказа обновлен на failed')
   }
   
   // если указан username бота, редиректим на бота с deep link

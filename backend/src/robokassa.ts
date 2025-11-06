@@ -46,7 +46,8 @@ function createResultSignature(
 
 // генерируем URL для оплаты
 export function generatePaymentUrl(params: {
-  orderId: string
+  orderId: string // внутренний ID заказа (для логирования)
+  invoiceId: string // числовой ID для Робокассы (InvId)
   amount: number
   description?: string
   email?: string
@@ -57,16 +58,16 @@ export function generatePaymentUrl(params: {
     throw new Error('ROBOKASSA_MERCHANT_LOGIN и ROBOKASSA_PASSWORD_1 должны быть заданы')
   }
   
-  const { orderId, amount, description, email, successUrl, failUrl } = params
+  const { orderId, invoiceId, amount, description, email, successUrl, failUrl } = params
   
   // сумма с двумя знаками после запятой
   const outSum = amount.toFixed(2)
   
-  // создаем подпись
+  // создаем подпись (используем invoiceId для подписи)
   const signature = createPaymentSignature(
     MERCHANT_LOGIN,
     outSum,
-    orderId,
+    invoiceId,
     PASSWORD_1,
     description
   )
@@ -75,7 +76,7 @@ export function generatePaymentUrl(params: {
   const url = new URL(ROBOKASSA_URL)
   url.searchParams.set('MerchantLogin', MERCHANT_LOGIN)
   url.searchParams.set('OutSum', outSum)
-  url.searchParams.set('InvId', orderId)
+  url.searchParams.set('InvId', invoiceId) // используем числовой ID
   url.searchParams.set('SignatureValue', signature)
   
   if (description) {
@@ -99,7 +100,21 @@ export function generatePaymentUrl(params: {
     url.searchParams.set('IsTest', '1')
   }
   
-  return url.toString()
+  const finalUrl = url.toString()
+  
+  // логируем для отладки (без паролей)
+  logger.info({
+    merchantLogin: MERCHANT_LOGIN,
+    outSum,
+    invoiceId,
+    orderId, // внутренний ID для справки
+    isTest: IS_TEST,
+    hasDescription: !!description,
+    hasSuccessUrl: !!successUrl,
+    hasFailUrl: !!failUrl
+  }, 'генерируем URL для оплаты в Робокассе')
+  
+  return finalUrl
 }
 
 // проверяем подпись от callback
