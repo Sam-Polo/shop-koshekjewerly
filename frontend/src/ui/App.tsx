@@ -467,15 +467,43 @@ const DeliveryRegionSelector = ({
   )
 }
 
+// получаем slug тестового товара из переменных окружения
+const getTestProductSlug = () => {
+  return import.meta.env.VITE_TEST_PRODUCT_SLUG || ''
+}
+
+// проверяем, является ли товар тестовым
+const isTestProduct = (slug: string): boolean => {
+  const testSlug = getTestProductSlug()
+  return testSlug && slug === testSlug
+}
+
+// проверяем, содержит ли корзина только тестовые товары
+const isCartOnlyTestProducts = (cart: CartItem[], products: Product[]): boolean => {
+  if (cart.length === 0) return false
+  const testSlug = getTestProductSlug()
+  if (!testSlug) return false // если не задан тестовый товар, считаем что все обычные
+  
+  // проверяем что все товары в корзине - тестовые
+  return cart.every(item => {
+    const product = products.find(p => p.slug === item.slug)
+    return product && isTestProduct(product.slug)
+  })
+}
+
 // компонент формы оформления заказа
 const CheckoutForm = ({
   deliveryRegion,
   cartTotal,
+  cart,
+  products,
   onBack,
   onSubmit
 }: {
   deliveryRegion: DeliveryRegion
   cartTotal: number
+  cart: CartItem[]
+  products: Product[]
   onBack: () => void
   onSubmit: (data: any) => void
 }) => {
@@ -512,7 +540,9 @@ const CheckoutForm = ({
   }, [deliveryRegion])
 
   const isEurope = deliveryRegion === 'europe'
-  const deliveryCost = DELIVERY_COSTS[deliveryRegion]
+  // если в корзине только тестовые товары - доставка бесплатная
+  const isOnlyTestProducts = isCartOnlyTestProducts(cart, products)
+  const deliveryCost = isOnlyTestProducts ? 0 : DELIVERY_COSTS[deliveryRegion]
   const total = cartTotal + deliveryCost
 
   const validate = () => {
@@ -685,7 +715,7 @@ const CheckoutForm = ({
         </div>
         <div className="checkout-form__summary-row">
           <span>Доставка ({DELIVERY_LABELS[deliveryRegion]}):</span>
-          <span>{deliveryCost} ₽</span>
+          <span>{isOnlyTestProducts ? 'Бесплатно' : `${deliveryCost} ₽`}</span>
         </div>
         <div className="checkout-form__summary-row checkout-form__summary-row--total">
           <span>Итого:</span>
@@ -1332,6 +1362,8 @@ export default function App() {
               <CheckoutForm
                 deliveryRegion={deliveryRegion}
                 cartTotal={cartTotalPrice}
+                cart={cart}
+                products={products}
                 onBack={() => setCheckoutStep('region')}
                 onSubmit={handleCheckoutSubmit}
               />
