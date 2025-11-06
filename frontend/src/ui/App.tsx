@@ -392,7 +392,7 @@ const TelegramRequiredModal = ({
       <div className="modal-content modal-content--success" onClick={e => e.stopPropagation()}>
         <button className="modal-close" onClick={onClose}>&times;</button>
         <div className="order-success">
-          <div className="order-success__icon" style={{ background: '#bf9243' }}>📱</div>
+          <div className="order-success__icon order-success__icon--telegram">📱</div>
           <h2 className="order-success__title">Заказ через Telegram</h2>
           <p className="order-success__text">
             Для оформления заказа необходимо зайти через Telegram бота.
@@ -400,7 +400,7 @@ const TelegramRequiredModal = ({
           <p className="order-success__text" style={{ marginTop: '16px' }}>
             Перейдите в бота: <strong>@{botUsername}</strong>
           </p>
-          <button className="btn btn--primary order-success__button" onClick={onClose} style={{ marginTop: '24px' }}>
+          <button className="btn order-success__button order-success__button--pink" onClick={onClose} style={{ marginTop: '24px' }}>
             Понятно
           </button>
         </div>
@@ -420,22 +420,17 @@ const PaymentRedirectModal = ({
   return (
     <div className="modal-overlay" onClick={onCancel}>
       <div className="modal-content modal-content--success" onClick={e => e.stopPropagation()}>
-        <button className="modal-close" onClick={onCancel}>&times;</button>
+        <button className="modal-close modal-close--payment" onClick={onCancel}>&times;</button>
         <div className="order-success">
-          <div className="order-success__icon" style={{ background: '#bf9243' }}>💳</div>
+          <div className="order-success__icon order-success__icon--payment">💳</div>
           <h2 className="order-success__title">Переход к оплате</h2>
           <p className="order-success__text">
             Вы будете перенаправлены на сайт платежной системы.<br/><br/>
             Сразу после оплаты бот отправит Вам информацию о заказе в сообщениях.
           </p>
-          <div style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
-            <button className="btn btn--primary order-success__button" onClick={onConfirm} style={{ flex: 1 }}>
-              Перейти к оплате
-            </button>
-            <button className="btn" onClick={onCancel} style={{ flex: 1, background: '#f5f5f5', color: '#666' }}>
-              Отмена
-            </button>
-          </div>
+          <button className="btn order-success__button order-success__button--pink" onClick={onConfirm} style={{ marginTop: '24px' }}>
+            Подтвердить
+          </button>
         </div>
       </div>
     </div>
