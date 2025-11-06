@@ -131,14 +131,39 @@ export function verifyResultSignature(params: {
   
   const { outSum, invoiceId, signature, additionalParams } = params
   
-  const expectedSignature = createResultSignature(outSum, invoiceId, PASSWORD_2, additionalParams)
+  // нормализуем сумму - Робокасса может отправлять с разным количеством знаков после запятой
+  // конвертируем в число и обратно в строку для унификации
+  const normalizedOutSum = parseFloat(outSum).toFixed(2)
+  
+  // фильтруем дополнительные параметры - Робокасса добавляет только параметры с префиксом Shp_
+  const filteredParams: Record<string, string> = {}
+  if (additionalParams) {
+    for (const [key, value] of Object.entries(additionalParams)) {
+      if (key.startsWith('Shp_')) {
+        filteredParams[key] = value
+      }
+    }
+  }
+  
+  logger.info({
+    originalOutSum: outSum,
+    normalizedOutSum,
+    invoiceId,
+    hasAdditionalParams: Object.keys(filteredParams).length > 0,
+    additionalParamsKeys: Object.keys(filteredParams)
+  }, 'проверка подписи от Робокассы')
+  
+  const expectedSignature = createResultSignature(normalizedOutSum, invoiceId, PASSWORD_2, filteredParams)
   
   const isValid = signature.toUpperCase() === expectedSignature
   
   if (!isValid) {
     logger.warn({ 
       received: signature.toUpperCase(), 
-      expected: expectedSignature 
+      expected: expectedSignature,
+      normalizedOutSum,
+      invoiceId,
+      signatureString: `${normalizedOutSum}:${invoiceId}:${PASSWORD_2.substring(0, 3)}...`
     }, 'неверная подпись от Робокассы')
   }
   
