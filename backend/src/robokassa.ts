@@ -131,9 +131,14 @@ export function verifyResultSignature(params: {
   
   const { outSum, invoiceId, signature, additionalParams } = params
   
-  // нормализуем сумму - Робокасса может отправлять с разным количеством знаков после запятой
-  // конвертируем в число и обратно в строку для унификации
-  const normalizedOutSum = parseFloat(outSum).toFixed(2)
+  // Робокасса использует оригинальный формат суммы для подписи
+  // НЕ нормализуем сумму - используем как есть от Робокассы
+  // Но для безопасности проверяем что это валидное число
+  const outSumValue = parseFloat(outSum)
+  if (!Number.isFinite(outSumValue) || outSumValue <= 0) {
+    logger.error({ outSum }, 'невалидная сумма от Робокассы')
+    return false
+  }
   
   // фильтруем дополнительные параметры - Робокасса добавляет только параметры с префиксом Shp_
   const filteredParams: Record<string, string> = {}
@@ -147,23 +152,33 @@ export function verifyResultSignature(params: {
   
   logger.info({
     originalOutSum: outSum,
-    normalizedOutSum,
     invoiceId,
     hasAdditionalParams: Object.keys(filteredParams).length > 0,
-    additionalParamsKeys: Object.keys(filteredParams)
+    additionalParamsKeys: Object.keys(filteredParams),
+    password2Length: PASSWORD_2.length
   }, 'проверка подписи от Робокассы')
   
-  const expectedSignature = createResultSignature(normalizedOutSum, invoiceId, PASSWORD_2, filteredParams)
+  // используем оригинальный формат суммы от Робокассы
+  const expectedSignature = createResultSignature(outSum, invoiceId, PASSWORD_2, filteredParams)
   
   const isValid = signature.toUpperCase() === expectedSignature
   
   if (!isValid) {
+    // формируем строку для подписи (для отладки, без полного пароля)
+    let debugSignatureString = `${outSum}:${invoiceId}:${PASSWORD_2.substring(0, 3)}...`
+    if (Object.keys(filteredParams).length > 0) {
+      const sortedKeys = Object.keys(filteredParams).sort()
+      debugSignatureString += `:${sortedKeys.map(k => `${k}=${filteredParams[k]}`).join(':')}`
+    }
+    
     logger.warn({ 
       received: signature.toUpperCase(), 
       expected: expectedSignature,
-      normalizedOutSum,
+      outSum,
       invoiceId,
-      signatureString: `${normalizedOutSum}:${invoiceId}:${PASSWORD_2.substring(0, 3)}...`
+      signatureString: debugSignatureString,
+      password2Length: PASSWORD_2.length,
+      password2FirstChars: PASSWORD_2.substring(0, 5)
     }, 'неверная подпись от Робокассы')
   }
   
