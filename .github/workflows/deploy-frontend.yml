@@ -36,9 +36,14 @@ jobs:
         env:
           VITE_API_URL: ${{ secrets.VITE_API_URL || 'https://shop-koshekjewerly.onrender.com' }}
           VITE_SUPPORT_USERNAME: ${{ secrets.VITE_SUPPORT_USERNAME || 'koshekmanager' }}
-          VITE_TEST_PRODUCT_SLUG: ${{ secrets.VITE_TEST_PRODUCT_SLUG || '' }}
+          VITE_TEST_PRODUCT_SLUG: ${{ secrets.VITE_TEST_PRODUCT_SLUG }}
           VITE_BASE_PATH: /shop-koshekjewerly/
-        run: npm run build
+        run: |
+          echo "Building with env vars:"
+          echo "VITE_API_URL=$VITE_API_URL"
+          echo "VITE_TEST_PRODUCT_SLUG=$VITE_TEST_PRODUCT_SLUG"
+          echo "VITE_SUPPORT_USERNAME=$VITE_SUPPORT_USERNAME"
+          npm run build
 
       - name: Setup Pages
         uses: actions/configure-pages@v4

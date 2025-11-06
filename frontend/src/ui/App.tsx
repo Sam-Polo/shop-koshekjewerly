@@ -469,7 +469,18 @@ const DeliveryRegionSelector = ({
 
 // получаем slug тестового товара из переменных окружения
 const getTestProductSlug = () => {
-  return import.meta.env.VITE_TEST_PRODUCT_SLUG || ''
+  const slug = import.meta.env.VITE_TEST_PRODUCT_SLUG || ''
+  // детальное логирование для отладки
+  console.log('[getTestProductSlug] все env переменные:', {
+    VITE_TEST_PRODUCT_SLUG: import.meta.env.VITE_TEST_PRODUCT_SLUG,
+    VITE_API_URL: import.meta.env.VITE_API_URL,
+    BASE_URL: import.meta.env.BASE_URL,
+    MODE: import.meta.env.MODE,
+    PROD: import.meta.env.PROD,
+    DEV: import.meta.env.DEV
+  })
+  console.log('[getTestProductSlug] результат:', slug)
+  return slug
 }
 
 // проверяем, является ли товар тестовым
