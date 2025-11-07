@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { Bot, InlineKeyboard } from 'grammy';
+import { Bot, InlineKeyboard, Keyboard } from 'grammy';
 import { InputFile } from 'grammy';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -186,7 +186,13 @@ bot.command('cancel', async (ctx) => {
   }
 });
 
-bot.command('start', async (ctx) => {
+// создаем reply keyboard с кнопкой "Старт"
+const startKeyboard = new Keyboard()
+  .text('Старт')
+  .resized();
+
+// функция обработки команды /start (используется и для команды, и для кнопки)
+async function handleStart(ctx: any) {
   // сохраняем chat_id пользователя для рассылки
   const chatId = ctx.from?.id
   if (chatId) {
@@ -230,7 +236,14 @@ bot.command('start', async (ctx) => {
     caption: 'Нажми на кнопку, чтоб перейти в каталог 👇🏽',
     reply_markup: kb,
   });
-});
+  
+  // показываем reply keyboard с кнопкой "Старт"
+  await ctx.reply('Или используй кнопку ниже:', {
+    reply_markup: startKeyboard
+  });
+}
+
+bot.command('start', handleStart);
 
 bot.command('support', async (ctx) => {
   await ctx.reply(`написать менеджеру: https://t.me/${SUPPORT_USERNAME}`);
@@ -244,6 +257,12 @@ bot.on('message', async (ctx) => {
   // сохраняем chat_id пользователя
   if (chatId) {
     addUserChatId(chatId)
+  }
+  
+  // обработка кнопки "Старт" из reply keyboard
+  if (ctx.message.text === 'Старт') {
+    await handleStart(ctx)
+    return
   }
   
   // если менеджер в режиме рассылки
@@ -341,6 +360,11 @@ keepAlive();
 
 console.log(`[keep-alive] настроен, интервал: ${KEEP_ALIVE_INTERVAL / 1000} секунд`);
 console.log(`[keep-alive] URL бэкенда: ${BACKEND_URL}/health`);
+
+// настраиваем команды бота (появятся в меню)
+bot.api.setMyCommands([
+  { command: 'start', description: 'Открыть каталог' }
+]);
 
 bot.start();
 
