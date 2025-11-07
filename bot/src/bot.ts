@@ -7,8 +7,19 @@ import fs from 'node:fs';
 
 const token = process.env.TG_BOT_TOKEN;
 if (!token) {
-  throw new Error('env TG_BOT_TOKEN is required');
+  console.error('❌ ОШИБКА: TG_BOT_TOKEN не задан в переменных окружения!')
+  console.error('Проверь файл .env в директории /opt/bot/bot/')
+  throw new Error('env TG_BOT_TOKEN is required')
 }
+
+// проверяем что токен не пустой и имеет правильный формат
+if (token.length < 20) {
+  console.error('❌ ОШИБКА: TG_BOT_TOKEN слишком короткий, возможно неверный токен!')
+  console.error(`Текущий токен (первые 10 символов): ${token.substring(0, 10)}...`)
+  throw new Error('invalid TG_BOT_TOKEN')
+}
+
+console.log(`[bot] токен загружен, длина: ${token.length} символов`)
 
 const bot = new Bot(token);
 
