@@ -238,7 +238,7 @@ async function handleStart(ctx: any) {
   });
   
   // показываем reply keyboard с кнопкой "Старт"
-  await ctx.reply('Или используй кнопку ниже:', {
+  await ctx.reply('', {
     reply_markup: startKeyboard
   });
 }
