@@ -237,8 +237,9 @@ async function handleStart(ctx: any) {
     reply_markup: kb,
   });
   
-  // показываем reply keyboard с кнопкой "Старт"
-  await ctx.reply('', {
+  // показываем reply keyboard с кнопкой "Старт" (отдельным сообщением)
+  // используем пробел вместо пустой строки, так как Telegram не принимает пустые сообщения
+  await ctx.reply(' ', {
     reply_markup: startKeyboard
   });
 }
