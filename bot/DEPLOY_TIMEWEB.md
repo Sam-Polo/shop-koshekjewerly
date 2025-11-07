@@ -3,14 +3,29 @@
 ## Шаг 1: Подключение к серверу
 
 После создания VDS на Timeweb получишь:
-- IP адрес
+- IP адрес (IPv4 или IPv6)
 - Логин (обычно `root`)
 - Пароль (или SSH ключ)
 
 Подключись через SSH (в PowerShell на Windows):
+
+**Если у тебя IPv4 адрес (например: `185.123.45.67`):**
 ```powershell
-ssh root@ТВОЙ_IP_АДРЕС
+ssh root@185.123.45.67
 ```
+
+**Если у тебя IPv6 адрес (например: `2a03:6f01:1:2::1`):**
+```powershell
+ssh root@[2a03:6f01:1:2::1]
+```
+⚠️ **Важно:** IPv6 адрес нужно обернуть в квадратные скобки `[]`
+
+После выполнения команды тебя попросят ввести пароль (или подтвердить подключение по SSH ключу).
+
+**Если не работает:**
+1. Проверь что у тебя правильный IP адрес (в панели Timeweb)
+2. Попробуй использовать IPv4 адрес вместо IPv6 (если есть оба)
+3. Убедись что порт 22 открыт (обычно открыт по умолчанию)
 
 ## Шаг 2: Обновление системы
 
@@ -52,7 +67,7 @@ mkdir -p /opt/bot
 cd /opt/bot
 
 # если используешь git:
-git clone https://github.com/ТВОЙ_ЮЗЕРНЕЙМ/shop-koshekjewerly.git .
+git clone https://github.com/Sam-Polo/shop-koshekjewerly.git .
 cd bot
 
 # или загрузи файлы через SFTP/SCP
@@ -76,9 +91,18 @@ nano .env
 TG_BOT_TOKEN=твой_токен_бота
 TG_WEBAPP_URL=https://sam-polo.github.io/shop-koshekjewerly
 BACKEND_URL=https://shop-koshekjewerly.onrender.com
-SUPPORT_USERNAME=semyonp88
-TG_MANAGER_CHAT_ID=твой_chat_id
+SUPPORT_USERNAME=koshekmanager
+TG_MANAGER_CHAT_ID=1891821933
 ```
+
+**Как получить TG_MANAGER_CHAT_ID:**
+1. Напиши боту @userinfobot в Telegram
+2. Бот покажет твой ID (число, например: `8495144404`)
+3. Это и есть твой `chat_id` - скопируй его
+
+**Или альтернативный способ:**
+- Напиши своему боту `/start`
+- Посмотри логи бота - там будет `chat_id` пользователя
 
 Сохрани: `Ctrl+O`, `Enter`, `Ctrl+X`
 
