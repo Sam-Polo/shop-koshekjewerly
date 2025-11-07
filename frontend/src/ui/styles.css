@@ -194,7 +194,7 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 
 .product-card__info { padding: 16px; flex-grow: 1; display: flex; flex-direction: column; justify-content: space-between; }
 .product-card__title { margin: 0 0 8px; font-size: 18px; font-weight: 400; color: var(--page-fg); }
-.product-card__price { margin: 0; font-size: 18px; font-weight: 600; color: #bf9243; }
+.product-card__price { margin: 0; font-size: 14px; font-weight: 600; color: #bf9243; }
 
 /* модалка товара */
 .modal-content--product { max-width: 600px; padding: 0; }
