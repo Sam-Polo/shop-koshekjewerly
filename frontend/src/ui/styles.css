@@ -400,8 +400,8 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
   .category-grid { grid-template-columns: 1fr; }
   .category-card { min-height: 280px; }
   .products-grid { grid-template-columns: repeat(2, 1fr); }
-  .product-card__image { height: 360px; }
-  .product-modal__image { height: 300px; }
+  .product-card__image { aspect-ratio: 4 / 5; }
+  .product-modal__image { aspect-ratio: 4 / 5; }
   .product-modal__thumbnails { padding: 8px; gap: 6px; }
   .product-modal__thumbnail { width: 50px; height: 62.5px; }
   .modal-content--product, .modal-content--cart { max-width: 100%; margin: 0; max-height: 100vh; border-radius: 0; }
