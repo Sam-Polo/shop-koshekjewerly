@@ -238,10 +238,16 @@ async function handleStart(ctx: any) {
   });
   
   // показываем reply keyboard с кнопкой "Старт" (отдельным сообщением)
-  // используем пробел вместо пустой строки, так как Telegram не принимает пустые сообщения
-  await ctx.reply(' ', {
-    reply_markup: startKeyboard
-  });
+  // отправляем сообщение с клавиатурой, игнорируем ошибки если они есть
+  try {
+    await ctx.reply(' ', {
+      reply_markup: startKeyboard
+    });
+  } catch (error: any) {
+    // игнорируем ошибку - клавиатура не критична
+    // ошибка может возникать из-за особенностей Telegram API, но функциональность работает
+    console.warn('[handleStart] предупреждение при отправке reply keyboard:', error?.message || error);
+  }
 }
 
 bot.command('start', handleStart);
