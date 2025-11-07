@@ -11,7 +11,8 @@
 
 **Если у тебя IPv4 адрес (например: `185.123.45.67`):**
 ```powershell
-ssh root@185.123.45.67
+ssh root@185.247.185.14
+d^myHBkKmb?25d
 ```
 
 **Если у тебя IPv6 адрес (например: `2a03:6f01:1:2::1`):**
@@ -77,8 +78,11 @@ cd bot
 
 ```bash
 cd /opt/bot/bot
-npm install --production
+# устанавливаем все зависимости (включая devDependencies для сборки)
+npm install
 ```
+
+**Важно:** Используем `npm install` (без `--production`), потому что для сборки нужны devDependencies (TypeScript, tsx и т.д.)
 
 ### 5.3 Создаем файл .env
 

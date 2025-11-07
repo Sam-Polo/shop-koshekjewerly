@@ -19,7 +19,7 @@
 html, body, #root { height: 100%; }
 body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family: 'Forum', system-ui, sans-serif; font-weight: 400; }
 
-.page { max-width: 1180px; margin: 0 auto; padding: 60px 32px 80px; }
+.page { max-width: 1180px; margin: 0 auto; padding: 60px 20px 80px; }
 
 .page-header {
   height: 100vh;
@@ -154,8 +154,8 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 .products-section__title { font-size: 32px; margin: 0 0 32px; text-align: center; font-weight: 400; letter-spacing: 0.08em; text-transform: uppercase; }
 .products-loading, .products-empty { text-align: center; padding: 40px 20px; font-size: 18px; color: var(--page-fg); opacity: 0.6; }
 
-.products-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 24px; }
-.product-card { background: #ffffff; border-radius: 0; overflow: hidden; cursor: pointer; transition: transform 0.3s ease, box-shadow 0.3s ease; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+.products-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.product-card { background: #ffffff; border-radius: 0; overflow: hidden; cursor: pointer; transition: transform 0.3s ease, box-shadow 0.3s ease; box-shadow: 0 2px 8px rgba(0,0,0,0.1); display: flex; flex-direction: column; }
 .product-card:hover { transform: translateY(-4px); box-shadow: 0 4px 16px rgba(0,0,0,0.15); }
 .product-card__image { 
   width: 100%; 
@@ -192,9 +192,9 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
   100% { background-position: 1200px 0; }
 }
 
-.product-card__info { padding: 16px; }
+.product-card__info { padding: 16px; flex-grow: 1; display: flex; flex-direction: column; justify-content: space-between; }
 .product-card__title { margin: 0 0 8px; font-size: 18px; font-weight: 400; color: var(--page-fg); }
-.product-card__price { margin: 0; font-size: 20px; font-weight: 600; color: #bf9243; }
+.product-card__price { margin: 0; font-size: 18px; font-weight: 600; color: #bf9243; }
 
 /* модалка товара */
 .modal-content--product { max-width: 600px; padding: 0; }
@@ -385,14 +385,14 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 .order-success__button--pink:hover { background-color: #c069d0; }
 
 @media (max-width: 900px) {
-  .page { padding: 48px 20px 64px; }
+  .page { padding: 48px 16px 64px; }
   .page-header__title { font-size: 40px; }
   .page-header__text { font-size: 18px; }
   .category-grid { gap: 20px; }
   .category-card { min-height: 300px; }
   .category-card__title { font-size: 24px; }
   .category-card__description { font-size: 16px; }
-  .products-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 20px; }
+  .products-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
   .products-section__title { font-size: 28px; }
 }
 
