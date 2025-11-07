@@ -3,7 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import pino from 'pino';
 import { fetchProductsFromSheet } from './sheets.js';
-import { listProducts, upsertProducts } from './store.js';
+import { listProducts, upsertProducts, decreaseProductStock } from './store.js';
 import { createOrder, getOrder, updateOrderStatus, type OrderStatus } from './orders.js';
 import { generatePaymentUrl, verifyResultSignature } from './robokassa.js';
 
@@ -260,6 +260,16 @@ app.post('/api/robokassa/result', express.urlencoded({ extended: true }), async 
     // обновляем статус на оплачен
     if (order.status === 'pending') {
       updateOrderStatus(orderId, 'paid')
+      
+      // уменьшаем stock товаров после успешной оплаты
+      for (const item of order.orderData.items) {
+        const success = decreaseProductStock(item.slug, item.quantity)
+        if (!success) {
+          logger.warn({ slug: item.slug, quantity: item.quantity }, 'не удалось уменьшить stock товара (возможно stock undefined или недостаточно)')
+        } else {
+          logger.info({ slug: item.slug, quantity: item.quantity }, 'stock товара уменьшен в памяти')
+        }
+      }
       
       // отправляем уведомления
       await sendOrderNotifications(order)

@@ -20,4 +20,27 @@ export function listProducts() {
   return state.products
 }
 
+// уменьшаем stock товара после успешной оплаты
+export function decreaseProductStock(slug: string, quantity: number): boolean {
+  const product = state.products.find(p => p.slug === slug)
+  if (!product) {
+    return false
+  }
+  
+  // если stock не задан (undefined), считаем что товар безлимитный
+  if (product.stock === undefined) {
+    return true
+  }
+  
+  // проверяем что stock достаточен
+  if (product.stock < quantity) {
+    return false
+  }
+  
+  // уменьшаем stock
+  product.stock -= quantity
+  
+  return true
+}
+
 
