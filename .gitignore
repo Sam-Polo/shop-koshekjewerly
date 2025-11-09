@@ -9,5 +9,10 @@ assets/  # общие assets, теперь разделены на bot/assets и
 coverage/
 bot/user-chat-ids.json
 bot/DEPLOY_TIMEWEB.md
+docs/
+backend/ENV_VARS.md
+backend/README.md
+SECURITY_CHECKLIST.md
+frontend/README.md
 
 

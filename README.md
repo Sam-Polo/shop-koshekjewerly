@@ -1,29 +1,36 @@
-### магазин украшений — telegram mini app (node.js)
+# KOSHEK JEWERLY — Telegram Mini App
 
-структура:
+Магазин украшений в виде Telegram Mini App с интеграцией Google Sheets для управления каталогом.
+
+## Технологии
+
+- **Frontend**: React + TypeScript + Vite
+- **Backend**: Node.js + Express + TypeScript
+- **Bot**: GrammY (Telegram Bot Framework)
+- **Платежи**: Robokassa
+- **Каталог**: Google Sheets API
+
+## Структура проекта
 
 ```
-frontend/  — react + vite + ts (mini app ui)
-backend/   — express + ts (api, импорт из google sheets)
-bot/       — grammY (бот: /start, /support, deep-link в mini app)
-docs/      — ТЗ и документация
-assets/, fonts/, design-model/ — медиа и макеты
+frontend/  — React приложение (Telegram Mini App UI)
+backend/   — Express API (импорт из Google Sheets, обработка заказов)
+bot/       — Telegram бот (команды, рассылка, deep-links)
 ```
 
-быстрый старт (общее):
-- установить node 18+
-- в каждом сервисе скопировать `.env.example` → `.env` и заполнить
-- запустить `npm i` и `npm run dev` в соответствующей папке
+## Основной функционал
 
-переменные окружения в соответствующих `.env.example` в `frontend/`, `backend/`, `bot/`.
+- Каталог товаров с категориями (Ягоды, Шея, Руки, Уши, Сертификаты)
+- Корзина и оформление заказа
+- Интеграция с Robokassa для оплаты
+- Автоматический импорт товаров из Google Sheets
+- Рассылка сообщений через бота (для менеджера)
+- Управление остатками товаров (stock)
 
-## деплой
+## Быстрый старт
 
-см. подробную инструкцию: [`docs/DEPLOY.md`](docs/DEPLOY.md)
+1. Установи Node.js 18+
+2. В каждой директории (`frontend/`, `backend/`, `bot/`) создай `.env` файл
+3. Запусти `npm install` и `npm run dev` в нужной директории
 
-кратко:
-- **frontend** → Netlify
-- **backend** → Render (Web Service)
-- **bot** → Render (Background Worker)
-
-
+Переменные окружения настраиваются через `.env` файлы в каждой директории.
