@@ -153,9 +153,15 @@ function extractChatIdFromInitData(initData: string): string | null {
 // отправка уведомлений о заказе (вызывается после успешной оплаты)
 async function sendOrderNotifications(order: any) {
   // экранируем HTML для защиты от XSS
-  const itemsText = order.orderData.items.map((item: any) => 
+  // для менеджера показываем артикул, для покупателя - нет
+  const itemsTextForCustomer = order.orderData.items.map((item: any) => 
     `• ${escapeHtml(item.title)} × ${item.quantity} — ${item.price * item.quantity} ₽`
   ).join('\n')
+  
+  const itemsTextForManager = order.orderData.items.map((item: any) => {
+    const articleText = item.article ? ` [${escapeHtml(item.article)}]` : ''
+    return `• ${escapeHtml(item.title)}${articleText} × ${item.quantity} — ${item.price * item.quantity} ₽`
+  }).join('\n')
   
   const customerMessage = `
 🎉 <b>Ваш заказ оформлен!</b>
@@ -163,7 +169,7 @@ async function sendOrderNotifications(order: any) {
 Номер заказа: <code>${escapeHtml(order.orderId)}</code>
 
 Товары:
-${itemsText}
+${itemsTextForCustomer}
 
 Доставка: ${order.orderData.deliveryCost} ₽
 Итого: ${order.orderData.total} ₽
@@ -189,7 +195,7 @@ ${escapeHtml(order.orderData.country)}, ${escapeHtml(order.orderData.city)}
 ${escapeHtml(order.orderData.address)}
 
 Товары:
-${itemsText}
+${itemsTextForManager}
 
 Доставка: ${order.orderData.deliveryCost} ₽ (${order.orderData.deliveryRegion})
 Итого: ${order.orderData.total} ₽
@@ -249,7 +255,8 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
         slug: product.slug,
         title: product.title,
         price: product.price_rub, // актуальная цена с бэкенда
-        quantity: Math.max(1, Math.floor(item.quantity || 1)) // валидация количества
+        quantity: Math.max(1, Math.floor(item.quantity || 1)), // валидация количества
+        article: product.article // артикул товара
       }
     })
     

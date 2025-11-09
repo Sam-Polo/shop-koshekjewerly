@@ -33,6 +33,7 @@ type Product = {
   images: string[]
   active: boolean
   stock?: number
+  article?: string // артикул товара
 }
 
 type CartItem = {
@@ -306,6 +307,9 @@ const ProductModal = ({
         <div className="product-modal__info">
           <h2 className="product-modal__title">{product.title}</h2>
           <p className="product-modal__price">{product.price_rub} ₽</p>
+          {product.article && (
+            <p className="product-modal__article">Арт. {product.article}</p>
+          )}
           
           {descriptionLines.length > 0 && (
             <div className="product-modal__description">
@@ -1459,6 +1463,9 @@ export default function App() {
                       <div className="product-card__info">
                         <h3 className="product-card__title">{product.title}</h3>
                         <p className="product-card__price">{product.price_rub} ₽</p>
+                        {product.article && (
+                          <p className="product-card__article">Арт. {product.article}</p>
+                        )}
           </div>
                     </motion.div>
                   ))}

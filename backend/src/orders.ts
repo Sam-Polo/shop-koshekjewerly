@@ -14,6 +14,7 @@ export type Order = {
       title: string
       price: number
       quantity: number
+      article?: string // артикул товара
     }>
     fullName: string
     phone: string
