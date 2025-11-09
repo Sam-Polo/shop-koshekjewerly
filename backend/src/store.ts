@@ -11,7 +11,18 @@ export function upsertProducts(items: SheetProduct[]) {
   for (const p of state.products) map.set(p.slug, p)
   for (const it of items) {
     const existing = map.get(it.slug)
-    map.set(it.slug, { ...existing, ...it, createdAt: existing?.createdAt ?? Date.now() })
+    // сохраняем stock из памяти если он был изменен (меньше чем в таблице)
+    // это позволяет не перезаписывать уменьшенный stock при импорте
+    const preservedStock = existing?.stock !== undefined && it.stock !== undefined
+      ? (existing.stock < it.stock ? existing.stock : it.stock) // берем меньший stock
+      : (existing?.stock !== undefined ? existing.stock : it.stock) // если в таблице нет stock, сохраняем из памяти
+    
+    map.set(it.slug, { 
+      ...existing, 
+      ...it, 
+      stock: preservedStock, // сохраняем уменьшенный stock
+      createdAt: existing?.createdAt ?? Date.now() 
+    })
   }
   state.products = Array.from(map.values())
 }

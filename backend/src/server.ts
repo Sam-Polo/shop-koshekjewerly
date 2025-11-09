@@ -440,11 +440,31 @@ app.post('/api/robokassa/result', express.urlencoded({ extended: true }), async 
       
       // уменьшаем stock товаров после успешной оплаты
       for (const item of order.orderData.items) {
+        // получаем товар до уменьшения для логирования
+        const productBefore = listProducts().find(p => p.slug === item.slug)
+        const stockBefore = productBefore?.stock
+        
         const success = decreaseProductStock(item.slug, item.quantity)
+        
+        // получаем товар после уменьшения для проверки
+        const productAfter = listProducts().find(p => p.slug === item.slug)
+        const stockAfter = productAfter?.stock
+        
         if (!success) {
-          logger.warn({ slug: item.slug, quantity: item.quantity }, 'не удалось уменьшить stock товара (возможно stock undefined или недостаточно)')
+          logger.warn({ 
+            slug: item.slug, 
+            quantity: item.quantity,
+            stockBefore,
+            stockAfter
+          }, 'не удалось уменьшить stock товара (возможно stock undefined или недостаточно)')
         } else {
-          logger.info({ slug: item.slug, quantity: item.quantity }, 'stock товара уменьшен в памяти')
+          logger.info({ 
+            slug: item.slug, 
+            quantity: item.quantity,
+            stockBefore,
+            stockAfter,
+            decreased: stockBefore !== undefined && stockAfter !== undefined ? stockBefore - stockAfter : 'N/A'
+          }, 'stock товара уменьшен в памяти')
         }
       }
       
