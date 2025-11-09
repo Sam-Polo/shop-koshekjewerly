@@ -28,7 +28,16 @@ async function importProducts() {
 }
 
 app.use(express.json({ limit: '1mb' }));
-app.use(cors({ origin: process.env.TG_WEBAPP_URL ?? true }));
+
+// настройка CORS - проверяем что TG_WEBAPP_URL задан
+const webappOrigin = process.env.TG_WEBAPP_URL
+if (!webappOrigin) {
+  logger.warn('⚠️  TG_WEBAPP_URL не задан! CORS может не работать корректно.')
+}
+app.use(cors({ 
+  origin: webappOrigin || false, // если не задан, запрещаем все источники
+  credentials: true
+}));
 
 // health
 app.get('/health', (_req, res) => {
@@ -163,6 +172,47 @@ ${order.orderData.comments ? `Комментарии: ${order.orderData.comments
 app.post('/api/orders', async (req, res) => {
   try {
     const orderData = req.body
+    
+    // валидация входных данных
+    if (!orderData.items || !Array.isArray(orderData.items) || orderData.items.length === 0) {
+      return res.status(400).json({ error: 'invalid_items' })
+    }
+    
+    // пересчитываем цены на бэкенде из актуальных данных товаров (защита от подмены цен)
+    const products = listProducts()
+    const validatedItems = orderData.items.map((item: any) => {
+      const product = products.find(p => p.slug === item.slug && p.active)
+      if (!product) {
+        throw new Error(`Товар ${item.slug} не найден или неактивен`)
+      }
+      
+      // используем актуальную цену и название с бэкенда, игнорируем данные от клиента
+      return {
+        slug: product.slug,
+        title: product.title,
+        price: product.price_rub, // актуальная цена с бэкенда
+        quantity: Math.max(1, Math.floor(item.quantity || 1)) // валидация количества
+      }
+    })
+    
+    // проверяем что все товары найдены
+    if (validatedItems.length !== orderData.items.length) {
+      return res.status(400).json({ error: 'some_items_not_found' })
+    }
+    
+    // пересчитываем сумму товаров на бэкенде
+    const itemsTotal = validatedItems.reduce((sum: number, item: any) => {
+      return sum + (item.price * item.quantity)
+    }, 0)
+    
+    // валидация стоимости доставки
+    const deliveryCost = typeof orderData.deliveryCost === 'number' && orderData.deliveryCost >= 0 
+      ? orderData.deliveryCost 
+      : 0
+    
+    // пересчитываем итоговую сумму на бэкенде
+    const total = itemsTotal + deliveryCost
+    
     // Робокасса требует числовой InvId, используем timestamp
     // но сохраняем префикс для внутреннего использования
     const timestamp = Date.now()
@@ -172,22 +222,29 @@ app.post('/api/orders', async (req, res) => {
     // получаем chat_id покупателя из initData
     const customerChatId = orderData.initData ? extractChatIdFromInitData(orderData.initData) : null
     
-    // создаем заказ со статусом pending
+    // создаем заказ со статусом pending (используем пересчитанные данные)
     const order = createOrder(orderId, {
-      items: orderData.items,
-      fullName: orderData.fullName,
-      phone: orderData.phone,
+      items: validatedItems, // используем валидированные товары с актуальными ценами
+      fullName: orderData.fullName || '',
+      phone: orderData.phone || '',
       username: orderData.username,
-      country: orderData.country,
-      city: orderData.city,
-      address: orderData.address,
-      deliveryRegion: orderData.deliveryRegion,
-      deliveryCost: orderData.deliveryCost,
-      total: orderData.total,
+      country: orderData.country || '',
+      city: orderData.city || '',
+      address: orderData.address || '',
+      deliveryRegion: orderData.deliveryRegion || '',
+      deliveryCost: deliveryCost,
+      total: total, // пересчитанная сумма на бэкенде
       comments: orderData.comments
     }, customerChatId)
     
-    logger.info({ orderId }, 'заказ создан, ожидает оплаты')
+    logger.info({ 
+      orderId, 
+      itemsCount: validatedItems.length,
+      itemsTotal,
+      deliveryCost,
+      total,
+      clientTotal: orderData.total // логируем что прислал клиент для сравнения
+    }, 'заказ создан с пересчитанными ценами на бэкенде, ожидает оплаты')
     
     // генерируем URL для оплаты
     const webappUrl = process.env.TG_WEBAPP_URL || 'https://sam-polo.github.io/shop-koshekjewerly'
@@ -201,7 +258,7 @@ app.post('/api/orders', async (req, res) => {
     const paymentUrl = generatePaymentUrl({
       orderId, // внутренний ID для логирования
       invoiceId, // числовой ID для Робокассы
-      amount: orderData.total,
+      amount: total, // используем пересчитанную сумму, а не от клиента
       description: `Заказ ${orderId}`,
       successUrl: `${webappUrl}/payment/success`,
       failUrl: `${webappUrl}/payment/fail`
@@ -211,7 +268,7 @@ app.post('/api/orders', async (req, res) => {
     logger.info({ 
       orderId,
       invoiceId, // числовой ID для Робокассы
-      amount: orderData.total,
+      amount: total, // пересчитанная сумма
       merchantLogin: process.env.ROBOKASSA_MERCHANT_LOGIN,
       isTest: process.env.ROBOKASSA_TEST,
       paymentUrlLength: paymentUrl.length
@@ -257,8 +314,31 @@ app.post('/api/robokassa/result', express.urlencoded({ extended: true }), async 
       return res.status(404).send('ERROR')
     }
     
+    // проверяем формат InvId (должен быть числом)
+    const invoiceIdNum = parseInt(InvId, 10)
+    if (isNaN(invoiceIdNum) || invoiceIdNum <= 0) {
+      logger.error({ InvId }, 'невалидный формат InvId от Робокассы')
+      return res.status(400).send('ERROR')
+    }
+    
     // обновляем статус на оплачен
     if (order.status === 'pending') {
+      // проверяем что сумма от Робокассы совпадает с суммой заказа (защита от подмены)
+      const robokassaAmount = parseFloat(OutSum)
+      const orderAmount = order.orderData.total
+      
+      // сравниваем с точностью до копеек (0.01)
+      if (Math.abs(robokassaAmount - orderAmount) > 0.01) {
+        logger.error({ 
+          InvId, 
+          orderId,
+          robokassaAmount, 
+          orderAmount, 
+          difference: Math.abs(robokassaAmount - orderAmount)
+        }, 'сумма от Робокассы не совпадает с суммой заказа')
+        return res.status(400).send('ERROR')
+      }
+      
       updateOrderStatus(orderId, 'paid')
       
       // уменьшаем stock товаров после успешной оплаты
@@ -274,7 +354,7 @@ app.post('/api/robokassa/result', express.urlencoded({ extended: true }), async 
       // отправляем уведомления
       await sendOrderNotifications(order)
       
-      logger.info({ InvId, orderId }, 'заказ оплачен, уведомления отправлены')
+      logger.info({ InvId, orderId, amount: robokassaAmount }, 'заказ оплачен, сумма проверена, уведомления отправлены')
     }
     
     // Робокасса ожидает ответ "OK<InvId>"
