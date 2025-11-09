@@ -8,5 +8,6 @@ assets/  # общие assets, теперь разделены на bot/assets и
 .DS_Store
 coverage/
 bot/user-chat-ids.json
+bot/DEPLOY_TIMEWEB.md
 
 
