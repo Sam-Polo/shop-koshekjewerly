@@ -7,24 +7,33 @@ const state = {
 }
 
 export function upsertProducts(items: SheetProduct[]) {
-  const map = new Map<string, Product>()
-  for (const p of state.products) map.set(p.slug, p)
+  // создаем Map из существующих товаров для сохранения stock
+  const existingMap = new Map<string, Product>()
+  for (const p of state.products) {
+    existingMap.set(p.slug, p)
+  }
+  
+  // создаем новый список товаров только из импортированных
+  const newProducts: Product[] = []
+  
   for (const it of items) {
-    const existing = map.get(it.slug)
+    const existing = existingMap.get(it.slug)
+    
     // сохраняем stock из памяти если он был изменен (меньше чем в таблице)
     // это позволяет не перезаписывать уменьшенный stock при импорте
     const preservedStock = existing?.stock !== undefined && it.stock !== undefined
       ? (existing.stock < it.stock ? existing.stock : it.stock) // берем меньший stock
       : (existing?.stock !== undefined ? existing.stock : it.stock) // если в таблице нет stock, сохраняем из памяти
     
-    map.set(it.slug, { 
-      ...existing, 
+    newProducts.push({ 
       ...it, 
       stock: preservedStock, // сохраняем уменьшенный stock
       createdAt: existing?.createdAt ?? Date.now() 
     })
   }
-  state.products = Array.from(map.values())
+  
+  // полностью заменяем список товаров (удаляем те, которых нет в новом импорте)
+  state.products = newProducts
 }
 
 export function listProducts() {
