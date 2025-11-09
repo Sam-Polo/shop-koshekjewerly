@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import pino from 'pino';
+import rateLimit from 'express-rate-limit';
 import { fetchProductsFromSheet } from './sheets.js';
 import { listProducts, upsertProducts, decreaseProductStock } from './store.js';
 import { createOrder, getOrder, updateOrderStatus, type OrderStatus } from './orders.js';
@@ -9,6 +10,41 @@ import { generatePaymentUrl, verifyResultSignature } from './robokassa.js';
 
 const logger = pino();
 const app = express();
+
+// функция экранирования HTML для защиты от XSS
+function escapeHtml(text: string): string {
+  if (!text) return ''
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
+
+// валидация номера телефона (российский формат)
+function validatePhone(phone: string): boolean {
+  if (!phone) return false
+  
+  // убираем все нецифровые символы
+  const digitsOnly = phone.replace(/\D/g, '')
+  
+  // проверяем что осталось 10-11 цифр (российский формат)
+  // 10 цифр: 9XXXXXXXXX (без +7 или 8)
+  // 11 цифр: 79XXXXXXXXX или 89XXXXXXXXX
+  if (digitsOnly.length < 10 || digitsOnly.length > 11) {
+    return false
+  }
+  
+  // если 11 цифр, первая должна быть 7 или 8
+  if (digitsOnly.length === 11) {
+    if (digitsOnly[0] !== '7' && digitsOnly[0] !== '8') {
+      return false
+    }
+  }
+  
+  return true
+}
 
 // автоматический импорт товаров из google sheets
 async function importProducts() {
@@ -38,6 +74,42 @@ app.use(cors({
   origin: webappOrigin || false, // если не задан, запрещаем все источники
   credentials: true
 }));
+
+// rate limiting для защиты от DDoS и брутфорса
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 минут
+  max: 100, // максимум 100 запросов с одного IP за 15 минут
+  message: { error: 'too_many_requests' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req: express.Request, res: express.Response) => {
+    logger.warn({ 
+      ip: req.ip, 
+      path: req.path,
+      method: req.method 
+    }, 'rate limit превышен')
+    res.status(429).json({ error: 'too_many_requests' })
+  }
+})
+
+// более строгий лимит для создания заказов
+const orderLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 минут
+  max: 10, // максимум 10 заказов с одного IP за 15 минут
+  message: { error: 'too_many_orders' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req: express.Request, res: express.Response) => {
+    logger.warn({ 
+      ip: req.ip, 
+      path: req.path 
+    }, 'rate limit для заказов превышен')
+    res.status(429).json({ error: 'too_many_orders' })
+  }
+})
+
+// применяем общий rate limiting ко всем запросам
+app.use(generalLimiter)
 
 // health
 app.get('/health', (_req, res) => {
@@ -103,14 +175,15 @@ function extractChatIdFromInitData(initData: string): string | null {
 
 // отправка уведомлений о заказе (вызывается после успешной оплаты)
 async function sendOrderNotifications(order: any) {
+  // экранируем HTML для защиты от XSS
   const itemsText = order.orderData.items.map((item: any) => 
-    `• ${item.title} × ${item.quantity} — ${item.price * item.quantity} ₽`
+    `• ${escapeHtml(item.title)} × ${item.quantity} — ${item.price * item.quantity} ₽`
   ).join('\n')
   
   const customerMessage = `
 🎉 <b>Ваш заказ оформлен!</b>
 
-Номер заказа: <code>${order.orderId}</code>
+Номер заказа: <code>${escapeHtml(order.orderId)}</code>
 
 Товары:
 ${itemsText}
@@ -119,7 +192,7 @@ ${itemsText}
 Итого: ${order.orderData.total} ₽
 
 ${order.orderData.deliveryRegion === 'europe' ? '📍 Адрес доставки:' : '📍 Пункт СДЭК:'}
-${order.orderData.address}
+${escapeHtml(order.orderData.address)}
 
 Ваш заказ будет отправлен в течении 3-5 дней, мы пришлем уведомление с трек номером для отслеживания. Благодарим за заказ 🤍
 
@@ -129,14 +202,14 @@ ${order.orderData.address}
   const managerMessage = `
 🛒 <b>Новый заказ!</b>
 
-Номер: <code>${order.orderId}</code>
-Покупатель: ${order.orderData.fullName}
-Телефон: ${order.orderData.phone}
-TG: ${order.orderData.username || 'не указан'}
+Номер: <code>${escapeHtml(order.orderId)}</code>
+Покупатель: ${escapeHtml(order.orderData.fullName)}
+Телефон: ${escapeHtml(order.orderData.phone)}
+TG: ${order.orderData.username ? escapeHtml(order.orderData.username) : 'не указан'}
 
 ${order.orderData.deliveryRegion === 'europe' ? '📍 Адрес доставки:' : '📍 Пункт СДЭК:'}
-${order.orderData.country}, ${order.orderData.city}
-${order.orderData.address}
+${escapeHtml(order.orderData.country)}, ${escapeHtml(order.orderData.city)}
+${escapeHtml(order.orderData.address)}
 
 Товары:
 ${itemsText}
@@ -144,7 +217,7 @@ ${itemsText}
 Доставка: ${order.orderData.deliveryCost} ₽ (${order.orderData.deliveryRegion})
 Итого: ${order.orderData.total} ₽
 
-${order.orderData.comments ? `Комментарии: ${order.orderData.comments}` : ''}
+${order.orderData.comments ? `Комментарии: ${escapeHtml(order.orderData.comments)}` : ''}
   `.trim()
   
   // отправляем покупателю если есть chat_id
@@ -169,13 +242,37 @@ ${order.orderData.comments ? `Комментарии: ${order.orderData.comments
 }
 
 // оформление заказа (создаем заказ и возвращаем URL для оплаты)
-app.post('/api/orders', async (req, res) => {
+app.post('/api/orders', orderLimiter, async (req, res) => {
   try {
     const orderData = req.body
     
+    logger.info({ 
+      itemsCount: orderData.items?.length,
+      hasInitData: !!orderData.initData,
+      deliveryRegion: orderData.deliveryRegion
+    }, 'получен запрос на создание заказа')
+    
     // валидация входных данных
     if (!orderData.items || !Array.isArray(orderData.items) || orderData.items.length === 0) {
+      logger.warn('заказ отклонен: нет товаров в корзине')
       return res.status(400).json({ error: 'invalid_items' })
+    }
+    
+    // валидация телефона
+    if (!orderData.phone || !validatePhone(orderData.phone)) {
+      logger.warn({ phone: orderData.phone }, 'заказ отклонен: невалидный номер телефона')
+      return res.status(400).json({ error: 'invalid_phone' })
+    }
+    
+    // валидация обязательных полей
+    if (!orderData.fullName || !orderData.fullName.trim()) {
+      logger.warn('заказ отклонен: не указано ФИО')
+      return res.status(400).json({ error: 'invalid_fullname' })
+    }
+    
+    if (!orderData.deliveryRegion) {
+      logger.warn('заказ отклонен: не указан регион доставки')
+      return res.status(400).json({ error: 'invalid_delivery_region' })
     }
     
     // пересчитываем цены на бэкенде из актуальных данных товаров (защита от подмены цен)
@@ -183,6 +280,7 @@ app.post('/api/orders', async (req, res) => {
     const validatedItems = orderData.items.map((item: any) => {
       const product = products.find(p => p.slug === item.slug && p.active)
       if (!product) {
+        logger.warn({ slug: item.slug }, 'товар не найден или неактивен при валидации заказа')
         throw new Error(`Товар ${item.slug} не найден или неактивен`)
       }
       
@@ -197,6 +295,10 @@ app.post('/api/orders', async (req, res) => {
     
     // проверяем что все товары найдены
     if (validatedItems.length !== orderData.items.length) {
+      logger.error({ 
+        requested: orderData.items.length, 
+        validated: validatedItems.length 
+      }, 'не все товары найдены при валидации заказа')
       return res.status(400).json({ error: 'some_items_not_found' })
     }
     
@@ -290,7 +392,24 @@ app.post('/api/robokassa/result', express.urlencoded({ extended: true }), async 
   try {
     const { OutSum, InvId, SignatureValue, ...additionalParams } = req.body
     
-    logger.info({ OutSum, InvId, SignatureValue }, 'получен callback от Робокассы')
+    logger.info({ 
+      OutSum, 
+      InvId, 
+      hasSignature: !!SignatureValue,
+      additionalParamsCount: Object.keys(additionalParams).length,
+      ip: req.ip
+    }, 'получен callback от Робокассы (Result URL)')
+    
+    // проверяем формат InvId (должен быть числом) - делаем это первым
+    const invoiceIdNum = parseInt(InvId, 10)
+    if (!InvId || isNaN(invoiceIdNum) || invoiceIdNum <= 0) {
+      logger.error({ 
+        InvId, 
+        parsed: invoiceIdNum,
+        type: typeof InvId 
+      }, 'невалидный формат InvId от Робокассы')
+      return res.status(400).send('ERROR')
+    }
     
     // проверяем подпись
     const isValid = verifyResultSignature({
@@ -301,25 +420,34 @@ app.post('/api/robokassa/result', express.urlencoded({ extended: true }), async 
     })
     
     if (!isValid) {
-      logger.error({ InvId }, 'неверная подпись от Робокассы')
+      logger.error({ 
+        InvId, 
+        hasSignature: !!SignatureValue,
+        signatureLength: SignatureValue?.length 
+      }, 'неверная подпись от Робокассы')
       return res.status(400).send('ERROR')
     }
+    
+    logger.info({ InvId }, 'подпись от Робокассы проверена успешно')
     
     // находим заказ по invoiceId (преобразуем в orderId)
     // Робокасса возвращает числовой InvId, а у нас заказ хранится по orderId (ORD-timestamp)
     const orderId = `ORD-${InvId}`
     const order = getOrder(orderId)
     if (!order) {
-      logger.error({ InvId, orderId }, 'заказ не найден')
+      logger.error({ 
+        InvId, 
+        orderId,
+        searchedOrderId: orderId 
+      }, 'заказ не найден по InvId от Робокассы')
       return res.status(404).send('ERROR')
     }
     
-    // проверяем формат InvId (должен быть числом)
-    const invoiceIdNum = parseInt(InvId, 10)
-    if (isNaN(invoiceIdNum) || invoiceIdNum <= 0) {
-      logger.error({ InvId }, 'невалидный формат InvId от Робокассы')
-      return res.status(400).send('ERROR')
-    }
+    logger.info({ 
+      InvId, 
+      orderId, 
+      currentStatus: order.status 
+    }, 'заказ найден, проверяем сумму')
     
     // обновляем статус на оплачен
     if (order.status === 'pending') {
