@@ -206,6 +206,23 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 /* модалка товара */
 .modal-content--product { max-width: 600px; padding: 0; }
 .product-modal__gallery { position: relative; }
+.product-modal__gallery .swiper-button-prev,
+.product-modal__gallery .swiper-button-next {
+  width: 36px;
+  height: 36px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 50%;
+  color: #fff;
+  transition: background-color 0.2s;
+}
+.product-modal__gallery .swiper-button-prev:hover,
+.product-modal__gallery .swiper-button-next:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+.product-modal__gallery .swiper-button-prev::after,
+.product-modal__gallery .swiper-button-next::after {
+  font-size: 16px;
+}
 .product-modal__image-wrapper { position: relative; }
 .product-modal__image { width: 100%; aspect-ratio: 4 / 5; background-size: cover; background-position: center; background-repeat: no-repeat; background-color: #f0f0f0; cursor: zoom-in; }
 .product-modal__arrow { position: absolute; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; background: rgba(255, 255, 255, 0.1) !important; border: none !important; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s; z-index: 10; }
