@@ -35,7 +35,7 @@ git push -u origin main
    ```
    PORT=4000
    NODE_ENV=production
-   IMPORT_SHEET_ID=1aqnsr0oseSfm5ZErHaz9sl_eUMdJQGpnERrdf3ztZvI
+   IMPORT_SHEET_ID=YOUR_SHEET_ID_HERE
    GOOGLE_SA_JSON={"type":"service_account",...}
    ADMIN_IMPORT_KEY=dev-key
    TG_WEBAPP_URL=будет_после_деплоя_фронта

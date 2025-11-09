@@ -30,7 +30,7 @@
 - поддержка tg темы (светлая/тёмная) через themeParams, webapp mainButton/backButton
 
 #### интеграция с google sheets (источник каталога)
-- ссылка на таблицу: `https://docs.google.com/spreadsheets/d/1aqnsr0oseSfm5ZErHaz9sl_eUMdJQGpnERrdf3ztZvI/edit?usp=sharing`
+- ссылка на таблицу: `https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit?usp=sharing`
 - структура: **5 листов по категориям** — `ягоды`, `шея`, `руки`, `уши`, `сертификаты`
 - колонки в каждом листе (первая строка — заголовки):
   - **обязательные**: `slug`, `title`, `price_rub`, `images`, `active`
