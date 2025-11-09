@@ -22,29 +22,6 @@ function escapeHtml(text: string): string {
     .replace(/'/g, '&#039;')
 }
 
-// валидация номера телефона (российский формат)
-function validatePhone(phone: string): boolean {
-  if (!phone) return false
-  
-  // убираем все нецифровые символы
-  const digitsOnly = phone.replace(/\D/g, '')
-  
-  // проверяем что осталось 10-11 цифр (российский формат)
-  // 10 цифр: 9XXXXXXXXX (без +7 или 8)
-  // 11 цифр: 79XXXXXXXXX или 89XXXXXXXXX
-  if (digitsOnly.length < 10 || digitsOnly.length > 11) {
-    return false
-  }
-  
-  // если 11 цифр, первая должна быть 7 или 8
-  if (digitsOnly.length === 11) {
-    if (digitsOnly[0] !== '7' && digitsOnly[0] !== '8') {
-      return false
-    }
-  }
-  
-  return true
-}
 
 // автоматический импорт товаров из google sheets
 async function importProducts() {
@@ -252,27 +229,10 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
       deliveryRegion: orderData.deliveryRegion
     }, 'получен запрос на создание заказа')
     
-    // валидация входных данных
+    // минимальная проверка - должны быть товары
     if (!orderData.items || !Array.isArray(orderData.items) || orderData.items.length === 0) {
       logger.warn('заказ отклонен: нет товаров в корзине')
       return res.status(400).json({ error: 'invalid_items' })
-    }
-    
-    // валидация телефона
-    if (!orderData.phone || !validatePhone(orderData.phone)) {
-      logger.warn({ phone: orderData.phone }, 'заказ отклонен: невалидный номер телефона')
-      return res.status(400).json({ error: 'invalid_phone' })
-    }
-    
-    // валидация обязательных полей
-    if (!orderData.fullName || !orderData.fullName.trim()) {
-      logger.warn('заказ отклонен: не указано ФИО')
-      return res.status(400).json({ error: 'invalid_fullname' })
-    }
-    
-    if (!orderData.deliveryRegion) {
-      logger.warn('заказ отклонен: не указан регион доставки')
-      return res.status(400).json({ error: 'invalid_delivery_region' })
     }
     
     // пересчитываем цены на бэкенде из актуальных данных товаров (защита от подмены цен)
