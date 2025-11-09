@@ -153,13 +153,15 @@ function extractChatIdFromInitData(initData: string): string | null {
 // отправка уведомлений о заказе (вызывается после успешной оплаты)
 async function sendOrderNotifications(order: any) {
   // экранируем HTML для защиты от XSS
-  // для менеджера показываем артикул, для покупателя - нет
-  const itemsTextForCustomer = order.orderData.items.map((item: any) => 
-    `• ${escapeHtml(item.title)} × ${item.quantity} — ${item.price * item.quantity} ₽`
-  ).join('\n')
+  // для покупателя: товар (арт: 0000) × 1 = 1 р.
+  const itemsTextForCustomer = order.orderData.items.map((item: any) => {
+    const articleText = item.article ? ` (арт: ${escapeHtml(item.article)})` : ''
+    return `• ${escapeHtml(item.title)}${articleText} × ${item.quantity} — ${item.price * item.quantity} ₽`
+  }).join('\n')
   
+  // для менеджера: товар [0001] × 1 — 1 ₽
   const itemsTextForManager = order.orderData.items.map((item: any) => {
-    const articleText = item.article ? ` [${escapeHtml(item.article)}]` : ''
+    const articleText = item.article ? ` (арт: ${escapeHtml(item.article)})` : ''
     return `• ${escapeHtml(item.title)}${articleText} × ${item.quantity} — ${item.price * item.quantity} ₽`
   }).join('\n')
   

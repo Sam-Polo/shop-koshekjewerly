@@ -1463,9 +1463,6 @@ export default function App() {
                       <div className="product-card__info">
                         <h3 className="product-card__title">{product.title}</h3>
                         <p className="product-card__price">{product.price_rub} ₽</p>
-                        {product.article && (
-                          <p className="product-card__article">Арт. {product.article}</p>
-                        )}
           </div>
                     </motion.div>
                   ))}
