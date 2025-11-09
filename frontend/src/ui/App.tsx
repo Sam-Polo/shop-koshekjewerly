@@ -2,10 +2,12 @@ import { useEffect, useState, useRef } from 'react'
 import WebApp from '@twa-dev/sdk'
 import React from 'react'
 import { Swiper, SwiperSlide, type SwiperClass } from 'swiper/react'
-import { Pagination } from 'swiper/modules'
+import { Pagination, Zoom, Navigation } from 'swiper/modules'
 import { motion, AnimatePresence } from 'framer-motion'
 import 'swiper/css'
 import 'swiper/css/pagination'
+import 'swiper/css/zoom'
+import 'swiper/css/navigation'
 
 // изображения из public/assets с учетом base path
 const baseUrl = import.meta.env.BASE_URL
@@ -164,14 +166,17 @@ const FullscreenImage = ({
       <button className="fullscreen-image__close" onClick={handleClose}>&times;</button>
       
       <Swiper
-        modules={[Pagination]}
+        modules={[Pagination, Zoom]}
         pagination={{ clickable: true }}
+        zoom={true}
         initialSlide={currentIndex}
         onSlideChange={(swiper: SwiperClass) => onNavigate(swiper.activeIndex)}
       >
         {images.map((img, idx) => (
           <SwiperSlide key={idx} onClick={(e) => e.stopPropagation()}>
-            <img src={img} alt={`Товар (фото ${idx + 1})`} className="fullscreen-image__img" />
+            <div className="swiper-zoom-container">
+              <img src={img} alt={`Товар (фото ${idx + 1})`} />
+            </div>
           </SwiperSlide>
         ))}
       </Swiper>
@@ -197,6 +202,7 @@ const ProductModal = ({
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null)
   const [isAdding, setIsAdding] = useState(false)
   const [addedState, setAddedState] = useState(false)
+  const swiperRef = useRef<SwiperClass | null>(null)
   const { loading: mainImageLoading } = useImageLoader(
     product.images?.[selectedImageIndex] || ''
   )
@@ -212,6 +218,13 @@ const ProductModal = ({
     setQuantity(1)
     setSelectedImageIndex(0)
   }, [product.slug])
+
+  // синхронизация свайпера с выбранной миниатюрой
+  useEffect(() => {
+    if (swiperRef.current && swiperRef.current.activeIndex !== selectedImageIndex) {
+      swiperRef.current.slideTo(selectedImageIndex)
+    }
+  }, [selectedImageIndex])
 
   // разбиваем описание по переносам строк
   const descriptionLines = product.description 
@@ -253,41 +266,27 @@ const ProductModal = ({
         {/* фото-галерея */}
         {product.images && product.images.length > 0 && (
           <div className="product-modal__gallery">
-            <div className="product-modal__image-wrapper">
-              <div 
-                className={`product-modal__image ${mainImageLoading ? 'shimmer-bg' : 'fade-in-image'}`}
-                style={
-                  mainImageLoading 
-                    ? {} 
-                    : { backgroundImage: `url(${product.images[selectedImageIndex]})` }
-                }
-                onClick={() => setFullscreenImage(product.images[selectedImageIndex])}
-              />
-              {product.images.length > 1 && (
-                <>
-                  <button
-                    className="product-modal__arrow product-modal__arrow--prev"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setSelectedImageIndex(prev => prev === 0 ? product.images.length - 1 : prev - 1)
-                    }}
-                    aria-label="Предыдущее фото"
-                  >
-                    <svg width="24" height="24" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6" /></svg>
-                  </button>
-                  <button
-                    className="product-modal__arrow product-modal__arrow--next"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setSelectedImageIndex(prev => prev === product.images.length - 1 ? 0 : prev + 1)
-                    }}
-                    aria-label="Следующее фото"
-                  >
-                    <svg width="24" height="24" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6" /></svg>
-                  </button>
-                </>
-              )}
-            </div>
+            <Swiper
+              modules={[Navigation]}
+              navigation
+              onSwiper={(swiper) => (swiperRef.current = swiper)}
+              onSlideChange={(swiper) => setSelectedImageIndex(swiper.activeIndex)}
+            >
+              {product.images.map((img, idx) => (
+                <SwiperSlide key={idx}>
+                  <div 
+                    className={`product-modal__image ${mainImageLoading && selectedImageIndex === idx ? 'shimmer-bg' : 'fade-in-image'}`}
+                    style={
+                      mainImageLoading && selectedImageIndex === idx
+                        ? {} 
+                        : { backgroundImage: `url(${img})` }
+                    }
+                    onClick={() => setFullscreenImage(img)}
+                  />
+                </SwiperSlide>
+              ))}
+            </Swiper>
+            
             {product.images.length > 1 && (
               <div className="product-modal__thumbnails">
                 {product.images.map((img, idx) => (

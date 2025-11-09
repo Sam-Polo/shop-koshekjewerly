@@ -229,6 +229,8 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 .fullscreen-image__img { max-width: 100%; max-height: 100%; object-fit: contain; }
 .fullscreen-image .swiper-pagination-bullet { background: #fff; opacity: 0.5; }
 .fullscreen-image .swiper-pagination-bullet-active { background: var(--page-bg); opacity: 1; }
+.swiper-zoom-container { width: auto; height: auto; display: flex; align-items: center; justify-content: center; }
+.swiper-zoom-container > img { max-width: 100%; max-height: 100%; object-fit: contain; }
 
 .product-modal__title { margin: 0 0 12px; font-size: 24px; font-weight: 400; }
 .product-modal__price { margin: 0 0 20px; font-size: 28px; font-weight: 600; color: #bf9243; }
