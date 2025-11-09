@@ -186,6 +186,20 @@ bot.command('cancel', async (ctx) => {
   }
 });
 
+// команда для подсчета пользователей (только для менеджера)
+bot.command('users', async (ctx) => {
+  const chatId = ctx.from?.id
+  const username = ctx.from?.username
+  
+  if (!isManager(chatId, username)) {
+    await ctx.reply('❌ У вас нет доступа к этой команде.')
+    return
+  }
+  
+  const usersCount = userChatIds.size
+  await ctx.reply(`👥 Всего пользователей: <b>${usersCount}</b>`, { parse_mode: 'HTML' })
+});
+
 // создаем reply keyboard с кнопкой "Старт"
 const startKeyboard = new Keyboard()
   .text('Старт')
