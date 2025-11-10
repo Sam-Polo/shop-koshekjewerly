@@ -1,6 +1,52 @@
 import { useState, useEffect } from 'react'
 import { api, getToken, saveToken, removeToken } from './api'
+import { generateSlug, formatArticle, parseArticle } from './utils'
 import './App.css'
+
+// компонент уведомлений
+function Toast({ message, type, onClose }: { message: string; type: 'success' | 'error'; onClose: () => void }) {
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      onClose()
+    }, 3000)
+    return () => clearTimeout(timer)
+  }, [onClose])
+
+  return (
+    <div className={`toast toast-${type}`}>
+      {message}
+      <button className="toast-close" onClick={onClose}>&times;</button>
+    </div>
+  )
+}
+
+// компонент подтверждения удаления
+function ConfirmModal({ 
+  message, 
+  onConfirm, 
+  onCancel 
+}: { 
+  message: string
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal-content confirm-modal" onClick={(e) => e.stopPropagation()}>
+        <h3>Подтверждение</h3>
+        <p>{message}</p>
+        <div className="confirm-actions">
+          <button onClick={onCancel} className="btn btn-cancel">
+            Отмена
+          </button>
+          <button onClick={onConfirm} className="btn btn-confirm">
+            Удалить
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 type Product = {
   id?: string
@@ -81,6 +127,9 @@ function ProductsList() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
+  const [selectedProductSlugs, setSelectedProductSlugs] = useState<Set<string>>(new Set())
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<{ product: Product } | null>(null)
 
   useEffect(() => {
     loadProducts()
@@ -92,12 +141,72 @@ function ProductsList() {
       setError('')
       const data = await api.getProducts()
       setProducts(data.products || [])
+      setSelectedProductSlugs(new Set()) // сбрасываем выделение при обновлении
     } catch (err: any) {
       setError(err.message || 'Ошибка загрузки товаров')
     } finally {
       setLoading(false)
     }
   }
+
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type })
+  }
+
+  const handleDeleteClick = (product: Product) => {
+    setDeleteConfirm({ product })
+    setSelectedProduct(null) // закрываем карточку товара сразу
+  }
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteConfirm) return
+    
+    const product = deleteConfirm.product
+    setDeleteConfirm(null)
+
+    try {
+      await api.deleteProduct(product.slug)
+      showToast('Товар успешно удален', 'success')
+      await loadProducts()
+    } catch (err: any) {
+      showToast(err.message || 'Ошибка удаления товара', 'error')
+    }
+  }
+
+  const handleToggleProductSelection = (slug: string) => {
+    setSelectedProductSlugs(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(slug)) {
+        newSet.delete(slug)
+      } else {
+        newSet.add(slug)
+      }
+      return newSet
+    })
+  }
+
+  const handleDeactivateSelected = async () => {
+    if (selectedProductSlugs.size === 0) {
+      showToast('Выберите товары для отключения', 'error')
+      return
+    }
+
+    try {
+      const promises = Array.from(selectedProductSlugs).map(slug => {
+        const product = products.find(p => p.slug === slug)
+        if (!product) return Promise.resolve()
+        return api.updateProduct(slug, { ...product, active: false })
+      })
+      
+      await Promise.all(promises)
+      showToast(`Отключено товаров: ${selectedProductSlugs.size}`, 'success')
+      await loadProducts()
+      setSelectedProductSlugs(new Set())
+    } catch (err: any) {
+      showToast(err.message || 'Ошибка отключения товаров', 'error')
+    }
+  }
+
 
   const handleLogout = () => {
     removeToken()
@@ -146,8 +255,13 @@ function ProductsList() {
               </select>
             </label>
             <button onClick={loadProducts} disabled={loading} className="btn-refresh" title="Обновить">
-              <span className="refresh-icon">↻</span>
+              <span className={`refresh-icon ${loading ? 'spinning' : ''}`}>↻</span>
             </button>
+            {selectedProductSlugs.size > 0 && (
+              <button onClick={handleDeactivateSelected} className="btn-deactivate" title="Отключить выбранные">
+                Отключить ({selectedProductSlugs.size})
+              </button>
+            )}
           </div>
           <button onClick={() => setIsAddModalOpen(true)} className="btn-add">
             Добавить товар
@@ -163,14 +277,28 @@ function ProductsList() {
             {Object.entries(groupedProducts).map(([category, categoryProducts]) => (
               <div key={category} className="category-section">
                 <h2>{category.charAt(0).toUpperCase() + category.slice(1)}</h2>
-                <div className="products-grid">
-                  {categoryProducts.map(product => (
-                    <div
-                      key={product.slug}
-                      className={`product-card ${!product.active ? 'inactive' : ''}`}
-                      onClick={() => setSelectedProduct(product)}
-                    >
-                      <div className="product-images">
+                 <div className="products-grid">
+                   {categoryProducts.map(product => (
+                     <div
+                       key={product.slug}
+                       className={`product-card ${!product.active ? 'inactive' : ''} ${selectedProductSlugs.has(product.slug) ? 'selected' : ''}`}
+                     >
+                       <div className="product-card-checkbox">
+                         <input
+                           type="checkbox"
+                           checked={selectedProductSlugs.has(product.slug)}
+                           onChange={(e) => {
+                             e.stopPropagation()
+                             handleToggleProductSelection(product.slug)
+                           }}
+                           onClick={(e) => e.stopPropagation()}
+                         />
+                       </div>
+                       <div 
+                         className="product-card-content"
+                         onClick={() => setSelectedProduct(product)}
+                       >
+                       <div className="product-images">
                         {product.images.length > 0 ? (
                           <img src={product.images[0]} alt={product.title} />
                         ) : (
@@ -189,16 +317,33 @@ function ProductsList() {
                             {product.active ? 'Активен' : 'Неактивен'}
                           </span>
                         </div>
-                        {product.description && (
-                          <p className="product-description">{product.description}</p>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
+                         {product.description && (
+                           <p className="product-description">{product.description}</p>
+                         )}
+                       </div>
+                       </div>
+                     </div>
+                   ))}
+                 </div>
+               </div>
+             ))}
+           </div>
+         )}
+
+        {toast && (
+          <Toast
+            message={toast.message}
+            type={toast.type}
+            onClose={() => setToast(null)}
+          />
+        )}
+
+        {deleteConfirm && (
+          <ConfirmModal
+            message={`Вы уверены, что хотите удалить товар "${deleteConfirm.product.title}"?`}
+            onConfirm={handleDeleteConfirm}
+            onCancel={() => setDeleteConfirm(null)}
+          />
         )}
 
         {!loading && filteredProducts.length === 0 && (
@@ -213,37 +358,50 @@ function ProductsList() {
           onEdit={() => {
             setIsEditModalOpen(true)
           }}
-          onDelete={() => {
-            // TODO: подтверждение и удаление
-            console.log('Удалить:', selectedProduct)
-          }}
+           onDelete={() => handleDeleteClick(selectedProduct)}
         />
       )}
 
       {isEditModalOpen && selectedProduct && (
         <ProductFormModal
           product={selectedProduct}
+          products={products}
           onClose={() => {
             setIsEditModalOpen(false)
           }}
-          onSave={(updatedProduct) => {
-            // TODO: сохранить изменения
-            console.log('Сохранить:', updatedProduct)
-            setIsEditModalOpen(false)
-            setSelectedProduct(null)
-            loadProducts()
+          onSave={async (updatedProduct) => {
+            try {
+              await api.updateProduct(selectedProduct.slug, updatedProduct)
+              showToast('Товар успешно обновлен', 'success')
+              setIsEditModalOpen(false)
+              setSelectedProduct(null)
+              await loadProducts()
+            } catch (err: any) {
+              const errorMsg = err.message || 'Ошибка сохранения товара'
+              setError(errorMsg)
+              showToast(errorMsg, 'error')
+              throw err // пробрасываем ошибку в форму
+            }
           }}
         />
       )}
 
       {isAddModalOpen && (
         <ProductFormModal
+          products={products}
           onClose={() => setIsAddModalOpen(false)}
-          onSave={(newProduct) => {
-            // TODO: добавить товар
-            console.log('Добавить:', newProduct)
-            setIsAddModalOpen(false)
-            loadProducts()
+          onSave={async (newProduct) => {
+            try {
+              await api.createProduct(newProduct)
+              showToast('Товар успешно добавлен', 'success')
+              setIsAddModalOpen(false)
+              await loadProducts()
+            } catch (err: any) {
+              const errorMsg = err.message || 'Ошибка добавления товара'
+              setError(errorMsg)
+              showToast(errorMsg, 'error')
+              throw err // пробрасываем ошибку в форму
+            }
           }}
         />
       )}
@@ -456,44 +614,160 @@ function ImageFullscreen({
 
 function ProductFormModal({
   product,
+  products,
   onClose,
   onSave
 }: {
   product?: Product
+  products: Product[]
   onClose: () => void
-  onSave: (product: Partial<Product>) => void
+  onSave: (product: Partial<Product>) => void | Promise<void>
 }) {
   const isEdit = !!product
+  
+  // получение следующего артикула
+  const getNextArticle = (): string => {
+    const articles = products
+      .map(p => p.article)
+      .filter(Boolean)
+      .map(article => parseArticle(article || ''))
+      .filter((num): num is number => num !== null)
+    
+    if (articles.length === 0) {
+      return formatArticle(1)
+    }
+    
+    const maxArticle = Math.max(...articles)
+    return formatArticle(maxArticle + 1)
+  }
+
   const defaultDescription = '• материал...\n• длина...'
-  const [formData, setFormData] = useState<Partial<Product>>({
-    title: product?.title || '',
-    slug: product?.slug || '',
-    description: product?.description || (isEdit ? '' : defaultDescription),
-    category: product?.category || '',
-    price_rub: product?.price_rub || 0,
-    active: product?.active !== undefined ? product.active : true,
-    stock: product?.stock || undefined,
-    article: product?.article || '',
-    images: product?.images || [],
-    order: product?.order || undefined
+  const nextArticle = !isEdit ? getNextArticle() : ''
+  
+  const [formData, setFormData] = useState<Partial<Product>>(() => {
+    const initialArticle = product?.article || nextArticle
+    const initialTitle = product?.title || ''
+    const initialSlug = product?.slug || (initialTitle && initialArticle ? generateSlug(initialTitle, initialArticle) : '')
+    
+    return {
+      title: initialTitle,
+      slug: initialSlug,
+      description: product?.description || (isEdit ? '' : defaultDescription),
+      category: product?.category || '',
+      price_rub: product?.price_rub || 0,
+      active: product?.active !== undefined ? product.active : true,
+      stock: product?.stock || undefined,
+      article: initialArticle,
+      images: product?.images || []
+    }
   })
+
+  // обновляем slug при изменении названия или артикула (только при добавлении)
+  useEffect(() => {
+    if (!isEdit && formData.title && formData.article) {
+      const newSlug = generateSlug(formData.title, formData.article)
+      setFormData(prev => {
+        if (prev.slug !== newSlug) {
+          return { ...prev, slug: newSlug }
+        }
+        return prev
+      })
+    }
+  }, [formData.title, formData.article, isEdit, formData.slug])
+
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [saving, setSaving] = useState(false)
 
   // получаем список категорий
   const categories = ['Ягоды', 'Шея', 'Руки', 'Уши', 'Сертификаты']
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // валидация формы
+  const validate = (): boolean => {
+    const newErrors: Record<string, string> = {}
+
+    if (!formData.title || formData.title.trim().length === 0) {
+      newErrors.title = 'Название обязательно'
+    }
+
+    if (!formData.category) {
+      newErrors.category = 'Категория обязательна'
+    }
+
+    if (!formData.price_rub || formData.price_rub <= 0) {
+      newErrors.price_rub = 'Цена должна быть больше 0'
+    }
+
+    // фото необязательное
+
+    // валидация артикула
+    if (!isEdit) {
+      if (!formData.article || !parseArticle(formData.article)) {
+        newErrors.article = 'Артикул должен быть 4-значным числом'
+      } else {
+        // проверка уникальности
+        const exists = products.some(p => p.article === formData.article)
+        if (exists) {
+          newErrors.article = 'Артикул уже существует'
+        }
+      }
+    }
+
+    setErrors(newErrors)
+    return Object.keys(newErrors).length === 0
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    onSave(formData)
+    
+    if (!validate()) {
+      return
+    }
+
+    setSaving(true)
+    try {
+      await onSave(formData)
+    } catch (err: any) {
+      setErrors({ submit: err.message || 'Ошибка сохранения' })
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleChange = (field: keyof Product, value: any) => {
-    setFormData(prev => ({ ...prev, [field]: value }))
+    setFormData(prev => {
+      const updated = { ...prev, [field]: value }
+      
+      // автогенерация slug при изменении названия или артикула
+      if (field === 'title' || field === 'article') {
+        if (updated.title && updated.article) {
+          updated.slug = generateSlug(updated.title, updated.article)
+        }
+      }
+      
+      return updated
+    })
+    
+    // очищаем ошибку для этого поля
+    if (errors[field]) {
+      setErrors(prev => {
+        const newErrors = { ...prev }
+        delete newErrors[field]
+        return newErrors
+      })
+    }
   }
 
   const handleImagesChange = (value: string) => {
     // разделяем по новой строке
     const images = value.split('\n').map(img => img.trim()).filter(Boolean)
     handleChange('images', images)
+  }
+
+  const handlePriceChange = (value: string) => {
+    // убираем пробелы и нечисловые символы (кроме точки и запятой)
+    const cleaned = value.replace(/\s/g, '').replace(/[^\d.,]/g, '')
+    const num = parseFloat(cleaned.replace(',', '.')) || 0
+    handleChange('price_rub', num)
   }
 
   return (
@@ -544,30 +818,19 @@ function ProductFormModal({
             </div>
             
             <div className="form-group">
-              <label>Slug *</label>
+              <label>Цена (₽) *</label>
               <input
                 type="text"
-                value={formData.slug || ''}
-                onChange={(e) => handleChange('slug', e.target.value)}
+                value={formData.price_rub || 0}
+                onChange={(e) => handlePriceChange(e.target.value)}
                 required
-                placeholder="kolie-s-malinkoy-123456"
+                placeholder="0"
               />
+              {errors.price_rub && <small style={{ color: '#dc3545' }}>{errors.price_rub}</small>}
             </div>
           </div>
 
           <div className="form-row">
-            <div className="form-group">
-              <label>Цена (₽) *</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={formData.price_rub || 0}
-                onChange={(e) => handleChange('price_rub', parseFloat(e.target.value) || 0)}
-                required
-              />
-            </div>
-            
             <div className="form-group">
               <label>Остаток</label>
               <input
@@ -582,24 +845,32 @@ function ProductFormModal({
 
           <div className="form-row">
             <div className="form-group">
-              <label>Порядок</label>
+              <label>Slug {isEdit ? '(авто)' : '*'}</label>
               <input
-                type="number"
-                min="0"
-                value={formData.order || ''}
-                onChange={(e) => handleChange('order', e.target.value ? parseInt(e.target.value) : undefined)}
-                placeholder="TODO..."
+                type="text"
+                value={formData.slug || ''}
+                readOnly
+                placeholder="Генерируется автоматически"
+                className="readonly-input"
               />
             </div>
             
             <div className="form-group">
-              <label>Артикул</label>
+              <label>Артикул {isEdit ? '(авто)' : '*'}</label>
               <input
                 type="text"
                 value={formData.article || ''}
-                onChange={(e) => handleChange('article', e.target.value)}
+                onChange={(e) => {
+                  const value = e.target.value.replace(/\D/g, '').slice(0, 4)
+                  handleChange('article', value)
+                }}
+                disabled={isEdit}
+                required={!isEdit}
                 placeholder="0081"
+                pattern="\d{4}"
+                className="readonly-input"
               />
+              {errors.article && <small style={{ color: '#dc3545' }}>{errors.article}</small>}
             </div>
           </div>
 
@@ -614,23 +885,28 @@ function ProductFormModal({
           </div>
 
           <div className="form-group">
-            <label>Фото (по одному на строку) *</label>
+            <label>Фото (по одному на строку)</label>
             <textarea
               value={(formData.images || []).join('\n')}
               onChange={(e) => handleImagesChange(e.target.value)}
               rows={6}
               placeholder="https://example.com/photo1.jpg&#10;https://example.com/photo2.jpg"
-              required
             />
             <small>Вставьте URL фото, каждое с новой строки</small>
           </div>
 
+          {errors.submit && (
+            <div style={{ background: '#fee', color: '#c33', padding: '0.75rem', borderRadius: '4px' }}>
+              {errors.submit}
+            </div>
+          )}
+
           <div className="form-actions">
-            <button type="button" onClick={onClose} className="btn btn-cancel">
+            <button type="button" onClick={onClose} className="btn btn-cancel" disabled={saving}>
               Отмена
             </button>
-            <button type="submit" className="btn btn-save">
-              {isEdit ? 'Сохранить' : 'Добавить'}
+            <button type="submit" className="btn btn-save" disabled={saving}>
+              {saving ? 'Сохранение...' : (isEdit ? 'Сохранить' : 'Добавить')}
             </button>
           </div>
         </form>

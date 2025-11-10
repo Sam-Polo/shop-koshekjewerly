@@ -37,7 +37,23 @@ async function fetchWithAuth(url: string, options: RequestInit = {}) {
   
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'unknown_error' }))
-    throw new Error(error.error || 'request_failed')
+    const errorMessage = error.error || 'request_failed'
+    
+    // переводим коды ошибок в понятные сообщения
+    const errorMessages: Record<string, string> = {
+      'missing_required_fields': 'Заполните все обязательные поля',
+      'invalid_price': 'Некорректная цена',
+      'images_required': 'Добавьте хотя бы одно фото',
+      'article_already_exists': 'Артикул уже существует',
+      'slug_already_exists': 'Slug уже существует',
+      'invalid_category': 'Некорректная категория',
+      'product_not_found': 'Товар не найден',
+      'failed_to_create_product': 'Ошибка создания товара',
+      'failed_to_update_product': 'Ошибка обновления товара',
+      'failed_to_delete_product': 'Ошибка удаления товара'
+    }
+    
+    throw new Error(errorMessages[errorMessage] || errorMessage)
   }
   
   return response.json()
@@ -65,6 +81,31 @@ export const api = {
   // получение списка товаров
   async getProducts() {
     return fetchWithAuth('/api/products')
+  },
+
+  // добавление товара
+  async createProduct(product: any) {
+    return fetchWithAuth('/api/products', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(product)
+    })
+  },
+
+  // обновление товара
+  async updateProduct(slug: string, product: any) {
+    return fetchWithAuth(`/api/products/${slug}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(product)
+    })
+  },
+
+  // удаление товара
+  async deleteProduct(slug: string) {
+    return fetchWithAuth(`/api/products/${slug}`, {
+      method: 'DELETE'
+    })
   }
 }
 

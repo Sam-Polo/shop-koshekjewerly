@@ -180,8 +180,21 @@
   transition: transform 0.3s;
 }
 
-.btn-refresh:hover:not(:disabled) .refresh-icon {
+.btn-refresh:hover:not(:disabled) .refresh-icon:not(.spinning) {
   transform: rotate(180deg);
+}
+
+.refresh-icon.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .btn-add {
@@ -197,6 +210,118 @@
 
 .btn-add:hover {
   background: #218838;
+}
+
+.btn-deactivate {
+  padding: 0.5rem 1rem;
+  background: #fc79d5;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.btn-deactivate:hover {
+  background: #e066c0;
+}
+
+/* уведомления */
+.toast {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  background: white;
+  padding: 1rem 1.5rem;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  z-index: 10000;
+  min-width: 300px;
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.toast-success {
+  border-left: 4px solid #28a745;
+}
+
+.toast-error {
+  border-left: 4px solid #dc3545;
+}
+
+.toast-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #666;
+  padding: 0;
+  margin-left: auto;
+  line-height: 1;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toast-close:hover {
+  color: #333;
+}
+
+/* модальное окно подтверждения */
+.confirm-modal {
+  max-width: 400px;
+  padding: 2rem;
+}
+
+.confirm-modal h3 {
+  margin: 0 0 1rem 0;
+  color: #333;
+  font-size: 1.3rem;
+}
+
+.confirm-modal p {
+  margin: 0 0 1.5rem 0;
+  color: #666;
+  line-height: 1.5;
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-end;
+}
+
+.btn-confirm {
+  background: #dc3545;
+  color: white;
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: 6px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-weight: 500;
+}
+
+.btn-confirm:hover {
+  background: #c82333;
+  transform: translateY(-1px);
 }
 
 .error-message {
@@ -253,6 +378,64 @@
   overflow: hidden;
   transition: transform 0.2s, box-shadow 0.2s;
   cursor: pointer;
+  position: relative;
+}
+
+.product-card.selected {
+  border-color: #667eea;
+  border-width: 2px;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.product-card-checkbox {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.5rem;
+  z-index: 10;
+  background: transparent;
+  padding: 0.25rem;
+}
+
+.product-card-checkbox input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(1px);
+  transition: all 0.2s;
+}
+
+.product-card-checkbox input[type="checkbox"]:checked {
+  background: rgba(102, 126, 234, 0.7);
+  border-color: rgba(102, 126, 234, 0.5);
+  position: relative;
+}
+
+.product-card-checkbox input[type="checkbox"]:checked::after {
+  content: '✓';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: white;
+  font-size: 14px;
+  font-weight: bold;
+  line-height: 1;
+}
+
+.product-card-checkbox input[type="checkbox"]:hover {
+  border-color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.product-card-content {
+  width: 100%;
 }
 
 .product-card:hover {
@@ -683,6 +866,17 @@
   outline: none;
   border-color: #667eea;
   box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.readonly-input {
+  background: #f5f5f5 !important;
+  color: #666 !important;
+  cursor: not-allowed !important;
+}
+
+.readonly-input:focus {
+  border-color: #ddd !important;
+  box-shadow: none !important;
 }
 
 .form-group textarea {
