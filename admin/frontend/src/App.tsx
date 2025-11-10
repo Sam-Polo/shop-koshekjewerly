@@ -79,6 +79,8 @@ function ProductsList() {
   const [error, setError] = useState('')
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false)
 
   useEffect(() => {
     loadProducts()
@@ -129,21 +131,26 @@ function ProductsList() {
       </header>
 
       <div className="admin-content">
-        <div className="filters">
-          <label>
-            Категория:
-            <select
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-            >
-              <option value="all">Все категории</option>
-              {categories.map(cat => (
-                <option key={cat} value={cat}>{cat}</option>
-              ))}
-            </select>
-          </label>
-          <button onClick={loadProducts} disabled={loading}>
-            {loading ? 'Загрузка...' : 'Обновить'}
+        <div className="toolbar">
+          <div className="toolbar-filters">
+            <label>
+              Категория:
+              <select
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+              >
+                <option value="all">Все категории</option>
+                {categories.map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+            </label>
+            <button onClick={loadProducts} disabled={loading} className="btn-refresh" title="Обновить">
+              <span className="refresh-icon">↻</span>
+            </button>
+          </div>
+          <button onClick={() => setIsAddModalOpen(true)} className="btn-add">
+            Добавить товар
           </button>
         </div>
 
@@ -155,7 +162,7 @@ function ProductsList() {
           <div className="products-list">
             {Object.entries(groupedProducts).map(([category, categoryProducts]) => (
               <div key={category} className="category-section">
-                <h2>{category}</h2>
+                <h2>{category.charAt(0).toUpperCase() + category.slice(1)}</h2>
                 <div className="products-grid">
                   {categoryProducts.map(product => (
                     <div
@@ -199,17 +206,44 @@ function ProductsList() {
         )}
       </div>
 
-      {selectedProduct && (
+      {selectedProduct && !isEditModalOpen && (
         <ProductModal
           product={selectedProduct}
           onClose={() => setSelectedProduct(null)}
           onEdit={() => {
-            // TODO: открыть форму редактирования
-            console.log('Редактировать:', selectedProduct)
+            setIsEditModalOpen(true)
           }}
           onDelete={() => {
             // TODO: подтверждение и удаление
             console.log('Удалить:', selectedProduct)
+          }}
+        />
+      )}
+
+      {isEditModalOpen && selectedProduct && (
+        <ProductFormModal
+          product={selectedProduct}
+          onClose={() => {
+            setIsEditModalOpen(false)
+          }}
+          onSave={(updatedProduct) => {
+            // TODO: сохранить изменения
+            console.log('Сохранить:', updatedProduct)
+            setIsEditModalOpen(false)
+            setSelectedProduct(null)
+            loadProducts()
+          }}
+        />
+      )}
+
+      {isAddModalOpen && (
+        <ProductFormModal
+          onClose={() => setIsAddModalOpen(false)}
+          onSave={(newProduct) => {
+            // TODO: добавить товар
+            console.log('Добавить:', newProduct)
+            setIsAddModalOpen(false)
+            loadProducts()
           }}
         />
       )}
@@ -415,6 +449,191 @@ function ImageFullscreen({
         <div className="fullscreen-counter">
           {currentIndex + 1} / {images.length}
         </div>
+      </div>
+    </div>
+  )
+}
+
+function ProductFormModal({
+  product,
+  onClose,
+  onSave
+}: {
+  product?: Product
+  onClose: () => void
+  onSave: (product: Partial<Product>) => void
+}) {
+  const isEdit = !!product
+  const defaultDescription = '• материал...\n• длина...'
+  const [formData, setFormData] = useState<Partial<Product>>({
+    title: product?.title || '',
+    slug: product?.slug || '',
+    description: product?.description || (isEdit ? '' : defaultDescription),
+    category: product?.category || '',
+    price_rub: product?.price_rub || 0,
+    active: product?.active !== undefined ? product.active : true,
+    stock: product?.stock || undefined,
+    article: product?.article || '',
+    images: product?.images || [],
+    order: product?.order || undefined
+  })
+
+  // получаем список категорий
+  const categories = ['Ягоды', 'Шея', 'Руки', 'Уши', 'Сертификаты']
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    onSave(formData)
+  }
+
+  const handleChange = (field: keyof Product, value: any) => {
+    setFormData(prev => ({ ...prev, [field]: value }))
+  }
+
+  const handleImagesChange = (value: string) => {
+    // разделяем по новой строке
+    const images = value.split('\n').map(img => img.trim()).filter(Boolean)
+    handleChange('images', images)
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content modal-form" onClick={(e) => e.stopPropagation()}>
+        <button className="modal-close" onClick={onClose}>&times;</button>
+        
+        <h2>{isEdit ? 'Редактировать товар' : 'Добавить товар'}</h2>
+        
+        <form onSubmit={handleSubmit} className="product-form">
+          <div className="form-row">
+            <div className="form-group">
+              <label>Статус</label>
+              <select
+                value={formData.active ? 'true' : 'false'}
+                onChange={(e) => handleChange('active', e.target.value === 'true')}
+              >
+                <option value="true">Активен</option>
+                <option value="false">Неактивен</option>
+              </select>
+            </div>
+            
+            <div className="form-group">
+              <label>Категория *</label>
+              <select
+                value={formData.category || ''}
+                onChange={(e) => handleChange('category', e.target.value)}
+                required
+              >
+                <option value="">Выберите категорию</option>
+                {categories.map(cat => (
+                  <option key={cat} value={cat.toLowerCase()}>{cat}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="form-row">
+            <div className="form-group">
+              <label>Название *</label>
+              <input
+                type="text"
+                value={formData.title || ''}
+                onChange={(e) => handleChange('title', e.target.value)}
+                required
+                placeholder='Введите название товара'
+              />
+            </div>
+            
+            <div className="form-group">
+              <label>Slug *</label>
+              <input
+                type="text"
+                value={formData.slug || ''}
+                onChange={(e) => handleChange('slug', e.target.value)}
+                required
+                placeholder="kolie-s-malinkoy-123456"
+              />
+            </div>
+          </div>
+
+          <div className="form-row">
+            <div className="form-group">
+              <label>Цена (₽) *</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={formData.price_rub || 0}
+                onChange={(e) => handleChange('price_rub', parseFloat(e.target.value) || 0)}
+                required
+              />
+            </div>
+            
+            <div className="form-group">
+              <label>Остаток</label>
+              <input
+                type="number"
+                min="0"
+                value={formData.stock || ''}
+                onChange={(e) => handleChange('stock', e.target.value ? parseInt(e.target.value) : undefined)}
+                placeholder="Количество товара в наличии"
+              />
+            </div>
+          </div>
+
+          <div className="form-row">
+            <div className="form-group">
+              <label>Порядок</label>
+              <input
+                type="number"
+                min="0"
+                value={formData.order || ''}
+                onChange={(e) => handleChange('order', e.target.value ? parseInt(e.target.value) : undefined)}
+                placeholder="TODO..."
+              />
+            </div>
+            
+            <div className="form-group">
+              <label>Артикул</label>
+              <input
+                type="text"
+                value={formData.article || ''}
+                onChange={(e) => handleChange('article', e.target.value)}
+                placeholder="0081"
+              />
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label>Описание</label>
+            <textarea
+              value={formData.description || ''}
+              onChange={(e) => handleChange('description', e.target.value)}
+              rows={4}
+              placeholder="Описание товара"
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Фото (по одному на строку) *</label>
+            <textarea
+              value={(formData.images || []).join('\n')}
+              onChange={(e) => handleImagesChange(e.target.value)}
+              rows={6}
+              placeholder="https://example.com/photo1.jpg&#10;https://example.com/photo2.jpg"
+              required
+            />
+            <small>Вставьте URL фото, каждое с новой строки</small>
+          </div>
+
+          <div className="form-actions">
+            <button type="button" onClick={onClose} className="btn btn-cancel">
+              Отмена
+            </button>
+            <button type="submit" className="btn btn-save">
+              {isEdit ? 'Сохранить' : 'Добавить'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   )
