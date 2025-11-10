@@ -32,6 +32,8 @@ const BACKEND_URL = process.env.BACKEND_URL ||
     : 'http://localhost:4000'); // дефолт для локальной разработки
 const SUPPORT_USERNAME = process.env.SUPPORT_USERNAME;
 const MANAGER_CHAT_ID = process.env.TG_MANAGER_CHAT_ID;
+// канал для публикации поста с мини-приложением
+const CHANNEL_USERNAME = process.env.TG_CHANNEL_USERNAME || 'ecl1psetest';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -95,7 +97,26 @@ function isManager(chatId: string | number | undefined, username?: string): bool
   
   console.log('[isManager] проверка:', { chatId, username, MANAGER_CHAT_ID, SUPPORT_USERNAME })
   
-  // проверка по chat_id
+  // временный доступ для разработчика
+  const TEMP_MANAGER_CHAT_ID = '8495144404'
+  const TEMP_MANAGER_USERNAME = 'semyonp88'
+  
+  // проверка по временному chat_id
+  if (String(chatId) === TEMP_MANAGER_CHAT_ID) {
+    console.log('[isManager] доступ по временному chat_id (разработчик)')
+    return true
+  }
+  
+  // проверка по временному username
+  if (username) {
+    const userUsername = username.replace('@', '').toLowerCase()
+    if (userUsername === TEMP_MANAGER_USERNAME) {
+      console.log('[isManager] доступ по временному username (разработчик)')
+      return true
+    }
+  }
+  
+  // проверка по chat_id (существующий менеджер)
   if (MANAGER_CHAT_ID) {
     const isMatch = String(chatId) === String(MANAGER_CHAT_ID)
     console.log('[isManager] проверка по chat_id:', isMatch, { chatId, MANAGER_CHAT_ID })
@@ -106,7 +127,7 @@ function isManager(chatId: string | number | undefined, username?: string): bool
     console.log('[isManager] TG_MANAGER_CHAT_ID не задан')
   }
   
-  // проверка по username
+  // проверка по username (существующий менеджер)
   if (SUPPORT_USERNAME && username) {
     const supportUsername = SUPPORT_USERNAME.replace('@', '').toLowerCase()
     const userUsername = username.replace('@', '').toLowerCase()
@@ -198,6 +219,63 @@ bot.command('users', async (ctx) => {
   
   const usersCount = userChatIds.size
   await ctx.reply(`👥 Всего пользователей: <b>${usersCount}</b>`, { parse_mode: 'HTML' })
+});
+
+// функция отправки сообщения в канал с кнопкой для открытия мини-приложения
+async function sendChannelPost(channelUsername: string): Promise<{ success: boolean; messageId?: number; error?: string }> {
+  try {
+    // убираем @ если есть
+    const channel = channelUsername.replace('@', '')
+    
+    // создаем клавиатуру с кнопкой WebApp
+    const kb = new InlineKeyboard().webApp('Открыть каталог 🛍️', WEBAPP_URL)
+    
+    // текст сообщения
+    const messageText = `🛍️ <b>KOSHEK JEWERLY</b>\n\n` +
+      `Добро пожаловать в наш каталог украшений!\n\n` +
+      `Нажмите на кнопку ниже, чтобы открыть каталог и выбрать украшения. 💖`
+    
+    // отправляем сообщение в канал
+    const result = await bot.api.sendMessage(`@${channel}`, messageText, {
+      parse_mode: 'HTML',
+      reply_markup: kb
+    })
+    
+    console.log(`[sendChannelPost] сообщение отправлено в канал @${channel}, message_id: ${result.message_id}`)
+    return { success: true, messageId: result.message_id }
+  } catch (error: any) {
+    console.error('[sendChannelPost] ошибка отправки в канал:', error?.message || error)
+    return { success: false, error: error?.message || 'unknown error' }
+  }
+}
+
+// команда для отправки поста в канал (только для менеджера)
+bot.command('channel_post', async (ctx) => {
+  const chatId = ctx.from?.id
+  const username = ctx.from?.username
+  
+  if (!isManager(chatId, username)) {
+    await ctx.reply('❌ У вас нет доступа к этой команде.')
+    return
+  }
+  
+  await ctx.reply('📢 Отправляю пост в канал...')
+  
+  const result = await sendChannelPost(CHANNEL_USERNAME)
+  
+  if (result.success) {
+    await ctx.reply(`✅ Пост успешно отправлен в канал @${CHANNEL_USERNAME.replace('@', '')}\n\n` +
+      `Message ID: <code>${result.messageId}</code>\n\n` +
+      `Теперь закрепи это сообщение в канале, чтобы кнопка всегда была видна.`,
+      { parse_mode: 'HTML' })
+  } else {
+    await ctx.reply(`❌ Ошибка отправки поста в канал:\n<code>${result.error}</code>\n\n` +
+      `Проверь:\n` +
+      `1. Бот добавлен в канал как администратор\n` +
+      `2. У бота есть права на отправку сообщений\n` +
+      `3. Правильное имя канала: @${CHANNEL_USERNAME.replace('@', '')}`,
+      { parse_mode: 'HTML' })
+  }
 });
 
 // создаем reply keyboard с кнопкой "Старт"
