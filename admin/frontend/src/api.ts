@@ -108,6 +108,15 @@ export const api = {
     })
   },
 
+  // переупорядочивание товаров в категории
+  async reorderProducts(category: string, slugs: string[]) {
+    return fetchWithAuth('/api/products/reorder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category, slugs })
+    })
+  },
+
   // загрузка фото в Uploadcare
   async uploadImage(file: File): Promise<string> {
     const formData = new FormData()

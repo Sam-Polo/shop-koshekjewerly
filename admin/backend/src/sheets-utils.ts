@@ -235,7 +235,7 @@ export async function deleteProductFromSheet(
 }
 
 // получение ID листа по имени
-async function getSheetIdByName(auth: any, sheetId: string, sheetName: string): Promise<number> {
+export async function getSheetIdByName(auth: any, sheetId: string, sheetName: string): Promise<number> {
   const sheets = google.sheets({ version: 'v4', auth })
   
   const res = await sheets.spreadsheets.get({ spreadsheetId: sheetId })
@@ -263,4 +263,127 @@ async function getSheetIdByName(auth: any, sheetId: string, sheetName: string): 
   }
   
   return sheet.properties.sheetId
+}
+
+// перемещение строки товара в новую позицию
+export async function moveProductRow(
+  auth: any,
+  sheetId: string,
+  sheetName: string,
+  fromRow: number,
+  toRow: number
+): Promise<void> {
+  const sheets = google.sheets({ version: 'v4', auth })
+  const normalizedSheetName = normalizeSheetName(sheetName)
+  const sheetIdNum = await getSheetIdByName(auth, sheetId, normalizedSheetName)
+  
+  // Google Sheets использует 0-based индексы для API
+  const fromIndex = fromRow - 1
+  const toIndex = toRow - 1
+  
+  // если позиция не изменилась, ничего не делаем
+  if (fromIndex === toIndex) return
+  
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: sheetId,
+    requestBody: {
+      requests: [{
+        moveDimension: {
+          source: {
+            sheetId: sheetIdNum,
+            dimension: 'ROWS',
+            startIndex: fromIndex,
+            endIndex: fromIndex + 1
+          },
+          destinationIndex: toIndex
+        }
+      }]
+    }
+  })
+  
+  logger.info({ sheetName: normalizedSheetName, fromRow, toRow }, 'строка перемещена в Google Sheets')
+}
+
+// переупорядочивание товаров в категории
+export async function reorderProductsInSheet(
+  auth: any,
+  sheetId: string,
+  sheetName: string,
+  productSlugs: string[]
+): Promise<void> {
+  const sheets = google.sheets({ version: 'v4', auth })
+  const normalizedSheetName = normalizeSheetName(sheetName)
+  const sheetIdNum = await getSheetIdByName(auth, sheetId, normalizedSheetName)
+  
+  // получаем все строки листа (включая заголовок)
+  const range = `${normalizedSheetName}!A:Z`
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range })
+  const allRows = res.data.values ?? []
+  
+  if (allRows.length < 2) {
+    logger.warn({ sheetName: normalizedSheetName }, 'недостаточно строк для переупорядочивания')
+    return
+  }
+  
+  const header = allRows[0]
+  const slugIndex = header.map((h: string) => h.trim().toLowerCase()).indexOf('slug')
+  
+  if (slugIndex === -1) {
+    throw new Error(`Колонка 'slug' не найдена в листе "${normalizedSheetName}"`)
+  }
+  
+  // создаем карту: slug -> строка данных
+  const rowMap = new Map<string, any[]>()
+  for (let i = 1; i < allRows.length; i++) {
+    const row = allRows[i]
+    if (row && row[slugIndex]) {
+      const slug = String(row[slugIndex]).trim()
+      if (slug && productSlugs.includes(slug)) {
+        rowMap.set(slug, row)
+      }
+    }
+  }
+  
+  // создаем новый порядок строк: заголовок + товары в нужном порядке + остальные товары
+  const reorderedRows: any[][] = [header]
+  const processedSlugs = new Set<string>()
+  
+  // добавляем товары в нужном порядке
+  for (const slug of productSlugs) {
+    const row = rowMap.get(slug)
+    if (row) {
+      reorderedRows.push(row)
+      processedSlugs.add(slug)
+    }
+  }
+  
+  // добавляем остальные товары, которых нет в productSlugs (если есть)
+  for (let i = 1; i < allRows.length; i++) {
+    const row = allRows[i]
+    if (row && row[slugIndex]) {
+      const slug = String(row[slugIndex]).trim()
+      if (slug && !processedSlugs.has(slug)) {
+        reorderedRows.push(row)
+      }
+    }
+  }
+  
+  // проверка безопасности: количество строк должно совпадать (заголовок + данные)
+  const originalDataRows = allRows.length - 1 // без заголовка
+  const newDataRows = reorderedRows.length - 1 // без заголовка
+  if (originalDataRows !== newDataRows) {
+    throw new Error(`Безопасность: количество строк изменилось (было: ${originalDataRows}, стало: ${newDataRows}). Операция отменена.`)
+  }
+  
+  // перезаписываем весь диапазон с новым порядком
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: sheetId,
+    range: `${normalizedSheetName}!A1:Z${reorderedRows.length}`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: {
+      values: reorderedRows
+    }
+  })
+  
+  logger.info({ sheetName: normalizedSheetName, count: productSlugs.length, totalRows: reorderedRows.length }, 'товары переупорядочены в Google Sheets')
 }

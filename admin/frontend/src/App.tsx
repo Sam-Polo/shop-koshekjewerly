@@ -1,6 +1,23 @@
 import { useState, useEffect, useRef } from 'react'
 import { api, getToken, saveToken, removeToken } from './api'
 import { generateSlug, formatArticle, parseArticle } from './utils'
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent
+} from '@dnd-kit/core'
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  rectSortingStrategy
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import './App.css'
 
 // компонент уведомлений
@@ -59,7 +76,6 @@ type Product = {
   active: boolean
   stock?: number
   article?: string
-  order?: number
 }
 
 function LoginForm({ onLogin }: { onLogin: () => void }) {
@@ -132,20 +148,26 @@ function ProductsList() {
   const [selectedProductSlugs, setSelectedProductSlugs] = useState<Set<string>>(new Set())
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<{ product: Product } | null>(null)
+  const [isReorderProductsMode, setIsReorderProductsMode] = useState(false)
+  const [reorderedProductsByCategory, setReorderedProductsByCategory] = useState<Record<string, Product[]>>({})
+  const [isSavingProductsOrder, setIsSavingProductsOrder] = useState(false)
 
   useEffect(() => {
     loadProducts()
   }, [])
 
-  const loadProducts = async () => {
+  const loadProducts = async (): Promise<Product[]> => {
     try {
       setLoading(true)
       setError('')
       const data = await api.getProducts()
-      setProducts(data.products || [])
+      const productsList = data.products || []
+      setProducts(productsList)
       setSelectedProductSlugs(new Set()) // сбрасываем выделение при обновлении
+      return productsList
     } catch (err: any) {
       setError(err.message || 'Ошибка загрузки товаров')
+      return []
     } finally {
       setLoading(false)
     }
@@ -260,6 +282,116 @@ function ProductsList() {
     return acc
   }, {} as Record<string, Product[]>)
 
+  // синхронизируем reorderedProductsByCategory при изменении products
+  useEffect(() => {
+    if (isReorderProductsMode) {
+      setReorderedProductsByCategory({ ...groupedProducts })
+    }
+  }, [products, isReorderProductsMode])
+
+  // настройка сенсоров для drag-and-drop товаров
+  const productsSensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 0,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  )
+
+  const handleStartReorderProducts = () => {
+    setIsReorderProductsMode(true)
+    setReorderedProductsByCategory({ ...groupedProducts })
+  }
+
+  const handleCancelReorderProducts = () => {
+    setIsReorderProductsMode(false)
+    setReorderedProductsByCategory({})
+  }
+
+  const handleSaveProductsOrder = async () => {
+    setIsSavingProductsOrder(true)
+    try {
+      // сохраняем порядок товаров через перемещение строк в таблице
+      const reorderPromises: Promise<void>[] = []
+      
+      Object.entries(reorderedProductsByCategory).forEach(([category, categoryProducts]) => {
+        const slugs = categoryProducts.map(p => p.slug)
+        if (slugs.length > 0) {
+          reorderPromises.push(
+            api.reorderProducts(category, slugs)
+          )
+        }
+      })
+
+      await Promise.all(reorderPromises)
+      
+      // обновляем локальное состояние products с новым порядком из reorderedProductsByCategory
+      // чтобы избежать визуального "прыжка" при перезагрузке
+      setProducts(prevProducts => {
+        const productMap = new Map(prevProducts.map(p => [p.slug, p]))
+        const updatedProducts: Product[] = []
+        
+        // собираем товары в новом порядке из reorderedProductsByCategory
+        Object.entries(reorderedProductsByCategory).forEach(([, categoryProducts]) => {
+          categoryProducts.forEach(reorderedProduct => {
+            const existingProduct = productMap.get(reorderedProduct.slug)
+            if (existingProduct) {
+              updatedProducts.push(existingProduct)
+            }
+          })
+        })
+        
+        // добавляем товары, которых нет в reorderedProductsByCategory (другие категории)
+        prevProducts.forEach(product => {
+          if (!updatedProducts.find(p => p.slug === product.slug)) {
+            updatedProducts.push(product)
+          }
+        })
+        
+        return updatedProducts
+      })
+      
+      showToast('Порядок товаров сохранен', 'success')
+      setIsReorderProductsMode(false)
+      
+      // загружаем товары в фоне для синхронизации с сервером, но не ждем результата
+      // чтобы не было визуального "прыжка"
+      loadProducts().catch(() => {
+        // игнорируем ошибки фоновой загрузки
+      })
+      
+      // очищаем reorderedProductsByCategory после небольшой задержки, чтобы дать время загрузиться
+      setTimeout(() => {
+        setReorderedProductsByCategory({})
+      }, 500)
+    } catch (err: any) {
+      showToast(err.message || 'Ошибка сохранения порядка товаров', 'error')
+    } finally {
+      setIsSavingProductsOrder(false)
+    }
+  }
+
+  const handleDragEndProducts = (event: DragEndEvent, category: string) => {
+    const { active, over } = event
+
+    if (over && active.id !== over.id) {
+      setReorderedProductsByCategory(prev => {
+        const categoryProducts = prev[category] || []
+        const oldIndex = categoryProducts.findIndex((_, idx) => `product-${category}-${idx}` === active.id)
+        const newIndex = categoryProducts.findIndex((_, idx) => `product-${category}-${idx}` === over.id)
+        
+        if (oldIndex !== -1 && newIndex !== -1) {
+          const newCategoryProducts = arrayMove(categoryProducts, oldIndex, newIndex)
+          return { ...prev, [category]: newCategoryProducts }
+        }
+        return prev
+      })
+    }
+  }
+
   return (
     <div className="admin-container">
       <header className="admin-header">
@@ -284,8 +416,8 @@ function ProductsList() {
                 ))}
               </select>
             </label>
-            <button onClick={loadProducts} disabled={loading || isActivating || isDeactivating} className="btn-refresh" title="Обновить">
-              <span className={`refresh-icon ${(loading || isActivating || isDeactivating) ? 'spinning' : ''}`}>↻</span>
+            <button onClick={loadProducts} disabled={loading || isActivating || isDeactivating || isSavingProductsOrder} className="btn-refresh" title="Обновить">
+              <span className={`refresh-icon ${(loading || isActivating || isDeactivating || isSavingProductsOrder) ? 'spinning' : ''}`}>↻</span>
             </button>
             {selectedProductSlugs.size > 0 && (() => {
               // определяем, активны ли выбранные товары
@@ -342,9 +474,35 @@ function ProductsList() {
               )
             })()}
           </div>
-          <button onClick={() => setIsAddModalOpen(true)} className="btn-add">
-            Добавить товар
-          </button>
+          <div className="toolbar-actions">
+            {!isReorderProductsMode ? (
+              <>
+                <button onClick={handleStartReorderProducts} className="btn-reorder-products">
+                  Порядок товаров
+                </button>
+                <button onClick={() => setIsAddModalOpen(true)} className="btn-add">
+                  Добавить товар
+                </button>
+              </>
+            ) : (
+              <>
+                <button 
+                  onClick={handleSaveProductsOrder}
+                  disabled={isSavingProductsOrder}
+                  className="btn-save"
+                >
+                  {isSavingProductsOrder ? 'Сохранение...' : 'Сохранить'}
+                </button>
+                <button 
+                  onClick={handleCancelReorderProducts}
+                  disabled={isSavingProductsOrder}
+                  className="btn-cancel"
+                >
+                  Отмена
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
         {error && <div className="error-message">{error}</div>}
@@ -353,60 +511,86 @@ function ProductsList() {
           <div className="loading">Загрузка товаров...</div>
         ) : (
           <div className="products-list">
-            {Object.entries(groupedProducts).map(([category, categoryProducts]) => (
+            {Object.entries(isReorderProductsMode ? reorderedProductsByCategory : groupedProducts).map(([category, categoryProducts]) => (
               <div key={category} className="category-section">
                 <h2>{category.charAt(0).toUpperCase() + category.slice(1)}</h2>
-                 <div className="products-grid">
-                   {categoryProducts.map(product => (
-                     <div
-                       key={product.slug}
-                       className={`product-card ${!product.active ? 'inactive' : ''} ${selectedProductSlugs.has(product.slug) ? 'selected' : ''}`}
-                     >
-                       <div className="product-card-checkbox">
-                         <input
-                           type="checkbox"
-                           checked={selectedProductSlugs.has(product.slug)}
-                           onChange={(e) => {
-                             e.stopPropagation()
-                             handleToggleProductSelection(product.slug)
-                           }}
-                           onClick={(e) => e.stopPropagation()}
-                         />
-                       </div>
-                       <div 
-                         className="product-card-content"
-                         onClick={() => setSelectedProduct(product)}
-                       >
-                       <div className="product-images">
-                        {product.images.length > 0 ? (
-                          <img src={product.images[0]} alt={product.title} />
-                        ) : (
-                          <div className="no-image">Нет фото</div>
-                        )}
+                {isReorderProductsMode ? (
+                  <DndContext
+                    sensors={productsSensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={(e) => handleDragEndProducts(e, category)}
+                  >
+                    <SortableContext
+                      items={categoryProducts.map((_, idx) => `product-${category}-${idx}`)}
+                      strategy={rectSortingStrategy}
+                    >
+                      <div className="products-grid reorder-mode">
+                        {categoryProducts.map((product, index) => (
+                          <SortableProductCard
+                            key={`reorder-${product.slug}`}
+                            id={`product-${category}-${index}`}
+                            product={product}
+                            selectedProductSlugs={selectedProductSlugs}
+                            onToggleSelection={handleToggleProductSelection}
+                            onSelect={() => !isReorderProductsMode && setSelectedProduct(product)}
+                          />
+                        ))}
                       </div>
-                      <div className="product-info">
-                        <h3>{product.title}</h3>
-                        <div className="product-meta">
-                          {product.article && <span>Артикул: {product.article}</span>}
-                          <span>Цена: {product.price_rub} ₽</span>
-                          {product.stock !== undefined && (
-                            <span>Остаток: {product.stock}</span>
-                          )}
-                          <span className={product.active ? 'active' : 'inactive'}>
-                            {product.active ? 'Активен' : 'Неактивен'}
-                          </span>
+                    </SortableContext>
+                  </DndContext>
+                ) : (
+                  <div className="products-grid">
+                    {categoryProducts.map(product => (
+                      <div
+                        key={product.slug}
+                        className={`product-card ${!product.active ? 'inactive' : ''} ${selectedProductSlugs.has(product.slug) ? 'selected' : ''}`}
+                      >
+                        <div className="product-card-checkbox">
+                          <input
+                            type="checkbox"
+                            checked={selectedProductSlugs.has(product.slug)}
+                            onChange={(e) => {
+                              e.stopPropagation()
+                              handleToggleProductSelection(product.slug)
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                          />
                         </div>
-                         {product.description && (
-                           <p className="product-description">{product.description}</p>
-                         )}
-                       </div>
-                       </div>
-                     </div>
-                   ))}
-                 </div>
-               </div>
-             ))}
-           </div>
+                        <div 
+                          className="product-card-content"
+                          onClick={() => setSelectedProduct(product)}
+                        >
+                        <div className="product-images">
+                          {product.images.length > 0 ? (
+                            <img src={product.images[0]} alt={product.title} />
+                          ) : (
+                            <div className="no-image">Нет фото</div>
+                          )}
+                        </div>
+                        <div className="product-info">
+                          <h3>{product.title}</h3>
+                          <div className="product-meta">
+                            {product.article && <span>Артикул: {product.article}</span>}
+                            <span>Цена: {product.price_rub} ₽</span>
+                            {product.stock !== undefined && (
+                              <span>Остаток: {product.stock}</span>
+                            )}
+                            <span className={product.active ? 'active' : 'inactive'}>
+                              {product.active ? 'Активен' : 'Неактивен'}
+                            </span>
+                          </div>
+                           {product.description && (
+                             <p className="product-description">{product.description}</p>
+                           )}
+                         </div>
+                         </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
          )}
 
         {toast && (
@@ -437,7 +621,15 @@ function ProductsList() {
           onEdit={() => {
             setIsEditModalOpen(true)
           }}
-           onDelete={() => handleDeleteClick(selectedProduct)}
+          onDelete={() => handleDeleteClick(selectedProduct)}
+          onProductUpdate={async () => {
+            const updatedProducts = await loadProducts()
+            // обновляем selectedProduct после перезагрузки
+            const updated = updatedProducts.find(p => p.slug === selectedProduct.slug)
+            if (updated) {
+              setSelectedProduct(updated)
+            }
+          }}
         />
       )}
 
@@ -494,17 +686,79 @@ function ProductModal({
   product,
   onClose,
   onEdit,
-  onDelete
+  onDelete,
+  onProductUpdate
 }: {
   product: Product
   onClose: () => void
   onEdit: () => void
   onDelete: () => void
+  onProductUpdate?: () => Promise<void>
 }) {
   const [fullscreenImageIndex, setFullscreenImageIndex] = useState<number | null>(null)
+  const [isReorderMode, setIsReorderMode] = useState(false)
+  const [reorderedImages, setReorderedImages] = useState<string[]>(product.images)
+  const [isSaving, setIsSaving] = useState(false)
+
+  // настройка сенсоров для drag-and-drop с мгновенной активацией
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 0, // мгновенная активация без задержки
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  )
+
+  // синхронизируем reorderedImages при изменении product.images
+  useEffect(() => {
+    setReorderedImages(product.images)
+  }, [product.images])
 
   const openFullscreen = (index: number) => {
-    setFullscreenImageIndex(index)
+    if (!isReorderMode) {
+      setFullscreenImageIndex(index)
+    }
+  }
+
+  const handleStartReorder = () => {
+    setIsReorderMode(true)
+    setReorderedImages([...product.images])
+  }
+
+  const handleCancelReorder = () => {
+    setIsReorderMode(false)
+    setReorderedImages([...product.images])
+  }
+
+  const handleSaveReorder = async () => {
+    setIsSaving(true)
+    try {
+      await api.updateProduct(product.slug, { ...product, images: reorderedImages })
+      setIsReorderMode(false)
+      // обновляем продукт в родительском компоненте
+      if (onProductUpdate) {
+        await onProductUpdate()
+      }
+    } catch (err: any) {
+      console.error('Ошибка сохранения порядка фото:', err)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+
+    if (over && active.id !== over.id) {
+      setReorderedImages((items) => {
+        const oldIndex = items.findIndex((_, idx) => `image-${idx}` === active.id)
+        const newIndex = items.findIndex((_, idx) => `image-${idx}` === over.id)
+        return arrayMove(items, oldIndex, newIndex)
+      })
+    }
   }
 
   const closeFullscreen = () => {
@@ -556,18 +810,50 @@ function ProductModal({
           
           <div className="modal-product">
             <div className="modal-product-images">
-              {product.images.length > 0 ? (
-                <div className="modal-images-grid">
-                  {product.images.map((img, idx) => (
-                    <img
-                      key={idx}
-                      src={img}
-                      alt={`${product.title} ${idx + 1}`}
-                      onClick={() => openFullscreen(idx)}
-                      className="clickable-image"
-                    />
-                  ))}
-                </div>
+              {reorderedImages.length > 0 ? (
+                isReorderMode ? (
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={handleDragEnd}
+                  >
+                    <SortableContext
+                      items={reorderedImages.map((_, idx) => `image-${idx}`)}
+                      strategy={rectSortingStrategy}
+                    >
+                      <div className={`modal-images-grid reorder-mode`}>
+                        {reorderedImages.map((img, idx) => (
+                          <SortableImageItem
+                            key={`${img}-${idx}`}
+                            id={`image-${idx}`}
+                            img={img}
+                            index={idx}
+                            productTitle={product.title}
+                          />
+                        ))}
+                      </div>
+                    </SortableContext>
+                  </DndContext>
+                ) : (
+                  <div className="modal-images-grid">
+                    {reorderedImages.map((img, idx) => {
+                      const originalIndex = product.images.indexOf(img)
+                      return (
+                        <div
+                          key={`${img}-${idx}`}
+                          className="image-drag-item"
+                          onClick={() => openFullscreen(originalIndex >= 0 ? originalIndex : idx)}
+                        >
+                          <img
+                            src={img}
+                            alt={`${product.title} ${idx + 1}`}
+                            className="clickable-image"
+                          />
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
               ) : (
                 <div className="no-image">Нет фото</div>
               )}
@@ -613,13 +899,6 @@ function ProductModal({
                 </span>
               </div>
               
-              {product.order !== undefined && (
-                <div className="detail-row">
-                  <span className="detail-label">Порядок:</span>
-                  <span className="detail-value">{product.order}</span>
-                </div>
-              )}
-              
               {product.description && (
                 <div className="detail-row">
                   <span className="detail-label">Описание:</span>
@@ -629,19 +908,45 @@ function ProductModal({
             </div>
 
             <div className="modal-actions">
-              <button className="btn btn-edit" onClick={onEdit}>
-                Редактировать
-              </button>
-              <button className="btn btn-delete" onClick={onDelete}>
-                Удалить
-              </button>
+              {!isReorderMode ? (
+                <>
+                  <button className="btn btn-edit" onClick={onEdit}>
+                    Редактировать
+                  </button>
+                  {product.images.length > 1 && (
+                    <button className="btn btn-reorder" onClick={handleStartReorder}>
+                      Порядок
+                    </button>
+                  )}
+                  <button className="btn btn-delete" onClick={onDelete}>
+                    Удалить
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button 
+                    className="btn btn-save" 
+                    onClick={handleSaveReorder}
+                    disabled={isSaving}
+                  >
+                    {isSaving ? 'Сохранение...' : 'Сохранить'}
+                  </button>
+                  <button 
+                    className="btn btn-cancel" 
+                    onClick={handleCancelReorder}
+                    disabled={isSaving}
+                  >
+                    Отмена
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
       </div>
     </div>
 
-    {fullscreenImageIndex !== null && product.images.length > 0 && (
+    {fullscreenImageIndex !== null && product.images.length > 0 && !isReorderMode && (
       <ImageFullscreen
         images={product.images}
         currentIndex={fullscreenImageIndex}
@@ -652,6 +957,186 @@ function ProductModal({
       />
     )}
     </>
+  )
+}
+
+// компонент сортируемого элемента фото
+function SortableImageItem({
+  id,
+  img,
+  index,
+  productTitle
+}: {
+  id: string
+  img: string
+  index: number
+  productTitle: string
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging
+  } = useSortable({ id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition: isDragging ? 'none' : transition, // убираем transition при перетаскивании для мгновенного отклика
+    opacity: isDragging ? 0.4 : 1
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`image-drag-item draggable ${isDragging ? 'dragging' : ''}`}
+      {...attributes}
+      {...listeners}
+    >
+      <img
+        src={img}
+        alt={`${productTitle} ${index + 1}`}
+        draggable={false}
+      />
+      <div className="drag-handle">⋮⋮</div>
+    </div>
+  )
+}
+
+// компонент сортируемого элемента товара
+function SortableProductCard({
+  id,
+  product,
+  selectedProductSlugs,
+  onToggleSelection,
+  onSelect
+}: {
+  id: string
+  product: Product
+  selectedProductSlugs: Set<string>
+  onToggleSelection: (slug: string) => void
+  onSelect: () => void
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging
+  } = useSortable({ id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition: isDragging ? 'none' : transition,
+    opacity: isDragging ? 0.5 : 1
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`product-card draggable ${isDragging ? 'dragging' : ''} ${!product.active ? 'inactive' : ''} ${selectedProductSlugs.has(product.slug) ? 'selected' : ''}`}
+      {...attributes}
+      {...listeners}
+    >
+      <div className="product-card-checkbox">
+        <input
+          type="checkbox"
+          checked={selectedProductSlugs.has(product.slug)}
+          onChange={(e) => {
+            e.stopPropagation()
+            onToggleSelection(product.slug)
+          }}
+          onClick={(e) => e.stopPropagation()}
+        />
+      </div>
+      <div 
+        className="product-card-content"
+        onClick={onSelect}
+      >
+        <div className="product-images">
+          {product.images.length > 0 ? (
+            <img src={product.images[0]} alt={product.title} />
+          ) : (
+            <div className="no-image">Нет фото</div>
+          )}
+        </div>
+        <div className="product-info">
+          <h3>{product.title}</h3>
+          <div className="product-meta">
+            {product.article && <span>Артикул: {product.article}</span>}
+            <span>Цена: {product.price_rub} ₽</span>
+            {product.stock !== undefined && (
+              <span>Остаток: {product.stock}</span>
+            )}
+            <span className={product.active ? 'active' : 'inactive'}>
+              {product.active ? 'Активен' : 'Неактивен'}
+            </span>
+          </div>
+          {product.description && (
+            <p className="product-description">{product.description}</p>
+          )}
+        </div>
+      </div>
+      <div className="drag-handle">⋮⋮</div>
+    </div>
+  )
+}
+
+// компонент сортируемого элемента фото в форме
+function SortableFormImageItem({
+  id,
+  img,
+  index,
+  onRemove
+}: {
+  id: string
+  img: string
+  index: number
+  onRemove: () => void
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging
+  } = useSortable({ id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`image-preview-item draggable ${isDragging ? 'dragging' : ''}`}
+      {...attributes}
+      {...listeners}
+    >
+      <img src={img} alt={`Фото ${index + 1}`} draggable={false} />
+      <div className="image-preview-actions">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onRemove()
+          }}
+          className="image-action-btn image-action-remove"
+          title="Удалить"
+        >
+          ×
+        </button>
+      </div>
+      <div className="drag-handle">⋮⋮</div>
+    </div>
   )
 }
 
@@ -762,6 +1247,18 @@ function ProductFormModal({
   const [saving, setSaving] = useState(false)
   const [uploadingImages, setUploadingImages] = useState<Set<number>>(new Set())
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // настройка сенсоров для drag-and-drop в форме
+  const formSensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 5,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  )
 
   // получаем список категорий
   const categories = ['Ягоды', 'Шея', 'Руки', 'Уши', 'Сертификаты']
@@ -893,21 +1390,20 @@ function ProductFormModal({
     handleChange('images', newImages)
   }
 
-  const handleMoveImage = (index: number, direction: 'left' | 'right') => {
-    const currentImages = formData.images || []
-    if (currentImages.length <= 1) return
+  const handleDragEndForm = (event: DragEndEvent) => {
+    const { active, over } = event
 
-    const newIndex = direction === 'left' ? index - 1 : index + 1
-    if (newIndex < 0 || newIndex >= currentImages.length) return
-
-    // моментальное обновление без задержки
-    const newImages = [...currentImages]
-    const temp = newImages[index]
-    newImages[index] = newImages[newIndex]
-    newImages[newIndex] = temp
-    
-    // обновляем состояние напрямую для мгновенной реакции
-    setFormData(prev => ({ ...prev, images: newImages }))
+    if (over && active.id !== over.id) {
+      setFormData(prev => {
+        const items = prev.images || []
+        const oldIndex = items.findIndex((_, idx) => `form-image-${idx}` === active.id)
+        const newIndex = items.findIndex((_, idx) => `form-image-${idx}` === over.id)
+        if (oldIndex !== -1 && newIndex !== -1) {
+          return { ...prev, images: arrayMove(items, oldIndex, newIndex) }
+        }
+        return prev
+      })
+    }
   }
 
   const handlePriceChange = (value: string) => {
@@ -1036,41 +1532,28 @@ function ProductFormModal({
             
             {/* миниатюры существующих фото */}
             {formData.images && formData.images.length > 0 && (
-              <div className="images-preview">
-                {formData.images.map((img, index) => (
-                  <div key={index} className="image-preview-item">
-                    <img src={img} alt={`Фото ${index + 1}`} />
-                    <div className="image-preview-actions">
-                      <button
-                        type="button"
-                        onClick={() => handleMoveImage(index, 'left')}
-                        disabled={index === 0}
-                        className="image-action-btn"
-                        title="Влево"
-                      >
-                        ←
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleMoveImage(index, 'right')}
-                        disabled={index === formData.images!.length - 1}
-                        className="image-action-btn"
-                        title="Вправо"
-                      >
-                        →
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveImage(index)}
-                        className="image-action-btn image-action-remove"
-                        title="Удалить"
-                      >
-                        ×
-                      </button>
-                    </div>
+              <DndContext
+                sensors={formSensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEndForm}
+              >
+                <SortableContext
+                  items={formData.images.map((_, idx) => `form-image-${idx}`)}
+                  strategy={rectSortingStrategy}
+                >
+                  <div className="images-preview">
+                    {formData.images.map((img, index) => (
+                      <SortableFormImageItem
+                        key={`form-${img}-${index}`}
+                        id={`form-image-${index}`}
+                        img={img}
+                        index={index}
+                        onRemove={() => handleRemoveImage(index)}
+                      />
+                    ))}
                   </div>
-                ))}
-              </div>
+                </SortableContext>
+              </DndContext>
             )}
 
             {/* загрузка новых фото */}

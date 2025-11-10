@@ -15,7 +15,6 @@ export type SheetProduct = {
   active: boolean
   stock?: number
   article?: string
-  order?: number // порядковый номер для сортировки
 }
 
 // получение авторизации для Google Sheets (с правами на чтение и запись)
@@ -73,7 +72,6 @@ async function fetchSheetRange(
     const active = activeVal === 'true' || activeVal === '1' || activeVal === 'yes'
     const stock = Number(get('stock'))
     const article = String(get('article') || '').trim() || undefined
-    const order = Number(get('order'))
     
     const item: SheetProduct = {
       id: String(get('id') || '').trim() || undefined,
@@ -86,7 +84,6 @@ async function fetchSheetRange(
       active,
       stock: Number.isFinite(stock) ? stock : undefined,
       article: article || undefined,
-      order: Number.isFinite(order) ? order : undefined,
     }
     
     if (!item.title || !item.slug) continue
@@ -101,18 +98,18 @@ export async function fetchProductsFromSheet(sheetId: string): Promise<SheetProd
   const auth = getAuthFromEnv()
   
   const sheetNames = process.env.SHEET_NAMES?.split(',') || [
-    'ягоды',
-    'шея',
-    'руки',
-    'уши',
-    'сертификаты'
+    'Ягоды',
+    'Шея',
+    'Руки',
+    'Уши',
+    'Сертификаты'
   ]
   
   const allProducts: SheetProduct[] = []
   
   for (const sheetName of sheetNames) {
     try {
-      const range = `${sheetName.trim()}!A1:K1000` // расширен диапазон для колонки order
+      const range = `${sheetName.trim()}!A1:K1000`
       const products = await fetchSheetRange(auth, sheetId, range, sheetName.trim())
       allProducts.push(...products)
     } catch (e: any) {

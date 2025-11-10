@@ -6,7 +6,8 @@ import {
   appendProductToSheet,
   updateProductInSheet,
   deleteProductFromSheet,
-  normalizeSheetName
+  normalizeSheetName,
+  reorderProductsInSheet
 } from '../sheets-utils.js'
 import pino from 'pino'
 
@@ -26,16 +27,7 @@ router.get('/', async (req, res) => {
     
     logger.info('загрузка товаров из Google Sheets')
     const products = await fetchProductsFromSheet(sheetId)
-    
-    // сортируем по order, если есть, иначе по порядку в таблице
-    products.sort((a, b) => {
-      if (a.order !== undefined && b.order !== undefined) {
-        return a.order - b.order
-      }
-      if (a.order !== undefined) return -1
-      if (b.order !== undefined) return 1
-      return 0
-    })
+    // товары уже в порядке строк таблицы, сортировка не нужна
     
     logger.info({ count: products.length }, 'товары загружены')
     res.json({ products })
@@ -197,6 +189,33 @@ router.put('/:slug', async (req, res) => {
   } catch (error: any) {
     logger.error({ error: error?.message }, 'ошибка обновления товара')
     res.status(500).json({ error: error?.message || 'failed_to_update_product' })
+  }
+})
+
+// переупорядочивание товаров в категории
+router.post('/reorder', async (req, res) => {
+  try {
+    const sheetId = process.env.GOOGLE_SHEET_ID
+    if (!sheetId) {
+      return res.status(500).json({ error: 'GOOGLE_SHEET_ID not configured' })
+    }
+
+    const { category, slugs } = req.body
+    
+    if (!category || !Array.isArray(slugs) || slugs.length === 0) {
+      return res.status(400).json({ error: 'invalid_request' })
+    }
+
+    const auth = getAuthFromEnv()
+    const normalizedCategory = normalizeSheetName(category)
+    
+    await reorderProductsInSheet(auth, sheetId, normalizedCategory, slugs)
+    
+    logger.info({ category: normalizedCategory, count: slugs.length }, 'порядок товаров обновлен')
+    res.json({ success: true })
+  } catch (error: any) {
+    logger.error({ error: error?.message }, 'ошибка переупорядочивания товаров')
+    res.status(500).json({ error: error?.message || 'failed_to_reorder_products' })
   }
 })
 
