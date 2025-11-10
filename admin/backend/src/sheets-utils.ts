@@ -1,0 +1,266 @@
+import { google } from 'googleapis'
+import fs from 'node:fs'
+import pino from 'pino'
+
+const logger = pino()
+
+export type SheetProduct = {
+  id?: string
+  slug: string
+  title: string
+  description?: string
+  category: string
+  price_rub: number
+  images: string[]
+  active: boolean
+  stock?: number
+  article?: string
+}
+
+// получение авторизации для Google Sheets (с правами на чтение и запись)
+export function getAuthFromEnv() {
+  const filePath = process.env.GOOGLE_SA_FILE
+  const raw = process.env.GOOGLE_SA_JSON
+  let creds: any
+  
+  if (filePath) {
+    const txt = fs.readFileSync(filePath, 'utf8')
+    creds = JSON.parse(txt)
+  } else if (raw) {
+    creds = JSON.parse(raw)
+  } else {
+    throw new Error('GOOGLE_SA_JSON or GOOGLE_SA_FILE is required')
+  }
+  
+  // права на чтение и запись
+  const scopes = ['https://www.googleapis.com/auth/spreadsheets']
+  return new google.auth.JWT(creds.client_email, undefined, creds.private_key, scopes)
+}
+
+// преобразование категории в правильное имя листа (с заглавной буквы)
+export function normalizeSheetName(category: string): string {
+  const sheetNames = process.env.SHEET_NAMES?.split(',') || ['Ягоды', 'Шея', 'Руки', 'Уши', 'Сертификаты']
+  const normalized = sheetNames.find(name => name.trim().toLowerCase() === category.toLowerCase())
+  return normalized || category.charAt(0).toUpperCase() + category.slice(1).toLowerCase()
+}
+
+// получение структуры заголовков листа
+export async function getSheetHeaders(
+  auth: any,
+  sheetId: string,
+  sheetName: string
+): Promise<{ headers: string[], headerIndex: Record<string, number> }> {
+  const sheets = google.sheets({ version: 'v4', auth })
+  // нормализуем имя листа
+  const normalizedSheetName = normalizeSheetName(sheetName)
+  const range = `${normalizedSheetName}!A1:Z1`
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range })
+  const rows = res.data.values ?? []
+  
+  if (rows.length === 0) {
+    // если заголовков нет, создаем стандартные
+    const defaultHeaders = ['id', 'slug', 'title', 'description', 'price_rub', 'images', 'active', 'stock', 'article']
+    const headerIndex: Record<string, number> = {}
+    defaultHeaders.forEach((h, i) => { headerIndex[h] = i })
+    return { headers: defaultHeaders, headerIndex }
+  }
+  
+  const headers = rows[0].map((h: string) => h.trim().toLowerCase())
+  const headerIndex: Record<string, number> = {}
+  headers.forEach((h, i) => { headerIndex[h] = i })
+  
+  return { headers, headerIndex }
+}
+
+// поиск строки товара по slug
+export async function findProductRow(
+  auth: any,
+  sheetId: string,
+  sheetName: string,
+  slug: string
+): Promise<number | null> {
+  const sheets = google.sheets({ version: 'v4', auth })
+  // нормализуем имя листа
+  const normalizedSheetName = normalizeSheetName(sheetName)
+  const range = `${normalizedSheetName}!A:Z`
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range })
+  const rows = res.data.values ?? []
+  
+  if (rows.length === 0) return null
+  
+  const header = rows[0].map((h: string) => h.trim().toLowerCase())
+  const slugIndex = header.indexOf('slug')
+  
+  if (slugIndex === -1) return null
+  
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][slugIndex]?.trim() === slug) {
+      return i + 1 // номер строки в Google Sheets (1-based)
+    }
+  }
+  
+  return null
+}
+
+// добавление товара в лист
+export async function appendProductToSheet(
+  auth: any,
+  sheetId: string,
+  sheetName: string,
+  product: SheetProduct
+): Promise<void> {
+  const sheets = google.sheets({ version: 'v4', auth })
+  
+  // нормализуем имя листа
+  const normalizedSheetName = normalizeSheetName(sheetName)
+  
+  // получаем заголовки
+  const { headers, headerIndex } = await getSheetHeaders(auth, sheetId, normalizedSheetName)
+  
+  // формируем строку данных
+  const row: any[] = new Array(headers.length).fill('')
+  
+  // заполняем данные по индексам колонок
+  if (headerIndex.id !== undefined) row[headerIndex.id] = product.id || ''
+  if (headerIndex.slug !== undefined) row[headerIndex.slug] = product.slug
+  if (headerIndex.title !== undefined) row[headerIndex.title] = product.title
+  if (headerIndex.description !== undefined) row[headerIndex.description] = product.description || ''
+  if (headerIndex.price_rub !== undefined) row[headerIndex.price_rub] = product.price_rub
+  if (headerIndex.images !== undefined) row[headerIndex.images] = product.images.join('\n')
+  if (headerIndex.active !== undefined) row[headerIndex.active] = product.active ? 1 : 0
+  if (headerIndex.stock !== undefined) row[headerIndex.stock] = product.stock !== undefined ? product.stock : ''
+  if (headerIndex.article !== undefined) row[headerIndex.article] = product.article || ''
+  
+  // добавляем строку в конец листа
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: sheetId,
+    range: `${normalizedSheetName}!A:Z`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: {
+      values: [row]
+    }
+  })
+  
+  logger.info({ slug: product.slug, sheetName: normalizedSheetName }, 'товар добавлен в Google Sheets')
+}
+
+// обновление товара в листе
+export async function updateProductInSheet(
+  auth: any,
+  sheetId: string,
+  sheetName: string,
+  oldSlug: string,
+  product: SheetProduct
+): Promise<void> {
+  const sheets = google.sheets({ version: 'v4', auth })
+  
+  // нормализуем имя листа
+  const normalizedSheetName = normalizeSheetName(sheetName)
+  
+  // находим строку товара
+  const rowNumber = await findProductRow(auth, sheetId, normalizedSheetName, oldSlug)
+  if (!rowNumber) {
+    throw new Error(`Товар со slug "${oldSlug}" не найден в листе "${normalizedSheetName}"`)
+  }
+  
+  // получаем заголовки
+  const { headers, headerIndex } = await getSheetHeaders(auth, sheetId, normalizedSheetName)
+  
+  // формируем строку данных
+  const row: any[] = new Array(headers.length).fill('')
+  
+  // заполняем данные
+  if (headerIndex.id !== undefined) row[headerIndex.id] = product.id || ''
+  if (headerIndex.slug !== undefined) row[headerIndex.slug] = product.slug
+  if (headerIndex.title !== undefined) row[headerIndex.title] = product.title
+  if (headerIndex.description !== undefined) row[headerIndex.description] = product.description || ''
+  if (headerIndex.price_rub !== undefined) row[headerIndex.price_rub] = product.price_rub
+  if (headerIndex.images !== undefined) row[headerIndex.images] = product.images.join('\n')
+  if (headerIndex.active !== undefined) row[headerIndex.active] = product.active ? 1 : 0
+  if (headerIndex.stock !== undefined) row[headerIndex.stock] = product.stock !== undefined ? product.stock : ''
+  if (headerIndex.article !== undefined) row[headerIndex.article] = product.article || ''
+  
+  // обновляем строку
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: sheetId,
+    range: `${normalizedSheetName}!A${rowNumber}:Z${rowNumber}`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: {
+      values: [row]
+    }
+  })
+  
+  logger.info({ slug: product.slug, sheetName: normalizedSheetName, rowNumber }, 'товар обновлен в Google Sheets')
+}
+
+// удаление товара из листа
+export async function deleteProductFromSheet(
+  auth: any,
+  sheetId: string,
+  sheetName: string,
+  slug: string
+): Promise<void> {
+  const sheets = google.sheets({ version: 'v4', auth })
+  
+  // нормализуем имя листа
+  const normalizedSheetName = normalizeSheetName(sheetName)
+  
+  // находим строку товара
+  const rowNumber = await findProductRow(auth, sheetId, normalizedSheetName, slug)
+  if (!rowNumber) {
+    throw new Error(`Товар со slug "${slug}" не найден в листе "${normalizedSheetName}"`)
+  }
+  
+  // получаем ID листа
+  const sheetIdNum = await getSheetIdByName(auth, sheetId, normalizedSheetName)
+  
+  // удаляем строку
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: sheetId,
+    requestBody: {
+      requests: [{
+        deleteDimension: {
+          range: {
+            sheetId: sheetIdNum,
+            dimension: 'ROWS',
+            startIndex: rowNumber - 1,
+            endIndex: rowNumber
+          }
+        }
+      }]
+    }
+  })
+  
+  logger.info({ slug, sheetName: normalizedSheetName }, 'товар удален из Google Sheets')
+}
+
+// получение ID листа по имени
+async function getSheetIdByName(auth: any, sheetId: string, sheetName: string): Promise<number> {
+  const sheets = google.sheets({ version: 'v4', auth })
+  
+  const res = await sheets.spreadsheets.get({ spreadsheetId: sheetId })
+  
+  // ищем лист с учетом регистра
+  let sheet = res.data.sheets?.find(s => s.properties?.title === sheetName)
+  
+  // если не нашли точное совпадение, пробуем без учета регистра
+  if (!sheet) {
+    sheet = res.data.sheets?.find(s => s.properties?.title?.toLowerCase() === sheetName.toLowerCase())
+  }
+  
+  if (!sheet) {
+    throw new Error(`Лист "${sheetName}" не найден`)
+  }
+  
+  // проверяем что sheetId существует (может быть 0, что валидно!)
+  if (sheet.properties?.sheetId === undefined || sheet.properties?.sheetId === null) {
+    // пробуем получить sheetId из другого места, если он есть
+    const alternativeSheetId = (sheet as any).sheetId || (sheet as any).id
+    if (alternativeSheetId !== undefined && alternativeSheetId !== null) {
+      return alternativeSheetId
+    }
+    throw new Error(`Лист "${sheetName}" найден, но не содержит sheetId`)
+  }
+  
+  return sheet.properties.sheetId
+}
