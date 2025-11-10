@@ -106,6 +106,35 @@ export const api = {
     return fetchWithAuth(`/api/products/${slug}`, {
       method: 'DELETE'
     })
+  },
+
+  // загрузка фото в Uploadcare
+  async uploadImage(file: File): Promise<string> {
+    const formData = new FormData()
+    formData.append('file', file)
+
+    const token = getToken()
+    const response = await fetch(`${API_URL}/api/upload`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      },
+      body: formData
+    })
+
+    if (response.status === 401) {
+      removeToken()
+      window.location.href = '/'
+      throw new Error('unauthorized')
+    }
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'upload_failed' }))
+      throw new Error(error.error || 'upload_failed')
+    }
+
+    const data = await response.json()
+    return data.url
   }
 }
 

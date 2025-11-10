@@ -921,6 +921,120 @@
   transform: translateY(-1px);
 }
 
+/* стили для загрузки фото */
+.images-preview {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.image-preview-item {
+  position: relative;
+  aspect-ratio: 4 / 5;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 2px solid #ddd;
+  background: #f5f5f5;
+  transition: none; /* убираем задержку при перемещении */
+}
+
+.image-preview-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.image-preview-actions {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.image-preview-item:hover .image-preview-actions {
+  opacity: 1;
+}
+
+.image-action-btn {
+  background: rgba(255, 255, 255, 0.9);
+  border: none;
+  border-radius: 4px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 1.2rem;
+  font-weight: bold;
+  color: #333;
+  transition: all 0.2s;
+}
+
+.image-action-btn:hover:not(:disabled) {
+  background: white;
+  transform: scale(1.1);
+}
+
+.image-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.image-action-remove {
+  color: #dc3545;
+}
+
+.image-action-remove:hover:not(:disabled) {
+  background: #dc3545;
+  color: white;
+}
+
+.image-upload-area {
+  margin-bottom: 0.5rem;
+  width: 100%;
+}
+
+.image-upload-button {
+  display: inline-block;
+  padding: 0.75rem 1.5rem;
+  background: #667eea;
+  color: white !important;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  text-align: center;
+  transition: all 0.2s;
+  border: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.image-upload-button:hover {
+  background: #5568d3;
+  transform: translateY(-1px);
+}
+
+.image-upload-button:active {
+  transform: translateY(0);
+}
+
+.uploading-indicator {
+  margin-top: 0.5rem;
+  color: #667eea;
+  font-size: 0.9rem;
+  font-style: italic;
+}
+
 @media (max-width: 768px) {
   .form-row {
     grid-template-columns: 1fr;
@@ -937,6 +1051,11 @@
 
   .btn-add {
     width: 100%;
+  }
+
+  .images-preview {
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 0.75rem;
   }
 }
 

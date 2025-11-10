@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { api, getToken, saveToken, removeToken } from './api'
 import { generateSlug, formatArticle, parseArticle } from './utils'
 import './App.css'
@@ -383,6 +383,7 @@ function ProductsList() {
               throw err // пробрасываем ошибку в форму
             }
           }}
+          showToast={showToast}
         />
       )}
 
@@ -403,6 +404,7 @@ function ProductsList() {
               throw err // пробрасываем ошибку в форму
             }
           }}
+          showToast={showToast}
         />
       )}
     </div>
@@ -616,12 +618,14 @@ function ProductFormModal({
   product,
   products,
   onClose,
-  onSave
+  onSave,
+  showToast
 }: {
   product?: Product
   products: Product[]
   onClose: () => void
   onSave: (product: Partial<Product>) => void | Promise<void>
+  showToast: (message: string, type: 'success' | 'error') => void
 }) {
   const isEdit = !!product
   
@@ -677,6 +681,8 @@ function ProductFormModal({
 
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
+  const [uploadingImages, setUploadingImages] = useState<Set<number>>(new Set())
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // получаем список категорий
   const categories = ['Ягоды', 'Шея', 'Руки', 'Уши', 'Сертификаты']
@@ -761,6 +767,68 @@ function ProductFormModal({
     // разделяем по новой строке
     const images = value.split('\n').map(img => img.trim()).filter(Boolean)
     handleChange('images', images)
+  }
+
+  const handleFileUpload = async (file: File) => {
+    // используем уникальный ID для каждой загрузки (timestamp + случайное число)
+    const uploadId = Date.now() + Math.random()
+    setUploadingImages(prev => new Set(prev).add(uploadId))
+
+    try {
+      const url = await api.uploadImage(file)
+      // добавляем URL к текущему списку изображений используя функциональное обновление
+      setFormData(prev => {
+        const currentImages = prev.images || []
+        return { ...prev, images: [...currentImages, url] }
+      })
+    } catch (err: any) {
+      showToast(err.message || 'Ошибка загрузки фото', 'error')
+    } finally {
+      setUploadingImages(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(uploadId)
+        return newSet
+      })
+    }
+  }
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+
+    Array.from(files).forEach(file => {
+      if (file.type.startsWith('image/')) {
+        handleFileUpload(file)
+      }
+    })
+
+    // сбрасываем input для возможности повторной загрузки того же файла
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
+
+  const handleRemoveImage = (index: number) => {
+    const currentImages = formData.images || []
+    const newImages = currentImages.filter((_, i) => i !== index)
+    handleChange('images', newImages)
+  }
+
+  const handleMoveImage = (index: number, direction: 'left' | 'right') => {
+    const currentImages = formData.images || []
+    if (currentImages.length <= 1) return
+
+    const newIndex = direction === 'left' ? index - 1 : index + 1
+    if (newIndex < 0 || newIndex >= currentImages.length) return
+
+    // моментальное обновление без задержки
+    const newImages = [...currentImages]
+    const temp = newImages[index]
+    newImages[index] = newImages[newIndex]
+    newImages[newIndex] = temp
+    
+    // обновляем состояние напрямую для мгновенной реакции
+    setFormData(prev => ({ ...prev, images: newImages }))
   }
 
   const handlePriceChange = (value: string) => {
@@ -885,14 +953,82 @@ function ProductFormModal({
           </div>
 
           <div className="form-group">
-            <label>Фото (по одному на строку)</label>
-            <textarea
-              value={(formData.images || []).join('\n')}
-              onChange={(e) => handleImagesChange(e.target.value)}
-              rows={6}
-              placeholder="https://example.com/photo1.jpg&#10;https://example.com/photo2.jpg"
-            />
-            <small>Вставьте URL фото, каждое с новой строки</small>
+            <label>Фото</label>
+            
+            {/* миниатюры существующих фото */}
+            {formData.images && formData.images.length > 0 && (
+              <div className="images-preview">
+                {formData.images.map((img, index) => (
+                  <div key={index} className="image-preview-item">
+                    <img src={img} alt={`Фото ${index + 1}`} />
+                    <div className="image-preview-actions">
+                      <button
+                        type="button"
+                        onClick={() => handleMoveImage(index, 'left')}
+                        disabled={index === 0}
+                        className="image-action-btn"
+                        title="Влево"
+                      >
+                        ←
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleMoveImage(index, 'right')}
+                        disabled={index === formData.images!.length - 1}
+                        className="image-action-btn"
+                        title="Вправо"
+                      >
+                        →
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveImage(index)}
+                        className="image-action-btn image-action-remove"
+                        title="Удалить"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* загрузка новых фото */}
+            <div className="image-upload-area">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={handleFileSelect}
+                style={{ display: 'none' }}
+                id="image-upload-input"
+              />
+              <label htmlFor="image-upload-input" className="image-upload-button">
+                {uploadingImages.size > 0 ? 'Загрузка...' : 'Загрузить фото'}
+              </label>
+              {uploadingImages.size > 0 && (
+                <div className="uploading-indicator">
+                  Загружается {uploadingImages.size} фото...
+                </div>
+              )}
+            </div>
+            <small>Загрузите фото через кнопку выше или вставьте URL вручную</small>
+            
+            {/* текстовое поле для ручного ввода URL (опционально) */}
+            <details style={{ marginTop: '0.5rem', width: '100%' }}>
+              <summary style={{ cursor: 'pointer', color: '#666', fontSize: '0.9rem' }}>
+                Или вставьте URL вручную
+              </summary>
+              <textarea
+                value={(formData.images || []).join('\n')}
+                onChange={(e) => handleImagesChange(e.target.value)}
+                rows={3}
+                placeholder="https://example.com/photo1.jpg&#10;https://example.com/photo2.jpg"
+                style={{ marginTop: '0.5rem', width: '100%', boxSizing: 'border-box' }}
+              />
+            </details>
           </div>
 
           {errors.submit && (
