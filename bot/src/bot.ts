@@ -228,9 +228,16 @@ async function sendChannelPost(channelUsername: string): Promise<{ success: bool
     const channel = channelUsername.replace('@', '')
     
     // для каналов WebApp кнопки не поддерживаются, используем URL кнопку
-    // используем прямой URL мини-приложения (настроен в BotFather)
+    // получаем username бота для создания deep link мини-приложения
+    const botInfo = await bot.api.getMe()
+    const botUsername = botInfo.username
+    
+    // используем специальный deep link для мини-приложения (формат: t.me/botname/miniapp)
+    // это откроет мини-приложение внутри Telegram, а не в браузере
+    const miniappLink = `https://t.me/${botUsername}/miniapp`
+    
     // создаем клавиатуру с URL кнопкой
-    const kb = new InlineKeyboard().url('Открыть каталог 🛍️', WEBAPP_URL)
+    const kb = new InlineKeyboard().url('Открыть каталог 🛍️', miniappLink)
     
     // текст сообщения
     const messageText = `🛍️ <b>KOSHEK JEWERLY</b>\n\n` +
