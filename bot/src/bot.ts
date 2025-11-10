@@ -387,6 +387,20 @@ bot.api.setMyCommands([
   { command: 'start', description: 'Открыть каталог' }
 ]);
 
+// настраиваем кнопку меню для открытия мини-приложения
+// эта кнопка будет отображаться в списке чатов и внутри диалога с ботом
+bot.api.setChatMenuButton({
+  menu_button: {
+    type: 'web_app',
+    text: 'KOSHEK JEWERLY 🐾',
+    web_app: { url: WEBAPP_URL }
+  }
+}).then(() => {
+  console.log(`[bot] кнопка меню настроена, URL: ${WEBAPP_URL}`);
+}).catch((error: any) => {
+  console.warn('[bot] ошибка при настройке кнопки меню:', error?.message || error);
+});
+
 bot.start();
 
 
