@@ -227,8 +227,18 @@ async function sendChannelPost(channelUsername: string): Promise<{ success: bool
     // убираем @ если есть
     const channel = channelUsername.replace('@', '')
     
-    // создаем клавиатуру с кнопкой WebApp
-    const kb = new InlineKeyboard().webApp('Открыть каталог 🛍️', WEBAPP_URL)
+    // для каналов WebApp кнопки не поддерживаются, используем URL кнопку
+    // получаем username бота для создания deep link
+    const botInfo = await bot.api.getMe()
+    const botUsername = botInfo.username
+    
+    // создаем deep link через бота - откроет бота, оттуда можно открыть мини-приложение
+    // или используем прямой URL мини-приложения
+    // пробуем сначала deep link через бота
+    const botDeepLink = `https://t.me/${botUsername}`
+    
+    // создаем клавиатуру с URL кнопкой (deep link на бота)
+    const kb = new InlineKeyboard().url('Открыть каталог 🛍️', botDeepLink)
     
     // текст сообщения
     const messageText = `🛍️ <b>KOSHEK JEWERLY</b>\n\n` +
