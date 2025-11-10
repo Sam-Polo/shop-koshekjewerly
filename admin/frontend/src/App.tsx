@@ -127,6 +127,8 @@ function ProductsList() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
+  const [isActivating, setIsActivating] = useState(false)
+  const [isDeactivating, setIsDeactivating] = useState(false)
   const [selectedProductSlugs, setSelectedProductSlugs] = useState<Set<string>>(new Set())
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<{ product: Product } | null>(null)
@@ -191,6 +193,7 @@ function ProductsList() {
       return
     }
 
+    setIsDeactivating(true)
     try {
       const promises = Array.from(selectedProductSlugs).map(slug => {
         const product = products.find(p => p.slug === slug)
@@ -204,6 +207,33 @@ function ProductsList() {
       setSelectedProductSlugs(new Set())
     } catch (err: any) {
       showToast(err.message || 'Ошибка отключения товаров', 'error')
+    } finally {
+      setIsDeactivating(false)
+    }
+  }
+
+  const handleActivateSelected = async () => {
+    if (selectedProductSlugs.size === 0) {
+      showToast('Выберите товары для включения', 'error')
+      return
+    }
+
+    setIsActivating(true)
+    try {
+      const promises = Array.from(selectedProductSlugs).map(slug => {
+        const product = products.find(p => p.slug === slug)
+        if (!product) return Promise.resolve()
+        return api.updateProduct(slug, { ...product, active: true })
+      })
+      
+      await Promise.all(promises)
+      showToast(`Включено товаров: ${selectedProductSlugs.size}`, 'success')
+      await loadProducts()
+      setSelectedProductSlugs(new Set())
+    } catch (err: any) {
+      showToast(err.message || 'Ошибка включения товаров', 'error')
+    } finally {
+      setIsActivating(false)
     }
   }
 
@@ -254,14 +284,63 @@ function ProductsList() {
                 ))}
               </select>
             </label>
-            <button onClick={loadProducts} disabled={loading} className="btn-refresh" title="Обновить">
-              <span className={`refresh-icon ${loading ? 'spinning' : ''}`}>↻</span>
+            <button onClick={loadProducts} disabled={loading || isActivating || isDeactivating} className="btn-refresh" title="Обновить">
+              <span className={`refresh-icon ${(loading || isActivating || isDeactivating) ? 'spinning' : ''}`}>↻</span>
             </button>
-            {selectedProductSlugs.size > 0 && (
-              <button onClick={handleDeactivateSelected} className="btn-deactivate" title="Отключить выбранные">
-                Отключить ({selectedProductSlugs.size})
-              </button>
-            )}
+            {selectedProductSlugs.size > 0 && (() => {
+              // определяем, активны ли выбранные товары
+              const selectedProducts = products.filter(p => selectedProductSlugs.has(p.slug))
+              const allActive = selectedProducts.every(p => p.active)
+              const allInactive = selectedProducts.every(p => !p.active)
+              
+              // если все активны - показываем кнопку отключить
+              // если все неактивны - показываем кнопку включить
+              // если смешанные - показываем обе кнопки
+              return (
+                <>
+                  {allActive && (
+                    <button 
+                      onClick={handleDeactivateSelected} 
+                      disabled={isDeactivating || isActivating || loading}
+                      className="btn-deactivate" 
+                      title="Отключить выбранные"
+                    >
+                      {isDeactivating ? 'Отключение...' : `Отключить (${selectedProductSlugs.size})`}
+                    </button>
+                  )}
+                  {allInactive && (
+                    <button 
+                      onClick={handleActivateSelected} 
+                      disabled={isActivating || isDeactivating || loading}
+                      className="btn-activate" 
+                      title="Включить выбранные"
+                    >
+                      {isActivating ? 'Включение...' : `Включить (${selectedProductSlugs.size})`}
+                    </button>
+                  )}
+                  {!allActive && !allInactive && (
+                    <>
+                      <button 
+                        onClick={handleActivateSelected} 
+                        disabled={isActivating || isDeactivating || loading}
+                        className="btn-activate" 
+                        title="Включить выбранные"
+                      >
+                        {isActivating ? 'Включение...' : `Включить (${selectedProductSlugs.size})`}
+                      </button>
+                      <button 
+                        onClick={handleDeactivateSelected} 
+                        disabled={isDeactivating || isActivating || loading}
+                        className="btn-deactivate" 
+                        title="Отключить выбранные"
+                      >
+                        {isDeactivating ? 'Отключение...' : `Отключить (${selectedProductSlugs.size})`}
+                      </button>
+                    </>
+                  )}
+                </>
+              )
+            })()}
           </div>
           <button onClick={() => setIsAddModalOpen(true)} className="btn-add">
             Добавить товар
