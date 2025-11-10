@@ -393,7 +393,7 @@ bot.api.setMyCommands([
 bot.api.setChatMenuButton({
   menu_button: {
     type: 'web_app',
-    text: 'Open',
+    text: 'Открыть каталог',
     web_app: { url: WEBAPP_URL }
   }
 }).then(() => {
