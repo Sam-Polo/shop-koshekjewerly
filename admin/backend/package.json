@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc",
+    "build": "NODE_OPTIONS=--max-old-space-size=4096 tsc",
     "start": "node dist/server.js"
   },
   "dependencies": {
