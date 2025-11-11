@@ -153,9 +153,163 @@ const mediaGroupCache = new Map<string, Array<{ fileId: string, text?: string }>
 // таймеры для обработки альбомов (media_group_id -> timeout)
 const mediaGroupTimers = new Map<string, NodeJS.Timeout>();
 
+// экранирование специальных символов для MarkdownV2
+function escapeMarkdownV2(text: string): string {
+  // символы, которые нужно экранировать в MarkdownV2
+  const specialChars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+  let result = text
+  for (const char of specialChars) {
+    // экранируем только неэкранированные символы
+    const regex = new RegExp(`(^|[^\\\\])${char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g')
+    result = result.replace(regex, `$1\\${char}`)
+  }
+  return result
+}
+
+// преобразование обычного Markdown в Telegram MarkdownV2
+function convertToMarkdownV2(text: string): { success: boolean; text?: string; error?: string } {
+  try {
+    if (!text) {
+      return { success: true, text: '' }
+    }
+    
+    let result = text
+    const placeholders: Array<{ placeholder: string; replacement: string }> = []
+    let placeholderIndex = 0
+    
+    // сохраняем блоки кода (```...```) - не трогаем их содержимое
+    result = result.replace(/```([\s\S]*?)```/g, (match) => {
+      const placeholder = `\u0001CODEBLOCK${placeholderIndex}\u0001`
+      placeholders.push({ placeholder, replacement: match })
+      placeholderIndex++
+      return placeholder
+    })
+    
+    // сохраняем inline код (`...`) - не трогаем его содержимое
+    result = result.replace(/`([^`\n]+)`/g, (match) => {
+      const placeholder = `\u0001CODE${placeholderIndex}\u0001`
+      placeholders.push({ placeholder, replacement: match })
+      placeholderIndex++
+      return placeholder
+    })
+    
+    // преобразуем форматирование:
+    // **жирный** → *жирный* (MarkdownV2 использует одну звездочку)
+    result = result.replace(/\*\*([^*\n]+)\*\*/g, '*$1*')
+    
+    // __курсив__ → _курсив_ (MarkdownV2 использует одно подчеркивание)
+    result = result.replace(/__([^_\n]+)__/g, '_$1_')
+    
+    // ~~перечеркнутый~~ → ~перечеркнутый~
+    result = result.replace(/~~([^~\n]+)~~/g, '~$1~')
+    
+    // ||скрытый текст|| остается как есть (это уже правильный синтаксис MarkdownV2)
+    
+    // сохраняем все форматированные части, чтобы не экранировать их содержимое
+    const formattedParts: Array<{ placeholder: string; replacement: string }> = []
+    let formattedIndex = 0
+    
+    // сохраняем жирный текст (*...*)
+    result = result.replace(/\*([^*\n]+)\*/g, (match) => {
+      const placeholder = `\u0001BOLD${formattedIndex}\u0001`
+      formattedParts.push({ placeholder, replacement: match })
+      formattedIndex++
+      return placeholder
+    })
+    
+    // сохраняем курсив (_..._)
+    result = result.replace(/_([^_\n]+)_/g, (match) => {
+      const placeholder = `\u0001ITALIC${formattedIndex}\u0001`
+      formattedParts.push({ placeholder, replacement: match })
+      formattedIndex++
+      return placeholder
+    })
+    
+    // сохраняем перечеркнутый (~...~)
+    result = result.replace(/~([^~\n]+)~/g, (match) => {
+      const placeholder = `\u0001STRIKE${formattedIndex}\u0001`
+      formattedParts.push({ placeholder, replacement: match })
+      formattedIndex++
+      return placeholder
+    })
+    
+    // сохраняем скрытый текст (||...||)
+    result = result.replace(/\|\|([^|\n]+)\|\|/g, (match) => {
+      const placeholder = `\u0001SPOILER${formattedIndex}\u0001`
+      formattedParts.push({ placeholder, replacement: match })
+      formattedIndex++
+      return placeholder
+    })
+    
+    // экранируем специальные символы в оставшемся тексте
+    result = escapeMarkdownV2(result)
+    
+    // возвращаем форматированные части обратно
+    for (const { placeholder, replacement } of formattedParts.reverse()) {
+      result = result.replace(placeholder, replacement)
+    }
+    
+    // возвращаем блоки кода обратно (они уже правильно отформатированы)
+    for (const { placeholder, replacement } of placeholders.reverse()) {
+      result = result.replace(placeholder, replacement)
+    }
+    
+    return { success: true, text: result }
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Ошибка преобразования форматирования' }
+  }
+}
+
+// валидация MarkdownV2 форматирования через тестовую отправку
+async function validateMarkdownV2(chatId: string | number, formattedText: string): Promise<{ valid: boolean; error?: string }> {
+  try {
+    // пробуем отправить тестовое сообщение самому себе для проверки форматирования
+    const testResponse = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: formattedText,
+        parse_mode: 'MarkdownV2'
+      })
+    })
+    
+    const result = await testResponse.json()
+    
+    if (!result.ok) {
+      return { valid: false, error: result.description || 'Неверное форматирование MarkdownV2' }
+    }
+    
+    // удаляем тестовое сообщение
+    if (result.result?.message_id) {
+      await fetch(`https://api.telegram.org/bot${token}/deleteMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          message_id: result.result.message_id
+        })
+      }).catch(() => {}) // игнорируем ошибки удаления
+    }
+    
+    return { valid: true }
+  } catch (error: any) {
+    return { valid: false, error: error?.message || 'Ошибка валидации форматирования' }
+  }
+}
+
 // отправка сообщения через Telegram Bot API (для рассылки)
 async function sendMessage(chatId: string | number, text: string, photoFileIds?: string[]): Promise<boolean> {
   try {
+    // преобразуем форматирование в MarkdownV2
+    const converted = convertToMarkdownV2(text)
+    if (!converted.success || !converted.text) {
+      console.error('Ошибка преобразования форматирования:', converted.error)
+      return false
+    }
+    
+    const formattedText = converted.text
+    
     if (photoFileIds && photoFileIds.length > 0) {
       if (photoFileIds.length === 1) {
         // отправка одного фото
@@ -165,18 +319,25 @@ async function sendMessage(chatId: string | number, text: string, photoFileIds?:
           body: JSON.stringify({
             chat_id: chatId,
             photo: photoFileIds[0],
-            caption: text,
-            parse_mode: 'HTML'
+            caption: formattedText,
+            parse_mode: 'MarkdownV2'
           })
         })
-        return response.ok
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          console.error('Ошибка отправки фото с текстом:', errorData)
+          return false
+        }
+        
+        return true
       } else {
         // отправка нескольких фото через media group (2-10 фото)
         // текст может быть только в caption последнего фото
         const media = photoFileIds.map((fileId, index) => ({
           type: 'photo',
           media: fileId,
-          ...(index === photoFileIds.length - 1 && text ? { caption: text, parse_mode: 'HTML' } : {})
+          ...(index === photoFileIds.length - 1 && formattedText ? { caption: formattedText, parse_mode: 'MarkdownV2' } : {})
         }))
         
         const response = await fetch(`https://api.telegram.org/bot${token}/sendMediaGroup`, {
@@ -187,7 +348,14 @@ async function sendMessage(chatId: string | number, text: string, photoFileIds?:
             media: media
           })
         })
-        return response.ok
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          console.error('Ошибка отправки media group:', errorData)
+          return false
+        }
+        
+        return true
       }
     } else {
       // отправка текста
@@ -196,11 +364,18 @@ async function sendMessage(chatId: string | number, text: string, photoFileIds?:
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           chat_id: chatId,
-          text,
-          parse_mode: 'HTML'
+          text: formattedText,
+          parse_mode: 'MarkdownV2'
         })
       })
-      return response.ok
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        console.error('Ошибка отправки текста:', errorData)
+        return false
+      }
+      
+      return true
     }
   } catch (e: any) {
     console.error('ошибка отправки сообщения:', e?.message)
@@ -442,6 +617,29 @@ bot.on('message', async (ctx) => {
           const photoFileIds = allPhotos.map(p => p.fileId)
           const finalText = allPhotos[allPhotos.length - 1]?.text || ''
           
+          // преобразуем и валидируем форматирование (если есть текст)
+          if (finalText) {
+            await ctx.reply('🔍 Проверяю форматирование текста в альбоме...')
+            const converted = convertToMarkdownV2(finalText)
+            
+            if (!converted.success || !converted.text) {
+              await ctx.reply(`❌ Ошибка обработки форматирования: ${converted.error || 'неизвестная ошибка'}\n\nРассылка отменена. Проверь форматирование и попробуй еще раз или используй /cancel.`)
+              waitingForBroadcast.add(chatId)
+              mediaGroupCache.delete(mediaGroupId)
+              return
+            }
+            
+            // валидируем форматирование через тестовую отправку
+            const validation = await validateMarkdownV2(chatId, converted.text)
+            
+            if (!validation.valid) {
+              await ctx.reply(`❌ Ошибка форматирования: ${validation.error || 'неверное форматирование MarkdownV2'}\n\nРассылка отменена. Исправь форматирование и попробуй еще раз или используй /cancel.`)
+              waitingForBroadcast.add(chatId)
+              mediaGroupCache.delete(mediaGroupId)
+              return
+            }
+          }
+          
           // валидация перед рассылкой
           await ctx.reply('🔍 Проверяю альбом перед рассылкой...')
           const testSuccess = await sendMessage(chatId, finalText, photoFileIds)
@@ -496,6 +694,27 @@ bot.on('message', async (ctx) => {
       await ctx.reply('❌ Сообщение пустое. Попробуй еще раз или используй /cancel.')
       waitingForBroadcast.add(chatId)
       return
+    }
+    
+    // преобразуем и валидируем форматирование
+    if (messageText) {
+      await ctx.reply('🔍 Проверяю форматирование текста...')
+      const converted = convertToMarkdownV2(messageText)
+      
+      if (!converted.success || !converted.text) {
+        await ctx.reply(`❌ Ошибка обработки форматирования: ${converted.error || 'неизвестная ошибка'}\n\nРассылка отменена. Проверь форматирование и попробуй еще раз или используй /cancel.`)
+        waitingForBroadcast.add(chatId)
+        return
+      }
+      
+      // валидируем форматирование через тестовую отправку
+      const validation = await validateMarkdownV2(chatId, converted.text)
+      
+      if (!validation.valid) {
+        await ctx.reply(`❌ Ошибка форматирования: ${validation.error || 'неверное форматирование MarkdownV2'}\n\nРассылка отменена. Исправь форматирование и попробуй еще раз или используй /cancel.`)
+        waitingForBroadcast.add(chatId)
+        return
+      }
     }
     
     // получаем file_id фото (берем самое большое качество)
