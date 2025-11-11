@@ -141,6 +141,7 @@ function ProductsList() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
+  const [searchArticle, setSearchArticle] = useState<string>('')
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
@@ -270,10 +271,17 @@ function ProductsList() {
   // получаем уникальные категории
   const categories = Array.from(new Set(products.map(p => p.category))).sort()
   
-  // фильтруем товары по категории
-  const filteredProducts = selectedCategory === 'all'
-    ? products
-    : products.filter(p => p.category === selectedCategory)
+  // фильтруем товары по категории и артикулу
+  const filteredProducts = products.filter(p => {
+    // фильтр по категории
+    const matchesCategory = selectedCategory === 'all' || p.category === selectedCategory
+    
+    // фильтр по артикулу (если поиск не пустой)
+    const matchesArticle = !searchArticle.trim() || 
+      (p.article && p.article.toLowerCase().includes(searchArticle.trim().toLowerCase()))
+    
+    return matchesCategory && matchesArticle
+  })
 
   // группируем по категориям
   const groupedProducts = filteredProducts.reduce((acc, product) => {
@@ -450,6 +458,28 @@ function ProductsList() {
                   <option key={cat} value={cat}>{cat}</option>
                 ))}
               </select>
+            </label>
+            <label className="search-label">
+              Поиск по артикулу:
+              <div className="search-input-wrapper">
+                <input
+                  type="text"
+                  value={searchArticle}
+                  onChange={(e) => setSearchArticle(e.target.value)}
+                  placeholder="Введите артикул"
+                  className="search-input"
+                />
+                {searchArticle && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchArticle('')}
+                    className="search-clear"
+                    title="Очистить поиск"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
             </label>
             <button onClick={loadProducts} disabled={loading || isActivating || isDeactivating || isSavingProductsOrder} className="btn-refresh" title="Обновить">
               <span className={`refresh-icon ${(loading || isActivating || isDeactivating || isSavingProductsOrder) ? 'spinning' : ''}`}>↻</span>
