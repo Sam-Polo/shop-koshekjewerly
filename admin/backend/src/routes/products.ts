@@ -10,9 +10,31 @@ import {
   reorderProductsInSheet
 } from '../sheets-utils.js'
 import pino from 'pino'
+import axios from 'axios'
 
 const logger = pino()
 const router = express.Router()
+
+// функция для вызова импорта в основном бэкенде
+async function triggerBackendImport() {
+  try {
+    const backendUrl = process.env.BACKEND_URL || 'https://shop-koshekjewerly.onrender.com'
+    const adminKey = process.env.ADMIN_IMPORT_KEY
+    
+    if (adminKey) {
+      await axios.post(`${backendUrl}/admin/import/sheets`, {}, {
+        headers: { 'x-admin-key': adminKey },
+        timeout: 30000
+      })
+      logger.info('импорт товаров в основном бэкенде вызван')
+    } else {
+      logger.warn('ADMIN_IMPORT_KEY не задан, импорт в основном бэкенде пропущен')
+    }
+  } catch (error: any) {
+    // не блокируем выполнение, если импорт не удался
+    logger.warn({ error: error?.message }, 'не удалось вызвать импорт в основном бэкенде')
+  }
+}
 
 // все роуты требуют авторизации
 router.use(requireAuth)
@@ -103,6 +125,10 @@ router.post('/', async (req, res) => {
     await appendProductToSheet(auth, sheetId, normalizedCategory, product)
 
     logger.info({ slug: product.slug, article: product.article }, 'товар добавлен')
+    
+    // вызываем импорт в основном бэкенде для обновления мини-апки
+    await triggerBackendImport()
+    
     res.json({ success: true, product })
   } catch (error: any) {
     logger.error({ error: error?.message }, 'ошибка добавления товара')
@@ -185,6 +211,10 @@ router.put('/:slug', async (req, res) => {
     }
 
     logger.info({ oldSlug, newSlug: product.slug }, 'товар обновлен')
+    
+    // вызываем импорт в основном бэкенде для обновления мини-апки
+    await triggerBackendImport()
+    
     res.json({ success: true, product })
   } catch (error: any) {
     logger.error({ error: error?.message }, 'ошибка обновления товара')
@@ -212,6 +242,10 @@ router.post('/reorder', async (req, res) => {
     await reorderProductsInSheet(auth, sheetId, normalizedCategory, slugs)
     
     logger.info({ category: normalizedCategory, count: slugs.length }, 'порядок товаров обновлен')
+    
+    // вызываем импорт в основном бэкенде для обновления мини-апки
+    await triggerBackendImport()
+    
     res.json({ success: true })
   } catch (error: any) {
     logger.error({ error: error?.message }, 'ошибка переупорядочивания товаров')
@@ -242,6 +276,10 @@ router.delete('/:slug', async (req, res) => {
     await deleteProductFromSheet(auth, sheetId, normalizedCategory, slug)
 
     logger.info({ slug }, 'товар удален')
+    
+    // вызываем импорт в основном бэкенде для обновления мини-апки
+    await triggerBackendImport()
+    
     res.json({ success: true })
   } catch (error: any) {
     logger.error({ error: error?.message }, 'ошибка удаления товара')
