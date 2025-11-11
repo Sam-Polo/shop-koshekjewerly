@@ -624,6 +624,7 @@
   line-clamp: 2;
   -webkit-box-orient: vertical;
   max-height: 2.8em;
+  white-space: pre-line;
 }
 
 /* модальное окно товара */
@@ -825,6 +826,14 @@
 .detail-value {
   color: #333;
   font-size: 1rem;
+}
+
+/* описание с сохранением переносов строк */
+.detail-value p,
+.detail-row-full .detail-value {
+  white-space: pre-line;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 .detail-value.active {
