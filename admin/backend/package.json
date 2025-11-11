@@ -4,7 +4,9 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "NODE_OPTIONS=--max-old-space-size=4096 tsc",
+    "build": "node --max-old-space-size=4096 node_modules/typescript/bin/tsc",
+    "build:win": "set NODE_OPTIONS=--max-old-space-size=4096 && tsc",
+    "build:unix": "NODE_OPTIONS=--max-old-space-size=4096 tsc",
     "start": "node dist/server.js"
   },
   "dependencies": {
