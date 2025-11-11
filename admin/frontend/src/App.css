@@ -1322,27 +1322,374 @@
   font-style: italic;
 }
 
+/* адаптация для мобильных устройств */
 @media (max-width: 768px) {
-  .form-row {
-    grid-template-columns: 1fr;
+  /* заголовок */
+  .admin-header {
+    padding: 0.75rem 1rem;
+    flex-direction: column;
+    gap: 0.75rem;
+    align-items: flex-start;
   }
 
+  .admin-header h1 {
+    font-size: 1.25rem;
+    margin: 0;
+  }
+
+  .logout-btn {
+    width: 100%;
+    padding: 0.5rem;
+    font-size: 0.9rem;
+  }
+
+  /* основной контент */
+  .admin-content {
+    padding: 1rem;
+  }
+
+  /* тулбар */
   .toolbar {
     flex-direction: column;
     align-items: stretch;
+    gap: 0.75rem;
+    padding: 1rem;
   }
 
   .toolbar-filters {
     width: 100%;
   }
 
-  .btn-add {
+  .toolbar-filters label {
+    font-size: 0.9rem;
+  }
+
+  .toolbar-filters select {
+    width: 100%;
+    padding: 0.5rem;
+    font-size: 0.9rem;
+  }
+
+  .toolbar-actions {
+    flex-direction: column;
+    gap: 0.5rem;
     width: 100%;
   }
 
+  .btn-refresh {
+    width: 100%;
+    padding: 0.5rem;
+  }
+
+  .btn-add,
+  .btn-reorder-products,
+  .btn-save,
+  .btn-cancel {
+    width: 100%;
+    padding: 0.75rem;
+    font-size: 0.9rem;
+  }
+
+  /* сетка товаров */
+  .products-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 0.75rem;
+  }
+
+  .product-card {
+    padding: 0.75rem;
+  }
+
+  .product-title {
+    font-size: 0.85rem;
+    line-height: 1.3;
+    margin-bottom: 0.5rem;
+  }
+
+  .product-price {
+    font-size: 0.9rem;
+  }
+
+  .product-meta {
+    font-size: 0.75rem;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  /* категории */
+  .category-section h2 {
+    font-size: 1.25rem;
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.75rem;
+  }
+
+  /* модальные окна */
+  .modal-overlay {
+    padding: 0.5rem;
+  }
+
+  .modal-content {
+    width: 95vw;
+    max-width: 95vw;
+    max-height: 95vh;
+    padding: 1rem;
+    margin: 0.5rem;
+  }
+
+  .modal-header h2 {
+    font-size: 1.25rem;
+  }
+
+  .modal-close {
+    width: 2rem;
+    height: 2rem;
+    font-size: 1.5rem;
+    top: 0.5rem;
+    right: 0.5rem;
+  }
+
+  /* модальное окно товара (две колонки -> одна) */
+  .modal-product {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+    padding: 1rem;
+  }
+
+  /* форма */
+  .form-row {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+
+  .form-group {
+    margin-bottom: 0.75rem;
+  }
+
+  .form-group label {
+    font-size: 0.9rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .form-group input,
+  .form-group textarea,
+  .form-group select {
+    padding: 0.75rem;
+    font-size: 0.9rem;
+  }
+
+  /* изображения */
   .images-preview {
+    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+    gap: 0.5rem;
+  }
+
+  .image-preview-item {
+    aspect-ratio: 4 / 5;
+  }
+
+  .modal-images-grid {
     grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
     gap: 0.75rem;
+  }
+
+  /* кнопки действий */
+  .product-actions {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .product-actions button {
+    width: 100%;
+    padding: 0.5rem;
+    font-size: 0.85rem;
+  }
+
+  /* уведомления */
+  .toast {
+    bottom: 1rem;
+    right: 1rem;
+    left: 1rem;
+    min-width: auto;
+    padding: 0.75rem 1rem;
+    font-size: 0.9rem;
+  }
+
+  /* кнопка прокрутки вверх */
+  .scroll-to-top {
+    bottom: 1rem;
+    right: 1rem;
+    width: 2.5rem;
+    height: 2.5rem;
+    font-size: 1.25rem;
+  }
+
+  /* детали товара в модалке */
+  .product-details {
+    gap: 0.75rem;
+  }
+
+  .detail-row {
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .detail-label {
+    font-size: 0.85rem;
+  }
+
+  .detail-value {
+    font-size: 0.9rem;
+  }
+
+  /* полноэкранный просмотр изображений */
+  .fullscreen-overlay {
+    padding: 1rem;
+  }
+
+  .fullscreen-image {
+    max-width: 100%;
+    max-height: 80vh;
+  }
+
+  .fullscreen-nav {
+    width: 2.5rem;
+    height: 2.5rem;
+    font-size: 1.25rem;
+  }
+
+  .fullscreen-close {
+    top: 0.5rem;
+    right: 0.5rem;
+    width: 2rem;
+    height: 2rem;
+    font-size: 1.5rem;
+  }
+
+  /* drag and drop */
+  .image-drag-item,
+  .product-card.draggable {
+    touch-action: none;
+  }
+
+  /* чекбоксы */
+  .product-card-checkbox {
+    width: 1.5rem;
+    height: 1.5rem;
+  }
+
+  /* кнопки активации/деактивации */
+  .btn-deactivate,
+  .btn-activate {
+    width: 100%;
+    padding: 0.75rem;
+    font-size: 0.9rem;
+  }
+
+  /* модальное окно подтверждения */
+  .confirm-modal {
+    max-width: 90vw;
+    padding: 1.5rem;
+  }
+
+  .confirm-actions {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .btn-confirm {
+    width: 100%;
+    padding: 0.75rem;
+  }
+
+  /* модальная форма */
+  .modal-form {
+    padding: 1rem;
+  }
+
+  .modal-form .form-actions {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .modal-form .form-actions button {
+    width: 100%;
+    padding: 0.75rem;
+  }
+
+  /* галерея изображений в модалке */
+  .modal-images-grid.reorder-mode {
+    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  }
+
+  /* кнопки управления изображениями */
+  .image-action-btn {
+    width: 2rem;
+    height: 2rem;
+    font-size: 0.9rem;
+  }
+
+  /* drag handle */
+  .drag-handle {
+    font-size: 0.9rem;
+    padding: 0.25rem 0.4rem;
+  }
+
+  /* пустое состояние */
+  .empty-state {
+    padding: 2rem 1rem;
+    font-size: 0.9rem;
+  }
+
+  /* загрузка */
+  .loading {
+    padding: 2rem 1rem;
+    font-size: 0.9rem;
+  }
+}
+
+/* очень маленькие экраны */
+@media (max-width: 480px) {
+  .admin-header h1 {
+    font-size: 1.1rem;
+  }
+
+  .products-grid {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 0.5rem;
+  }
+
+  .product-card {
+    padding: 0.5rem;
+  }
+
+  .product-title {
+    font-size: 0.8rem;
+  }
+
+  .modal-overlay {
+    padding: 0;
+  }
+
+  .modal-content {
+    width: 100vw;
+    max-width: 100vw;
+    margin: 0;
+    border-radius: 0;
+    max-height: 100vh;
+    padding: 0.75rem;
+  }
+
+  .modal-product {
+    padding: 0.75rem;
+    gap: 0.75rem;
+  }
+
+  .images-preview {
+    grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
+  }
+
+  .toolbar {
+    padding: 0.75rem;
   }
 }
 
