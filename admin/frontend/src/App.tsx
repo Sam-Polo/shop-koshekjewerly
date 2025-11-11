@@ -606,9 +606,6 @@ function ProductsList() {
                           <div className="product-meta">
                             {product.article && <span>Артикул: {product.article}</span>}
                             <span>Цена: {product.price_rub} ₽</span>
-                            {product.stock !== undefined && (
-                              <span>Остаток: {product.stock}</span>
-                            )}
                             <span className={product.active ? 'active' : 'inactive'}>
                               {product.active ? 'Активен' : 'Неактивен'}
                             </span>
@@ -1114,9 +1111,6 @@ function SortableProductCard({
           <div className="product-meta">
             {product.article && <span>Артикул: {product.article}</span>}
             <span>Цена: {product.price_rub} ₽</span>
-            {product.stock !== undefined && (
-              <span>Остаток: {product.stock}</span>
-            )}
             <span className={product.active ? 'active' : 'inactive'}>
               {product.active ? 'Активен' : 'Неактивен'}
             </span>
