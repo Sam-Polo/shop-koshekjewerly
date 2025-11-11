@@ -151,6 +151,7 @@ function ProductsList() {
   const [isReorderProductsMode, setIsReorderProductsMode] = useState(false)
   const [reorderedProductsByCategory, setReorderedProductsByCategory] = useState<Record<string, Product[]>>({})
   const [isSavingProductsOrder, setIsSavingProductsOrder] = useState(false)
+  const [showScrollTop, setShowScrollTop] = useState(false)
 
   useEffect(() => {
     loadProducts()
@@ -281,6 +282,39 @@ function ProductsList() {
     acc[product.category].push(product)
     return acc
   }, {} as Record<string, Product[]>)
+
+  // отслеживание прокрутки для кнопки "вверх"
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowScrollTop(window.scrollY > 300)
+    }
+    
+    window.addEventListener('scroll', handleScroll)
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [])
+
+  // функция прокрутки вверх (быстрая прокрутка)
+  const scrollToTop = () => {
+    const startPosition = window.scrollY
+    const startTime = performance.now()
+    const duration = 300 // уменьшено с ~500ms до 300ms для более быстрой прокрутки
+    
+    const animateScroll = (currentTime: number) => {
+      const elapsed = currentTime - startTime
+      const progress = Math.min(elapsed / duration, 1)
+      
+      // easing функция для плавности (ease-out)
+      const easeOut = 1 - Math.pow(1 - progress, 3)
+      
+      window.scrollTo(0, startPosition * (1 - easeOut))
+      
+      if (progress < 1) {
+        requestAnimationFrame(animateScroll)
+      }
+    }
+    
+    requestAnimationFrame(animateScroll)
+  }
 
   // синхронизируем reorderedProductsByCategory при изменении products
   useEffect(() => {
@@ -613,6 +647,17 @@ function ProductsList() {
           <div className="empty-state">Товары не найдены</div>
         )}
       </div>
+
+      {showScrollTop && (
+        <button 
+          className="scroll-to-top" 
+          onClick={scrollToTop}
+          title="Наверх"
+          aria-label="Прокрутить вверх"
+        >
+          ↑
+        </button>
+      )}
 
       {selectedProduct && !isEditModalOpen && (
         <ProductModal

@@ -513,8 +513,53 @@
 }
 
 .product-card.inactive {
-  opacity: 0.6;
+  opacity: 0.4;
   border-color: #ccc;
+}
+
+/* кнопка прокрутки вверх */
+.scroll-to-top {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 50%;
+  background: #d480e0;
+  color: white;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(212, 128, 224, 0.4);
+  transition: all 0.3s ease;
+  z-index: 1000;
+  opacity: 0;
+  transform: translateY(20px) scale(0.8);
+  animation: scrollToTopFadeIn 0.3s ease-out forwards;
+}
+
+.scroll-to-top:hover {
+  background: #c070d0;
+  transform: translateY(-2px) scale(1);
+  box-shadow: 0 6px 16px rgba(212, 128, 224, 0.6);
+}
+
+.scroll-to-top:active {
+  transform: translateY(0) scale(0.95);
+}
+
+@keyframes scrollToTopFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .product-images {
