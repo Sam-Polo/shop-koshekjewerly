@@ -14,5 +14,6 @@ backend/ENV_VARS.md
 backend/README.md
 SECURITY_CHECKLIST.md
 frontend/README.md
-
-
+IMPORT_COMMAND.md
+admin/DEPLOY_TIMEWEB.md
+admin/UPLOAD_DIST.md

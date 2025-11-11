@@ -543,12 +543,28 @@ app.post('/admin/import/sheets', async (req, res) => {
   if (!key || key !== process.env.ADMIN_IMPORT_KEY) {
     return res.status(401).json({ error: 'unauthorized' });
   }
+  
+  // устанавливаем таймаут для ответа (30 секунд)
+  const timeout = setTimeout(() => {
+    if (!res.headersSent) {
+      res.status(504).json({ error: 'import_timeout', message: 'Импорт превысил время ожидания' });
+    }
+  }, 30000);
+  
   try {
+    logger.info('начат ручной импорт товаров');
     await importProducts();
     const count = listProducts().length;
-    res.json({ ok: true, total: count });
+    clearTimeout(timeout);
+    if (!res.headersSent) {
+      res.json({ ok: true, total: count });
+    }
   } catch (e: any) {
-    res.status(500).json({ error: e?.message || 'import_failed' });
+    clearTimeout(timeout);
+    logger.error({ error: e?.message, stack: e?.stack }, 'ошибка ручного импорта');
+    if (!res.headersSent) {
+      res.status(500).json({ error: e?.message || 'import_failed' });
+    }
   }
 });
 

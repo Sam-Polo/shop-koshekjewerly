@@ -147,22 +147,48 @@ function isManager(chatId: string | number | undefined, username?: string): bool
 // состояние ожидания сообщения для рассылки (chat_id менеджера -> true)
 const waitingForBroadcast = new Set<string | number>();
 
+// временное хранилище для альбомов (media_group_id -> массив фото)
+const mediaGroupCache = new Map<string, Array<{ fileId: string, text?: string }>>();
+
+// таймеры для обработки альбомов (media_group_id -> timeout)
+const mediaGroupTimers = new Map<string, NodeJS.Timeout>();
+
 // отправка сообщения через Telegram Bot API (для рассылки)
-async function sendMessage(chatId: string | number, text: string, photoFileId?: string): Promise<boolean> {
+async function sendMessage(chatId: string | number, text: string, photoFileIds?: string[]): Promise<boolean> {
   try {
-    if (photoFileId) {
-      // отправка с фото (используем file_id напрямую)
-      const response = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          photo: photoFileId,
-          caption: text,
-          parse_mode: 'HTML'
+    if (photoFileIds && photoFileIds.length > 0) {
+      if (photoFileIds.length === 1) {
+        // отправка одного фото
+        const response = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            photo: photoFileIds[0],
+            caption: text,
+            parse_mode: 'HTML'
+          })
         })
-      })
-      return response.ok
+        return response.ok
+      } else {
+        // отправка нескольких фото через media group (2-10 фото)
+        // текст может быть только в caption последнего фото
+        const media = photoFileIds.map((fileId, index) => ({
+          type: 'photo',
+          media: fileId,
+          ...(index === photoFileIds.length - 1 && text ? { caption: text, parse_mode: 'HTML' } : {})
+        }))
+        
+        const response = await fetch(`https://api.telegram.org/bot${token}/sendMediaGroup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            media: media
+          })
+        })
+        return response.ok
+      }
     } else {
       // отправка текста
       const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -203,6 +229,15 @@ bot.command('cancel', async (ctx) => {
   const chatId = ctx.from?.id
   if (waitingForBroadcast.has(chatId!)) {
     waitingForBroadcast.delete(chatId!)
+    
+    // очищаем кэш альбомов и таймеры для этого менеджера
+    // (в реальности media_group_id уникален, но на всякий случай очищаем все)
+    for (const [groupId, timer] of mediaGroupTimers.entries()) {
+      clearTimeout(timer)
+      mediaGroupTimers.delete(groupId)
+      mediaGroupCache.delete(groupId)
+    }
+    
     await ctx.reply('❌ Рассылка отменена.')
   }
 });
@@ -375,22 +410,110 @@ bot.on('message', async (ctx) => {
   
   // если менеджер в режиме рассылки
   if (chatId && waitingForBroadcast.has(chatId) && isManager(chatId, username)) {
+    const photos = ctx.message.photo || []
+    const mediaGroupId = ctx.message.media_group_id
+    
+    // если это альбом (несколько фото), собираем их в кэш
+    if (mediaGroupId && photos.length > 0) {
+      const photoFileId = photos[photos.length - 1]?.file_id // берем самое большое качество
+      const messageText = ctx.message.caption || ''
+      
+      if (!mediaGroupCache.has(mediaGroupId)) {
+        mediaGroupCache.set(mediaGroupId, [])
+      }
+      
+      const cache = mediaGroupCache.get(mediaGroupId)!
+      cache.push({ 
+        fileId: photoFileId,
+        text: messageText // текст может быть только в последнем сообщении альбома
+      })
+      
+      // отменяем предыдущий таймер для этого альбома (если есть)
+      if (mediaGroupTimers.has(mediaGroupId)) {
+        clearTimeout(mediaGroupTimers.get(mediaGroupId)!)
+      }
+      
+      // устанавливаем новый таймер: если в течение 2 секунд не придет новое фото - обрабатываем альбом
+      const timer = setTimeout(async () => {
+        const allPhotos = mediaGroupCache.get(mediaGroupId) || []
+        mediaGroupTimers.delete(mediaGroupId)
+        
+        if (allPhotos.length > 0 && allPhotos.length <= 10) {
+          const photoFileIds = allPhotos.map(p => p.fileId)
+          const finalText = allPhotos[allPhotos.length - 1]?.text || ''
+          
+          // валидация перед рассылкой
+          await ctx.reply('🔍 Проверяю альбом перед рассылкой...')
+          const testSuccess = await sendMessage(chatId, finalText, photoFileIds)
+          
+          if (!testSuccess) {
+            await ctx.reply('❌ Ошибка при проверке альбома. Рассылка отменена.\nПроверь формат сообщения и попробуй еще раз или используй /cancel.')
+            waitingForBroadcast.add(chatId)
+            mediaGroupCache.delete(mediaGroupId)
+            return
+          }
+          
+          await ctx.reply(`✅ Проверка пройдена. 📤 Начинаю рассылку ${userChatIds.size} пользователям...`)
+          
+          // отправляем всем пользователям
+          let sent = 0
+          let failed = 0
+          
+          for (const userId of userChatIds) {
+            if (String(userId) === String(chatId)) continue
+            
+            const success = await sendMessage(userId, finalText, photoFileIds)
+            if (success) {
+              sent++
+            } else {
+              failed++
+            }
+            
+            await new Promise(resolve => setTimeout(resolve, 50))
+          }
+          
+          await ctx.reply(`✅ Рассылка завершена:\nОтправлено: ${sent}\nОшибок: ${failed}`)
+          waitingForBroadcast.delete(chatId)
+          mediaGroupCache.delete(mediaGroupId)
+        } else if (allPhotos.length > 10) {
+          await ctx.reply('❌ Максимум 10 фото в одном сообщении. Отправь меньше фото или используй /cancel.')
+          waitingForBroadcast.add(chatId)
+          mediaGroupCache.delete(mediaGroupId)
+        }
+      }, 2000) // ждем 2 секунды после последнего фото альбома
+      
+      mediaGroupTimers.set(mediaGroupId, timer)
+      return
+    }
+    
+    // если это не альбом, обрабатываем как обычное сообщение
     waitingForBroadcast.delete(chatId)
     
     // получаем текст и фото
     const messageText = ctx.message.text || ctx.message.caption || ''
-    const photo = ctx.message.photo ? ctx.message.photo[ctx.message.photo.length - 1] : null
     
-    if (!messageText && !photo) {
+    if (!messageText && photos.length === 0) {
       await ctx.reply('❌ Сообщение пустое. Попробуй еще раз или используй /cancel.')
       waitingForBroadcast.add(chatId)
       return
     }
     
-    // получаем file_id фото если есть
-    const photoFileId = photo?.file_id
+    // получаем file_id фото (берем самое большое качество)
+    const photoFileIds = photos.length > 0 
+      ? [photos[photos.length - 1].file_id]
+      : undefined
     
-    await ctx.reply(`📤 Начинаю рассылку ${userChatIds.size} пользователям...`)
+    // валидация: пробуем отправить тестовое сообщение менеджеру перед рассылкой
+    await ctx.reply('🔍 Проверяю сообщение перед рассылкой...')
+    const testSuccess = await sendMessage(chatId, messageText, photoFileIds)
+    
+    if (!testSuccess) {
+      await ctx.reply('❌ Ошибка при проверке сообщения. Рассылка отменена.\nПроверь формат сообщения и попробуй еще раз или используй /cancel.')
+      waitingForBroadcast.add(chatId)
+      return
+    }
+    
+    await ctx.reply(`✅ Проверка пройдена. 📤 Начинаю рассылку ${userChatIds.size} пользователям...`)
     
     // отправляем всем пользователям
     let sent = 0
@@ -400,7 +523,7 @@ bot.on('message', async (ctx) => {
       // пропускаем самого менеджера
       if (String(userId) === String(chatId)) continue
       
-      const success = await sendMessage(userId, messageText, photoFileId)
+      const success = await sendMessage(userId, messageText, photoFileIds)
       if (success) {
         sent++
       } else {
