@@ -765,6 +765,31 @@ function ProductModal({
     }
   }
 
+  // обработчик для различения скролла и клика на изображении
+  const handleImageTouch = (e: React.TouchEvent, index: number) => {
+    const touch = e.touches[0]
+    const startY = touch.clientY
+    const startTime = Date.now()
+    
+    const handleTouchEnd = (endEvent: TouchEvent) => {
+      const endTouch = endEvent.changedTouches[0]
+      const endY = endTouch.clientY
+      const endTime = Date.now()
+      const deltaY = Math.abs(endY - startY)
+      const deltaTime = endTime - startTime
+      
+      // если движение небольшое и быстрое - это клик, иначе скролл
+      if (deltaY < 10 && deltaTime < 300) {
+        e.preventDefault()
+        openFullscreen(index)
+      }
+      
+      document.removeEventListener('touchend', handleTouchEnd)
+    }
+    
+    document.addEventListener('touchend', handleTouchEnd, { once: true })
+  }
+
   const handleStartReorder = () => {
     setIsReorderMode(true)
     setReorderedImages([...product.images])
@@ -885,6 +910,7 @@ function ProductModal({
                           key={`${img}-${idx}`}
                           className="image-drag-item"
                           onClick={() => openFullscreen(originalIndex >= 0 ? originalIndex : idx)}
+                          onTouchStart={(e) => handleImageTouch(e, originalIndex >= 0 ? originalIndex : idx)}
                         >
                           <img
                             src={img}
@@ -942,7 +968,7 @@ function ProductModal({
               </div>
               
               {product.description && (
-                <div className="detail-row">
+                <div className="detail-row detail-row-full">
                   <span className="detail-label">Описание:</span>
                   <p className="detail-value">{product.description}</p>
                 </div>

@@ -784,11 +784,17 @@
 
 .clickable-image {
   cursor: pointer;
+  touch-action: pan-y;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .clickable-image:hover {
   transform: scale(1.02);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.clickable-image:active {
+  transform: scale(0.98);
 }
 
 .modal-product-info h2 {
@@ -1532,11 +1538,28 @@
     aspect-ratio: 4 / 5;
     max-width: 100%;
     box-sizing: border-box;
+    touch-action: pan-y;
+    -webkit-tap-highlight-color: transparent;
   }
 
   .image-drag-item {
     max-width: 100%;
     box-sizing: border-box;
+  }
+
+  /* разрешаем скролл при касании изображений */
+  .modal-images-grid > div {
+    touch-action: pan-y;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .modal-images-grid > div:active {
+    touch-action: pan-y;
+  }
+
+  /* разрешаем скролл для контейнера изображений */
+  .modal-product-images {
+    touch-action: pan-y;
   }
 
   /* поля в две колонки */
@@ -1550,6 +1573,11 @@
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
+  }
+
+  /* описание на всю ширину */
+  .detail-row-full {
+    grid-column: 1 / -1;
   }
 
   /* форма */
@@ -1627,6 +1655,11 @@
   .modal-product-details {
     grid-template-columns: 1fr 1fr;
     gap: 0.5rem 0.75rem;
+  }
+
+  /* описание на всю ширину */
+  .detail-row-full {
+    grid-column: 1 / -1;
   }
 
   .detail-label {
