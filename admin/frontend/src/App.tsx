@@ -72,6 +72,7 @@ type Product = {
   description?: string
   category: string
   price_rub: number
+  discount_price_rub?: number // цена со скидкой (если заполнена - используется вместо price_rub)
   images: string[]
   active: boolean
   stock?: number
@@ -605,7 +606,20 @@ function ProductsList() {
                           <h3>{product.title}</h3>
                           <div className="product-meta">
                             {product.article && <span>Артикул: {product.article}</span>}
-                            <span>Цена: {product.price_rub} ₽</span>
+                            <span>
+                              Цена: {product.discount_price_rub !== undefined && product.discount_price_rub > 0 ? (
+                                <>
+                                  <span style={{ textDecoration: 'line-through', opacity: 0.6, marginRight: '8px' }}>
+                                    {product.price_rub} ₽
+                                  </span>
+                                  <span style={{ color: '#bf9243', fontWeight: 600 }}>
+                                    {product.discount_price_rub} ₽
+                                  </span>
+                                </>
+                              ) : (
+                                `${product.price_rub} ₽`
+                              )}
+                            </span>
                             <span className={product.active ? 'active' : 'inactive'}>
                               {product.active ? 'Активен' : 'Неактивен'}
                             </span>
@@ -950,7 +964,20 @@ function ProductModal({
               
               <div className="detail-row">
                 <span className="detail-label">Цена:</span>
-                <span className="detail-value">{product.price_rub} ₽</span>
+                <span className="detail-value">
+                  {product.discount_price_rub !== undefined && product.discount_price_rub > 0 ? (
+                    <>
+                      <span style={{ textDecoration: 'line-through', opacity: 0.6, marginRight: '8px' }}>
+                        {product.price_rub} ₽
+                      </span>
+                      <span style={{ color: '#bf9243', fontWeight: 600 }}>
+                        {product.discount_price_rub} ₽
+                      </span>
+                    </>
+                  ) : (
+                    `${product.price_rub} ₽`
+                  )}
+                </span>
               </div>
               
               {product.stock !== undefined && (
@@ -1136,7 +1163,20 @@ function SortableProductCard({
           <h3>{product.title}</h3>
           <div className="product-meta">
             {product.article && <span>Артикул: {product.article}</span>}
-            <span>Цена: {product.price_rub} ₽</span>
+            <span>
+              Цена: {product.discount_price_rub !== undefined && product.discount_price_rub > 0 ? (
+                <>
+                  <span style={{ textDecoration: 'line-through', opacity: 0.6, marginRight: '8px' }}>
+                    {product.price_rub} ₽
+                  </span>
+                  <span style={{ color: '#bf9243', fontWeight: 600 }}>
+                    {product.discount_price_rub} ₽
+                  </span>
+                </>
+              ) : (
+                `${product.price_rub} ₽`
+              )}
+            </span>
             <span className={product.active ? 'active' : 'inactive'}>
               {product.active ? 'Активен' : 'Неактивен'}
             </span>
@@ -1288,6 +1328,7 @@ function ProductFormModal({
       description: product?.description || (isEdit ? '' : defaultDescription),
       category: product?.category || '',
       price_rub: product?.price_rub || 0,
+      discount_price_rub: product?.discount_price_rub || undefined,
       active: product?.active !== undefined ? product.active : true,
       stock: product?.stock || undefined,
       article: initialArticle,
@@ -1342,6 +1383,18 @@ function ProductFormModal({
 
     if (!formData.price_rub || formData.price_rub <= 0) {
       newErrors.price_rub = 'Цена должна быть больше 0'
+    }
+
+    // валидация цены со скидкой
+    if (formData.discount_price_rub !== undefined && formData.discount_price_rub !== null) {
+      const discountPrice = typeof formData.discount_price_rub === 'string' 
+        ? Number(formData.discount_price_rub) 
+        : formData.discount_price_rub
+      if (!Number.isFinite(discountPrice) || discountPrice <= 0) {
+        newErrors.discount_price_rub = 'Цена со скидкой должна быть больше 0'
+      } else if (formData.price_rub && discountPrice >= formData.price_rub) {
+        newErrors.discount_price_rub = 'Цена со скидкой должна быть меньше обычной цены'
+      }
     }
 
     // фото необязательное
@@ -1478,6 +1531,17 @@ function ProductFormModal({
     handleChange('price_rub', num)
   }
 
+  const handleDiscountPriceChange = (value: string) => {
+    // убираем пробелы и нечисловые символы (кроме точки и запятой)
+    const cleaned = value.replace(/\s/g, '').replace(/[^\d.,]/g, '')
+    if (cleaned === '') {
+      handleChange('discount_price_rub', undefined)
+    } else {
+      const num = parseFloat(cleaned.replace(',', '.')) || 0
+      handleChange('discount_price_rub', num > 0 ? num : undefined)
+    }
+  }
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content modal-form" onClick={(e) => e.stopPropagation()}>
@@ -1535,6 +1599,20 @@ function ProductFormModal({
                 placeholder="0"
               />
               {errors.price_rub && <small style={{ color: '#dc3545' }}>{errors.price_rub}</small>}
+            </div>
+            
+            <div className="form-group">
+              <label>Цена со скидкой (₽)</label>
+              <input
+                type="text"
+                value={formData.discount_price_rub !== undefined ? formData.discount_price_rub : ''}
+                onChange={(e) => handleDiscountPriceChange(e.target.value)}
+                placeholder="Оставьте пустым, если скидки нет"
+              />
+              {errors.discount_price_rub && <small style={{ color: '#dc3545' }}>{errors.discount_price_rub}</small>}
+              {!errors.discount_price_rub && formData.discount_price_rub && (
+                <small style={{ color: '#666' }}>Старая цена будет перечеркнута, отобразится новая</small>
+              )}
             </div>
           </div>
 

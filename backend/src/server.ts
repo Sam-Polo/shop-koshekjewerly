@@ -253,10 +253,15 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
       }
       
       // используем актуальную цену и название с бэкенда, игнорируем данные от клиента
+      // если есть discount_price_rub - используем её, иначе price_rub
+      const actualPrice = product.discount_price_rub !== undefined && product.discount_price_rub > 0
+        ? product.discount_price_rub
+        : product.price_rub
+      
       return {
         slug: product.slug,
         title: product.title,
-        price: product.price_rub, // актуальная цена с бэкенда
+        price: actualPrice, // актуальная цена с бэкенда (со скидкой если есть)
         quantity: Math.max(1, Math.floor(item.quantity || 1)), // валидация количества
         article: product.article // артикул товара
       }

@@ -78,6 +78,17 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'invalid_price' })
     }
 
+    // валидация цены со скидкой
+    if (productData.discount_price_rub !== undefined && productData.discount_price_rub !== null) {
+      const discountPrice = Number(productData.discount_price_rub)
+      if (!Number.isFinite(discountPrice) || discountPrice <= 0) {
+        return res.status(400).json({ error: 'invalid_discount_price' })
+      }
+      if (discountPrice >= productData.price_rub) {
+        return res.status(400).json({ error: 'discount_price_must_be_less' })
+      }
+    }
+
     // фото необязательное, но если передано - проверяем что это массив
     if (productData.images !== undefined && !Array.isArray(productData.images)) {
       return res.status(400).json({ error: 'invalid_images' })
@@ -114,6 +125,9 @@ router.post('/', async (req, res) => {
       description: productData.description?.trim() || undefined,
       category: normalizedCategory,
       price_rub: Number(productData.price_rub),
+      discount_price_rub: productData.discount_price_rub !== undefined && productData.discount_price_rub !== null
+        ? Number(productData.discount_price_rub)
+        : undefined,
       images: productData.images && Array.isArray(productData.images)
         ? productData.images.filter((img: string) => img.trim())
         : [],
@@ -156,6 +170,17 @@ router.put('/:slug', async (req, res) => {
       return res.status(400).json({ error: 'invalid_price' })
     }
 
+    // валидация цены со скидкой
+    if (productData.discount_price_rub !== undefined && productData.discount_price_rub !== null) {
+      const discountPrice = Number(productData.discount_price_rub)
+      if (!Number.isFinite(discountPrice) || discountPrice <= 0) {
+        return res.status(400).json({ error: 'invalid_discount_price' })
+      }
+      if (discountPrice >= productData.price_rub) {
+        return res.status(400).json({ error: 'discount_price_must_be_less' })
+      }
+    }
+
     // фото необязательное, но если передано - проверяем что это массив
     if (productData.images !== undefined && !Array.isArray(productData.images)) {
       return res.status(400).json({ error: 'invalid_images' })
@@ -192,6 +217,9 @@ router.put('/:slug', async (req, res) => {
       description: productData.description?.trim() || undefined,
       category: normalizedCategory,
       price_rub: Number(productData.price_rub),
+      discount_price_rub: productData.discount_price_rub !== undefined && productData.discount_price_rub !== null
+        ? Number(productData.discount_price_rub)
+        : undefined,
       images: productData.images && Array.isArray(productData.images)
         ? productData.images.filter((img: string) => img.trim())
         : [],

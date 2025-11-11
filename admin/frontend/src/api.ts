@@ -43,6 +43,8 @@ async function fetchWithAuth(url: string, options: RequestInit = {}) {
     const errorMessages: Record<string, string> = {
       'missing_required_fields': 'Заполните все обязательные поля',
       'invalid_price': 'Некорректная цена',
+      'invalid_discount_price': 'Некорректная цена со скидкой',
+      'discount_price_must_be_less': 'Цена со скидкой должна быть меньше обычной цены',
       'images_required': 'Добавьте хотя бы одно фото',
       'article_already_exists': 'Артикул уже существует',
       'slug_already_exists': 'Slug уже существует',

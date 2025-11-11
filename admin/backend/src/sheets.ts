@@ -11,6 +11,7 @@ export type SheetProduct = {
   description?: string
   category: string
   price_rub: number
+  discount_price_rub?: number // цена со скидкой (если заполнена - используется вместо price_rub)
   images: string[]
   active: boolean
   stock?: number
@@ -60,6 +61,8 @@ async function fetchSheetRange(
     
     const get = (n: string) => r[idx(n)] ?? ''
     const price = Number(String(get('price_rub')).replace(',', '.'))
+    const discountPriceRaw = String(get('discount_price_rub') || '').trim()
+    const discountPrice = discountPriceRaw ? Number(discountPriceRaw.replace(',', '.')) : undefined
     
     // парсим изображения: разделители - запятая или перенос строки
     const imagesRaw = String(get('images'))
@@ -80,6 +83,7 @@ async function fetchSheetRange(
       description: String(get('description') || '').trim() || undefined,
       category: categoryName,
       price_rub: Number.isFinite(price) ? price : 0,
+      discount_price_rub: discountPrice && Number.isFinite(discountPrice) ? discountPrice : undefined,
       images,
       active,
       stock: Number.isFinite(stock) ? stock : undefined,

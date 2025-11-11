@@ -11,6 +11,7 @@ export type SheetProduct = {
   description?: string
   category: string
   price_rub: number
+  discount_price_rub?: number // цена со скидкой (если заполнена - используется вместо price_rub)
   images: string[]
   active: boolean
   stock?: number
@@ -59,7 +60,7 @@ export async function getSheetHeaders(
   
   if (rows.length === 0) {
     // если заголовков нет, создаем стандартные
-    const defaultHeaders = ['id', 'slug', 'title', 'description', 'price_rub', 'images', 'active', 'stock', 'article']
+    const defaultHeaders = ['id', 'slug', 'title', 'description', 'price_rub', 'discount_price_rub', 'images', 'active', 'stock', 'article']
     const headerIndex: Record<string, number> = {}
     defaultHeaders.forEach((h, i) => { headerIndex[h] = i })
     return { headers: defaultHeaders, headerIndex }
@@ -126,6 +127,7 @@ export async function appendProductToSheet(
   if (headerIndex.title !== undefined) row[headerIndex.title] = product.title
   if (headerIndex.description !== undefined) row[headerIndex.description] = product.description || ''
   if (headerIndex.price_rub !== undefined) row[headerIndex.price_rub] = product.price_rub
+  if (headerIndex.discount_price_rub !== undefined) row[headerIndex.discount_price_rub] = product.discount_price_rub !== undefined ? product.discount_price_rub : ''
   if (headerIndex.images !== undefined) row[headerIndex.images] = product.images.join('\n')
   if (headerIndex.active !== undefined) row[headerIndex.active] = product.active ? 1 : 0
   if (headerIndex.stock !== undefined) row[headerIndex.stock] = product.stock !== undefined ? product.stock : ''
@@ -175,6 +177,7 @@ export async function updateProductInSheet(
   if (headerIndex.title !== undefined) row[headerIndex.title] = product.title
   if (headerIndex.description !== undefined) row[headerIndex.description] = product.description || ''
   if (headerIndex.price_rub !== undefined) row[headerIndex.price_rub] = product.price_rub
+  if (headerIndex.discount_price_rub !== undefined) row[headerIndex.discount_price_rub] = product.discount_price_rub !== undefined ? product.discount_price_rub : ''
   if (headerIndex.images !== undefined) row[headerIndex.images] = product.images.join('\n')
   if (headerIndex.active !== undefined) row[headerIndex.active] = product.active ? 1 : 0
   if (headerIndex.stock !== undefined) row[headerIndex.stock] = product.stock !== undefined ? product.stock : ''

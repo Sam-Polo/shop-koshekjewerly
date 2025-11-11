@@ -32,6 +32,7 @@ type Product = {
   description?: string
   category: string
   price_rub: number
+  discount_price_rub?: number // цена со скидкой (если заполнена - используется вместо price_rub)
   images: string[]
   active: boolean
   stock?: number
@@ -41,6 +42,13 @@ type Product = {
 type CartItem = {
   slug: string
   quantity: number
+}
+
+// функция для получения актуальной цены товара (со скидкой если есть, иначе обычная)
+function getProductPrice(product: Product): number {
+  return product.discount_price_rub !== undefined && product.discount_price_rub > 0 
+    ? product.discount_price_rub 
+    : product.price_rub
 }
 
 const categories: Category[] = [
@@ -305,7 +313,16 @@ const ProductModal = ({
         
         <div className="product-modal__info">
           <h2 className="product-modal__title">{product.title}</h2>
-          <p className="product-modal__price">{product.price_rub} ₽</p>
+          <div className="product-modal__price">
+            {product.discount_price_rub !== undefined && product.discount_price_rub > 0 ? (
+              <>
+                <span className="product-modal__price-old">{product.price_rub} ₽</span>
+                <span className="product-modal__price-new">{product.discount_price_rub} ₽</span>
+              </>
+            ) : (
+              <span>{product.price_rub} ₽</span>
+            )}
+          </div>
           {product.article && (
             <p className="product-modal__article">Арт. {product.article}</p>
           )}
@@ -857,7 +874,7 @@ const CartModal = ({
     })
     .filter(Boolean) as (Product & { quantity: number })[]
 
-  const total = cartItems.reduce((sum, item) => sum + item.price_rub * item.quantity, 0)
+  const total = cartItems.reduce((sum, item) => sum + getProductPrice(item) * item.quantity, 0)
 
   const handleRemove = (slug: string) => {
     onUpdateCart(slug, -999) // удаляем всё
@@ -907,7 +924,7 @@ const CartModal = ({
                     )}
                     <div className="cart-item__info">
                       <h3 className="cart-item__title">{item.title}</h3>
-                      <p className="cart-item__price">{item.price_rub} ₽ × {item.quantity}</p>
+                      <p className="cart-item__price">{getProductPrice(item)} ₽ × {item.quantity}</p>
                       <div className="cart-item__controls">
                         <button 
                           className="quantity-btn" 
@@ -1147,7 +1164,7 @@ export default function App() {
   // расчет суммы корзины
   const cartTotalPrice = cart.reduce((sum, item) => {
     const product = products.find(p => p.slug === item.slug)
-    return sum + (product ? product.price_rub * item.quantity : 0)
+    return sum + (product ? getProductPrice(product) * item.quantity : 0)
   }, 0)
 
   const handleAddedToCart = () => {
@@ -1306,7 +1323,7 @@ export default function App() {
         return product ? {
           slug: product.slug,
           title: product.title,
-          price: product.price_rub,
+          price: getProductPrice(product),
           quantity: item.quantity
         } : null
       }).filter(Boolean)
@@ -1461,7 +1478,16 @@ export default function App() {
                       />
                       <div className="product-card__info">
                         <h3 className="product-card__title">{product.title}</h3>
-                        <p className="product-card__price">{product.price_rub} ₽</p>
+                        <div className="product-card__price">
+                          {product.discount_price_rub !== undefined && product.discount_price_rub > 0 ? (
+                            <>
+                              <span className="product-card__price-old">{product.price_rub} ₽</span>
+                              <span className="product-card__price-new">{product.discount_price_rub} ₽</span>
+                            </>
+                          ) : (
+                            <span>{product.price_rub} ₽</span>
+                          )}
+                        </div>
           </div>
                     </motion.div>
                   ))}
