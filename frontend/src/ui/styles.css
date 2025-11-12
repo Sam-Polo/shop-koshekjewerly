@@ -231,7 +231,7 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
   top: 8px; /* отступ от верхней границы галереи товара */
   left: 50%;
   transform: translateX(-50%);
-  background: #d32f94;
+  background: #c9589e;
   color: white;
   padding: 4px 20px; /* вертикальный отступ (сверху и снизу) между границей текста и бейджем */
   border-radius: 20px;
