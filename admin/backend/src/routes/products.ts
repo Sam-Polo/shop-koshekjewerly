@@ -128,6 +128,7 @@ router.post('/', async (req, res) => {
       discount_price_rub: productData.discount_price_rub !== undefined && productData.discount_price_rub !== null
         ? Number(productData.discount_price_rub)
         : undefined,
+      badge_text: productData.badge_text?.trim() || undefined,
       images: productData.images && Array.isArray(productData.images)
         ? productData.images.filter((img: string) => img.trim())
         : [],
@@ -220,6 +221,7 @@ router.put('/:slug', async (req, res) => {
       discount_price_rub: productData.discount_price_rub !== undefined && productData.discount_price_rub !== null
         ? Number(productData.discount_price_rub)
         : undefined,
+      badge_text: productData.badge_text?.trim() || undefined,
       images: productData.images && Array.isArray(productData.images)
         ? productData.images.filter((img: string) => img.trim())
         : [],

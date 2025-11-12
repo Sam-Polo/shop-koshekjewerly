@@ -73,6 +73,7 @@ type Product = {
   category: string
   price_rub: number
   discount_price_rub?: number // цена со скидкой (если заполнена - используется вместо price_rub)
+  badge_text?: string // текст плашки (например, "СКИДКА", "НОВИНКА", "ПЕРСОНАЛИЗАЦИЯ")
   images: string[]
   active: boolean
   stock?: number
@@ -627,7 +628,14 @@ function ProductsList() {
                         >
                         <div className="product-images">
                           {product.images.length > 0 ? (
-                            <img src={product.images[0]} alt={product.title} />
+                            <>
+                              <img src={product.images[0]} alt={product.title} />
+                              {product.badge_text && (
+                                <div className="product-card-badge">
+                                  {product.badge_text}
+                                </div>
+                              )}
+                            </>
                           ) : (
                             <div className="no-image">Нет фото</div>
                           )}
@@ -1010,6 +1018,26 @@ function ProductModal({
                 </span>
               </div>
               
+              {product.badge_text && (
+                <div className="detail-row">
+                  <span className="detail-label">Плашка:</span>
+                  <span className="detail-value">
+                    <span style={{ 
+                      background: '#d32f94', 
+                      color: 'white', 
+                      padding: '4px 12px', 
+                      borderRadius: '4px', 
+                      fontSize: '12px', 
+                      fontWeight: 600,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px'
+                    }}>
+                      {product.badge_text}
+                    </span>
+                  </span>
+                </div>
+              )}
+              
               {product.stock !== undefined && (
                 <div className="detail-row">
                   <span className="detail-label">Остаток:</span>
@@ -1184,7 +1212,14 @@ function SortableProductCard({
       >
         <div className="product-images">
           {product.images.length > 0 ? (
-            <img src={product.images[0]} alt={product.title} />
+            <>
+              <img src={product.images[0]} alt={product.title} />
+              {product.badge_text && (
+                <div className="product-card-badge">
+                  {product.badge_text}
+                </div>
+              )}
+            </>
           ) : (
             <div className="no-image">Нет фото</div>
           )}
@@ -1359,6 +1394,7 @@ function ProductFormModal({
       category: product?.category || '',
       price_rub: product?.price_rub || 0,
       discount_price_rub: product?.discount_price_rub || undefined,
+      badge_text: product?.badge_text || undefined,
       active: product?.active !== undefined ? product.active : true,
       stock: product?.stock || undefined,
       article: initialArticle,
@@ -1642,6 +1678,20 @@ function ProductFormModal({
               {errors.discount_price_rub && <small style={{ color: '#dc3545' }}>{errors.discount_price_rub}</small>}
               {!errors.discount_price_rub && formData.discount_price_rub && (
                 <small style={{ color: '#666' }}>Старая цена будет перечеркнута, отобразится новая</small>
+              )}
+            </div>
+            
+            <div className="form-group">
+              <label>Текст плашки</label>
+              <input
+                type="text"
+                value={formData.badge_text || ''}
+                onChange={(e) => handleChange('badge_text', e.target.value.trim() || undefined)}
+                placeholder="Например: СКИДКА, НОВИНКА, ПЕРСОНАЛИЗАЦИЯ"
+                maxLength={50}
+              />
+              {formData.badge_text && (
+                <small style={{ color: '#666' }}>Плашка будет отображаться сверху карточки товара</small>
               )}
             </div>
           </div>

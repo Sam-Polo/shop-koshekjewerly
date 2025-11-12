@@ -157,6 +157,7 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 .products-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
 .product-card { background: #ffffff; border-radius: 0; overflow: hidden; cursor: pointer; transition: transform 0.3s ease, box-shadow 0.3s ease; box-shadow: 0 2px 8px rgba(0,0,0,0.1); display: flex; flex-direction: column; }
 .product-card:hover { transform: translateY(-4px); box-shadow: 0 4px 16px rgba(0,0,0,0.15); }
+.product-card__image-wrapper { position: relative; width: 100%; }
 .product-card__image { 
   width: 100%; 
   aspect-ratio: 4 / 5;
@@ -197,6 +198,22 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 .product-card__price { margin: 0; font-size: 14px; font-weight: 600; color: #bf9243; display: flex; flex-direction: column; gap: 2px; }
 .product-card__price-old { text-decoration: line-through; opacity: 0.6; font-size: 12px; color: #999; }
 .product-card__price-new { color: #d32f94; font-weight: 700; font-size: 14px; }
+.product-card__badge {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #d32f94;
+  color: white;
+  padding: 6px 16px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  z-index: 10;
+  white-space: nowrap;
+}
 .product-card__article { 
   margin: 4px 0 0 0; 
   font-size: 10px; 
@@ -208,6 +225,22 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 /* модалка товара */
 .modal-content--product { max-width: 600px; padding: 0; }
 .product-modal__gallery { position: relative; }
+.product-modal__badge {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #d32f94;
+  color: white;
+  padding: 8px 20px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  z-index: 20;
+  white-space: nowrap;
+}
 .product-modal__gallery .swiper-button-prev,
 .product-modal__gallery .swiper-button-next {
   width: 36px;

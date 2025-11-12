@@ -9,6 +9,7 @@ export type SheetProduct = {
   category: string
   price_rub: number
   discount_price_rub?: number // цена со скидкой (если заполнена - используется вместо price_rub)
+  badge_text?: string // текст плашки (например, "СКИДКА", "НОВИНКА", "ПЕРСОНАЛИЗАЦИЯ")
   images: string[]
   active: boolean
   stock?: number
@@ -48,6 +49,7 @@ async function fetchSheetRange(auth: any, sheetId: string, range: string, catego
     const price = Number(String(get('price_rub')).replace(',', '.'))
     const discountPriceRaw = String(get('discount_price_rub') || '').trim()
     const discountPrice = discountPriceRaw ? Number(discountPriceRaw.replace(',', '.')) : undefined
+    const badgeText = String(get('badge_text') || '').trim() || undefined
     // парсим изображения: разделители могут быть запятая или перенос строки
     const imagesRaw = String(get('images'))
     const images: string[] = imagesRaw
@@ -66,6 +68,7 @@ async function fetchSheetRange(auth: any, sheetId: string, range: string, catego
       category: categoryName, // категория берётся из имени листа
       price_rub: Number.isFinite(price) ? price : 0,
       discount_price_rub: discountPrice && Number.isFinite(discountPrice) ? discountPrice : undefined,
+      badge_text: badgeText,
       images,
       active,
       stock: Number.isFinite(stock) ? stock : undefined,

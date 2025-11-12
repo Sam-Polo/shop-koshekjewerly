@@ -33,6 +33,7 @@ type Product = {
   category: string
   price_rub: number
   discount_price_rub?: number // цена со скидкой (если заполнена - используется вместо price_rub)
+  badge_text?: string // текст плашки (например, "СКИДКА", "НОВИНКА", "ПЕРСОНАЛИЗАЦИЯ")
   images: string[]
   active: boolean
   stock?: number
@@ -274,6 +275,11 @@ const ProductModal = ({
         {/* фото-галерея */}
         {product.images && product.images.length > 0 && (
           <div className="product-modal__gallery">
+            {product.badge_text && (
+              <div className="product-modal__badge">
+                {product.badge_text}
+              </div>
+            )}
             <Swiper
               modules={[Navigation]}
               navigation
@@ -1472,10 +1478,17 @@ export default function App() {
                       onClick={() => setSelectedProduct(product)}
                       variants={itemVariants}
                     >
-                      <ImageWithLoader
-                        src={product.images && product.images.length > 0 ? product.images[0] : ''}
-                        alt={product.title}
-                      />
+                      <div className="product-card__image-wrapper">
+                        <ImageWithLoader
+                          src={product.images && product.images.length > 0 ? product.images[0] : ''}
+                          alt={product.title}
+                        />
+                        {product.badge_text && (
+                          <div className="product-card__badge">
+                            {product.badge_text}
+                          </div>
+                        )}
+                      </div>
                       <div className="product-card__info">
                         <h3 className="product-card__title">{product.title}</h3>
                         <div className="product-card__price">
