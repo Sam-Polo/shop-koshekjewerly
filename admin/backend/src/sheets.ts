@@ -109,6 +109,7 @@ export async function fetchProductsFromSheet(sheetId: string): Promise<SheetProd
     'Шея',
     'Руки',
     'Уши',
+    'Выпечка',
     'Сертификаты'
   ]
   
