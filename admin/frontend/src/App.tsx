@@ -1025,7 +1025,7 @@ function ProductModal({
                     <span style={{ 
                       background: '#d32f94', 
                       color: 'white', 
-                      padding: '4px 12px', 
+                      padding: '2px 12px', /* вертикальный отступ (сверху и снизу) между границей текста и бейджем */
                       borderRadius: '20px', 
                       fontSize: '12px', 
                       fontWeight: 600,
