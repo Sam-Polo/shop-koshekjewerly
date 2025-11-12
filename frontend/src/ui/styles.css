@@ -205,7 +205,7 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
   transform: translateX(-50%);
   background: #d32f94;
   color: white;
-  padding: 1.5px 12px; /* вертикальный отступ (сверху и снизу) между границей текста и бейджем */
+  padding: 2px 12px; /* вертикальный отступ (сверху и снизу) между границей текста и бейджем */
   border-radius: 24px;
   font-size: 12px;
   font-weight: 600;
