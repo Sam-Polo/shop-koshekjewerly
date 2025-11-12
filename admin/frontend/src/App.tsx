@@ -1020,13 +1020,13 @@ function ProductModal({
               
               {product.badge_text && (
                 <div className="detail-row">
-                  <span className="detail-label">Плашка:</span>
+                  <span className="detail-label">Бейдж:</span>
                   <span className="detail-value">
                     <span style={{ 
                       background: '#d32f94', 
                       color: 'white', 
                       padding: '4px 12px', 
-                      borderRadius: '4px', 
+                      borderRadius: '20px', 
                       fontSize: '12px', 
                       fontWeight: 600,
                       textTransform: 'uppercase',
@@ -1673,7 +1673,7 @@ function ProductFormModal({
                 type="text"
                 value={formData.discount_price_rub !== undefined ? formData.discount_price_rub : ''}
                 onChange={(e) => handleDiscountPriceChange(e.target.value)}
-                placeholder="Оставьте пустым, если скидки нет"
+                placeholder="Оставь пустым, если скидки нет"
               />
               {errors.discount_price_rub && <small style={{ color: '#dc3545' }}>{errors.discount_price_rub}</small>}
               {!errors.discount_price_rub && formData.discount_price_rub && (
@@ -1682,16 +1682,16 @@ function ProductFormModal({
             </div>
             
             <div className="form-group">
-              <label>Текст плашки</label>
+              <label>Текст бейджа</label>
               <input
                 type="text"
                 value={formData.badge_text || ''}
                 onChange={(e) => handleChange('badge_text', e.target.value.trim() || undefined)}
-                placeholder="Например: СКИДКА, НОВИНКА, ПЕРСОНАЛИЗАЦИЯ"
+                placeholder="Оставь пустым, чтобы убрать бейдж"
                 maxLength={50}
               />
               {formData.badge_text && (
-                <small style={{ color: '#666' }}>Плашка будет отображаться сверху карточки товара</small>
+                <small style={{ color: '#666' }}>Бейдж будет отображаться сверху карточки товара</small>
               )}
             </div>
           </div>
