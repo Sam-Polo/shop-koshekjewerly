@@ -1491,7 +1491,12 @@ function ProductFormModal({
 
     setSaving(true)
     try {
-      await onSave(formData)
+      // очищаем пробелы в начале и конце badge_text перед сохранением
+      const cleanedData = {
+        ...formData,
+        badge_text: formData.badge_text?.trim() || undefined
+      }
+      await onSave(cleanedData)
     } catch (err: any) {
       setErrors({ submit: err.message || 'Ошибка сохранения' })
     } finally {
@@ -1686,7 +1691,7 @@ function ProductFormModal({
               <input
                 type="text"
                 value={formData.badge_text || ''}
-                onChange={(e) => handleChange('badge_text', e.target.value.trim() || undefined)}
+                onChange={(e) => handleChange('badge_text', e.target.value || undefined)}
                 placeholder="Оставь пустым, чтобы убрать бейдж"
                 maxLength={50}
               />
