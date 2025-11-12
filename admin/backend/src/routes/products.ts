@@ -112,7 +112,7 @@ router.post('/', async (req, res) => {
     const auth = getAuthFromEnv()
     
     // проверяем что лист существует и нормализуем имя
-    const sheetNames = process.env.SHEET_NAMES?.split(',') || ['Ягоды', 'Шея', 'Руки', 'Уши', 'Выпечка', 'Сертификаты']
+    const sheetNames = process.env.SHEET_NAMES?.split(',') || ['Ягоды', 'Шея', 'Руки', 'Уши', 'выпечка', 'Сертификаты']
     const normalizedCategory = sheetNames.find(name => name.trim().toLowerCase() === productData.category.toLowerCase())
     if (!normalizedCategory) {
       return res.status(400).json({ error: 'invalid_category' })
@@ -205,7 +205,7 @@ router.put('/:slug', async (req, res) => {
     const auth = getAuthFromEnv()
     
     // проверяем что лист существует и нормализуем имя
-    const sheetNames = process.env.SHEET_NAMES?.split(',') || ['Ягоды', 'Шея', 'Руки', 'Уши', 'Выпечка', 'Сертификаты']
+    const sheetNames = process.env.SHEET_NAMES?.split(',') || ['Ягоды', 'Шея', 'Руки', 'Уши', 'выпечка', 'Сертификаты']
     const normalizedCategory = sheetNames.find(name => name.trim().toLowerCase() === productData.category.toLowerCase())
     if (!normalizedCategory) {
       return res.status(400).json({ error: 'invalid_category' })
