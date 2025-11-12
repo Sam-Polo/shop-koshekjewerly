@@ -39,11 +39,12 @@ export function getAuthFromEnv() {
   return new google.auth.JWT(creds.client_email, undefined, creds.private_key, scopes)
 }
 
-// преобразование категории в правильное имя листа (с заглавной буквы)
+// преобразование категории в правильное имя листа (возвращает точное имя из списка)
 export function normalizeSheetName(category: string): string {
-  const sheetNames = process.env.SHEET_NAMES?.split(',') || ['Ягоды', 'Шея', 'Руки', 'Уши', 'Сертификаты']
+  const sheetNames = process.env.SHEET_NAMES?.split(',') || ['ягоды', 'шея', 'руки', 'уши', 'выпечка', 'сертификаты']
   const normalized = sheetNames.find(name => name.trim().toLowerCase() === category.toLowerCase())
-  return normalized || category.charAt(0).toUpperCase() + category.slice(1).toLowerCase()
+  // возвращаем оригинальное имя из списка (с учетом регистра листа в Google Sheets)
+  return normalized || category.toLowerCase()
 }
 
 // получение структуры заголовков листа

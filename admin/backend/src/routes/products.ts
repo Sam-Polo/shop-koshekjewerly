@@ -112,11 +112,14 @@ router.post('/', async (req, res) => {
     const auth = getAuthFromEnv()
     
     // проверяем что лист существует и нормализуем имя
-    const sheetNames = process.env.SHEET_NAMES?.split(',') || ['Ягоды', 'Шея', 'Руки', 'Уши', 'Выпечка', 'Сертификаты']
+    const sheetNames = process.env.SHEET_NAMES?.split(',') || ['ягоды', 'шея', 'руки', 'уши', 'выпечка', 'сертификаты']
+    logger.info({ receivedCategory: productData.category, sheetNames }, 'проверка категории')
     const normalizedCategory = sheetNames.find(name => name.trim().toLowerCase() === productData.category.toLowerCase())
     if (!normalizedCategory) {
+      logger.error({ receivedCategory: productData.category, sheetNames }, 'категория не найдена')
       return res.status(400).json({ error: 'invalid_category' })
     }
+    logger.info({ normalizedCategory }, 'категория нормализована')
 
     // формируем товар для сохранения
     const product = {
@@ -205,11 +208,14 @@ router.put('/:slug', async (req, res) => {
     const auth = getAuthFromEnv()
     
     // проверяем что лист существует и нормализуем имя
-    const sheetNames = process.env.SHEET_NAMES?.split(',') || ['Ягоды', 'Шея', 'Руки', 'Уши', 'Выпечка', 'Сертификаты']
+    const sheetNames = process.env.SHEET_NAMES?.split(',') || ['ягоды', 'шея', 'руки', 'уши', 'выпечка', 'сертификаты']
+    logger.info({ receivedCategory: productData.category, sheetNames }, 'проверка категории')
     const normalizedCategory = sheetNames.find(name => name.trim().toLowerCase() === productData.category.toLowerCase())
     if (!normalizedCategory) {
+      logger.error({ receivedCategory: productData.category, sheetNames }, 'категория не найдена')
       return res.status(400).json({ error: 'invalid_category' })
     }
+    logger.info({ normalizedCategory }, 'категория нормализована')
 
     // формируем товар для сохранения
     const product = {

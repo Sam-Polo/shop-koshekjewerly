@@ -105,12 +105,12 @@ export async function fetchProductsFromSheet(sheetId: string): Promise<SheetProd
   const auth = getAuthFromEnv()
   
   const sheetNames = process.env.SHEET_NAMES?.split(',') || [
-    'Ягоды',
-    'Шея',
-    'Руки',
-    'Уши',
-    'Выпечка',
-    'Сертификаты'
+    'ягоды',
+    'шея',
+    'руки',
+    'уши',
+    'выпечка',
+    'сертификаты'
   ]
   
   const allProducts: SheetProduct[] = []
