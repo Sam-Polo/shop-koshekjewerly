@@ -15,6 +15,7 @@ const berriesImage = `${baseUrl}assets/berries-category.jpg`
 const neckImage = `${baseUrl}assets/neck-category.jpg`
 const handsImage = `${baseUrl}assets/hands-category.jpg`
 const earsImage = `${baseUrl}assets/ears-category.jpg`
+const bakeryImage = `${baseUrl}assets/bakery-category.jpg`
 const certificateImage = `${baseUrl}assets/certificate-category.jpg`
 const logoImage = `${baseUrl}assets/logo_.PNG`
 const backgroundImage = `${baseUrl}assets/background.jpg`
@@ -24,6 +25,7 @@ type Category = {
   title: string
   description?: string
   image: string
+  disabled?: boolean // если true, категория некликабельна
 }
 
 type Product = {
@@ -57,6 +59,7 @@ const categories: Category[] = [
   { key: 'шея', title: 'Шея', description: 'Чокеры, колье, подвески, кулоны', image: neckImage },
   { key: 'руки', title: 'Руки', description: 'Браслеты, кольца', image: handsImage },
   { key: 'уши', title: 'Уши', description: 'Серьги, каффы', image: earsImage },
+  { key: 'выпечка', title: 'Выпечка', description: 'SOON', image: bakeryImage, disabled: true },
   { key: 'сертификаты', title: 'Сертификаты', image: certificateImage },
 ]
 
@@ -1038,8 +1041,9 @@ const CategoryCard = ({ card, onSelect }: { card: Category, onSelect: () => void
   return (
     <button
       key={card.key}
-      className={`category-card ${loaded ? 'image-loaded' : ''}`}
-      onClick={onSelect}
+      className={`category-card ${loaded ? 'image-loaded' : ''} ${card.disabled ? 'category-card--disabled' : ''}`}
+      onClick={card.disabled ? undefined : onSelect}
+      disabled={card.disabled}
     >
       <div className="category-card__media" style={{ backgroundImage: `url(${card.image})` }} />
       <div className="category-card__overlay" />
