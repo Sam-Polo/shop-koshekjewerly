@@ -29,7 +29,8 @@ app.use(cors({
   credentials: true
 }))
 
-app.use(express.json())
+// ограничение размера JSON body для защиты от DoS
+app.use(express.json({ limit: '1mb' }))
 
 // health check
 app.get('/health', (req: express.Request, res: express.Response) => {

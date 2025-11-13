@@ -69,9 +69,31 @@ router.post('/', async (req, res) => {
 
     const productData = req.body
 
-    // валидация
+    // валидация обязательных полей
     if (!productData.title || !productData.slug || !productData.category) {
       return res.status(400).json({ error: 'missing_required_fields' })
+    }
+
+    // валидация длины полей для защиты от DoS
+    if (productData.title.length > 200) {
+      return res.status(400).json({ error: 'title_too_long' })
+    }
+    if (productData.slug.length > 100) {
+      return res.status(400).json({ error: 'slug_too_long' })
+    }
+    if (productData.description && productData.description.length > 5000) {
+      return res.status(400).json({ error: 'description_too_long' })
+    }
+    if (productData.badge_text && productData.badge_text.length > 50) {
+      return res.status(400).json({ error: 'badge_text_too_long' })
+    }
+    if (productData.article && productData.article.length > 50) {
+      return res.status(400).json({ error: 'article_too_long' })
+    }
+
+    // валидация slug - только латиница, цифры, дефисы и подчеркивания
+    if (!/^[a-z0-9_-]+$/.test(productData.slug)) {
+      return res.status(400).json({ error: 'invalid_slug_format' })
     }
 
     if (!productData.price_rub || productData.price_rub <= 0) {
@@ -93,6 +115,24 @@ router.post('/', async (req, res) => {
     if (productData.images !== undefined && !Array.isArray(productData.images)) {
       return res.status(400).json({ error: 'invalid_images' })
     }
+    
+    // валидация URL изображений и ограничение количества
+    if (productData.images && Array.isArray(productData.images)) {
+      if (productData.images.length > 20) {
+        return res.status(400).json({ error: 'too_many_images' })
+      }
+      // проверяем что все элементы - строки и валидные URL
+      for (const img of productData.images) {
+        if (typeof img !== 'string' || img.length > 500) {
+          return res.status(400).json({ error: 'invalid_image_url' })
+        }
+        try {
+          new URL(img)
+        } catch {
+          return res.status(400).json({ error: 'invalid_image_url_format' })
+        }
+      }
+    }
 
     // проверка уникальности артикула
     const allProducts = await fetchProductsFromSheet(sheetId)
@@ -113,13 +153,11 @@ router.post('/', async (req, res) => {
     
     // проверяем что лист существует и нормализуем имя
     const sheetNames = process.env.SHEET_NAMES?.split(',') || ['ягоды', 'шея', 'руки', 'уши', 'выпечка', 'сертификаты']
-    logger.info({ receivedCategory: productData.category, sheetNames }, 'проверка категории')
     const normalizedCategory = sheetNames.find(name => name.trim().toLowerCase() === productData.category.toLowerCase())
     if (!normalizedCategory) {
-      logger.error({ receivedCategory: productData.category, sheetNames }, 'категория не найдена')
+      logger.warn({ category: productData.category }, 'категория не найдена')
       return res.status(400).json({ error: 'invalid_category' })
     }
-    logger.info({ normalizedCategory }, 'категория нормализована')
 
     // формируем товар для сохранения
     const product = {
@@ -165,9 +203,31 @@ router.put('/:slug', async (req, res) => {
     const oldSlug = req.params.slug
     const productData = req.body
 
-    // валидация
+    // валидация обязательных полей
     if (!productData.title || !productData.slug || !productData.category) {
       return res.status(400).json({ error: 'missing_required_fields' })
+    }
+
+    // валидация длины полей для защиты от DoS
+    if (productData.title.length > 500) {
+      return res.status(400).json({ error: 'title_too_long' })
+    }
+    if (productData.slug.length > 50) {
+      return res.status(400).json({ error: 'slug_too_long' })
+    }
+    if (productData.description && productData.description.length > 1000) {
+      return res.status(400).json({ error: 'description_too_long' })
+    }
+    if (productData.badge_text && productData.badge_text.length > 50) {
+      return res.status(400).json({ error: 'badge_text_too_long' })
+    }
+    if (productData.article && productData.article.length > 50) {
+      return res.status(400).json({ error: 'article_too_long' })
+    }
+
+    // валидация slug - только латиница, цифры, дефисы и подчеркивания
+    if (!/^[a-z0-9_-]+$/.test(productData.slug)) {
+      return res.status(400).json({ error: 'invalid_slug_format' })
     }
 
     if (!productData.price_rub || productData.price_rub <= 0) {
@@ -189,6 +249,24 @@ router.put('/:slug', async (req, res) => {
     if (productData.images !== undefined && !Array.isArray(productData.images)) {
       return res.status(400).json({ error: 'invalid_images' })
     }
+    
+    // валидация URL изображений и ограничение количества
+    if (productData.images && Array.isArray(productData.images)) {
+      if (productData.images.length > 20) {
+        return res.status(400).json({ error: 'too_many_images' })
+      }
+      // проверяем что все элементы - строки и валидные URL
+      for (const img of productData.images) {
+        if (typeof img !== 'string' || img.length > 500) {
+          return res.status(400).json({ error: 'invalid_image_url' })
+        }
+        try {
+          new URL(img)
+        } catch {
+          return res.status(400).json({ error: 'invalid_image_url_format' })
+        }
+      }
+    }
 
     // находим старый товар
     const allProducts = await fetchProductsFromSheet(sheetId)
@@ -209,13 +287,11 @@ router.put('/:slug', async (req, res) => {
     
     // проверяем что лист существует и нормализуем имя
     const sheetNames = process.env.SHEET_NAMES?.split(',') || ['ягоды', 'шея', 'руки', 'уши', 'выпечка', 'сертификаты']
-    logger.info({ receivedCategory: productData.category, sheetNames }, 'проверка категории')
     const normalizedCategory = sheetNames.find(name => name.trim().toLowerCase() === productData.category.toLowerCase())
     if (!normalizedCategory) {
-      logger.error({ receivedCategory: productData.category, sheetNames }, 'категория не найдена')
+      logger.warn({ category: productData.category }, 'категория не найдена')
       return res.status(400).json({ error: 'invalid_category' })
     }
-    logger.info({ normalizedCategory }, 'категория нормализована')
 
     // формируем товар для сохранения
     const product = {
