@@ -88,6 +88,7 @@ export async function fetchProductsFromSheet(sheetId: string): Promise<SheetProd
   // названия листов по категориям (можно настроить через env)
   const sheetNames = process.env.SHEET_NAMES?.split(',') || [
     'ягоды',
+    'выпечка',
     'шея',
     'руки',
     'уши',

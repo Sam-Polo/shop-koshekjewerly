@@ -41,7 +41,7 @@ export function getAuthFromEnv() {
 
 // преобразование категории в правильное имя листа (возвращает точное имя из списка)
 export function normalizeSheetName(category: string): string {
-  const sheetNames = process.env.SHEET_NAMES?.split(',') || ['ягоды', 'шея', 'руки', 'уши', 'выпечка', 'сертификаты']
+  const sheetNames = process.env.SHEET_NAMES?.split(',') || ['ягоды', 'выпечка', 'шея', 'руки', 'уши', 'сертификаты']
   const normalized = sheetNames.find(name => name.trim().toLowerCase() === category.toLowerCase())
   // возвращаем оригинальное имя из списка (с учетом регистра листа в Google Sheets)
   return normalized || category.toLowerCase()

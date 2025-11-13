@@ -56,10 +56,10 @@ function getProductPrice(product: Product): number {
 
 const categories: Category[] = [
   { key: 'ягоды', title: 'Ягоды (special)', description: 'Эксклюзивная коллекция KOSHEK, украшения в виде реалистичных ягод из полимерной глины', image: berriesImage },
+  { key: 'выпечка', title: 'Выпечка', description: 'SOON', image: bakeryImage, disabled: true },
   { key: 'шея', title: 'Шея', description: 'Чокеры, колье, подвески, кулоны', image: neckImage },
   { key: 'руки', title: 'Руки', description: 'Браслеты, кольца', image: handsImage },
   { key: 'уши', title: 'Уши', description: 'Серьги, каффы', image: earsImage },
-  { key: 'выпечка', title: 'Выпечка', description: 'SOON', image: bakeryImage, disabled: true },
   { key: 'сертификаты', title: 'Сертификаты', image: certificateImage },
 ]
 
