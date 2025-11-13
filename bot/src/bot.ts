@@ -147,6 +147,21 @@ function isManager(chatId: string | number | undefined, username?: string): bool
 // состояние ожидания сообщения для рассылки (chat_id менеджера -> true)
 const waitingForBroadcast = new Set<string | number>();
 
+// состояние ожидания ответа на вопрос про кнопку
+const waitingForButtonQuestion = new Set<string | number>();
+
+// состояние ожидания текста кнопки
+const waitingForButtonText = new Set<string | number>();
+
+// хранилище данных рассылки (chatId -> { messageText, photoFileIds, needButton, buttonText })
+type BroadcastData = {
+  messageText: string
+  photoFileIds?: string[]
+  needButton?: boolean
+  buttonText?: string
+}
+const broadcastData = new Map<string | number, BroadcastData>();
+
 // временное хранилище для альбомов (media_group_id -> массив фото)
 const mediaGroupCache = new Map<string, Array<{ fileId: string, text?: string }>>();
 
@@ -299,7 +314,7 @@ async function validateMarkdownV2(chatId: string | number, formattedText: string
 }
 
 // отправка сообщения через Telegram Bot API (для рассылки)
-async function sendMessage(chatId: string | number, text: string, photoFileIds?: string[]): Promise<boolean> {
+async function sendMessage(chatId: string | number, text: string, photoFileIds?: string[], buttonText?: string, buttonUrl?: string): Promise<boolean> {
   try {
     // преобразуем форматирование в MarkdownV2
     const converted = convertToMarkdownV2(text)
@@ -309,6 +324,11 @@ async function sendMessage(chatId: string | number, text: string, photoFileIds?:
     }
     
     const formattedText = converted.text
+    
+    // формируем клавиатуру с кнопкой, если указаны текст и URL
+    const replyMarkup = (buttonText && buttonUrl) ? {
+      inline_keyboard: [[{ text: buttonText, web_app: { url: buttonUrl } }]]
+    } : undefined
     
     if (photoFileIds && photoFileIds.length > 0) {
       if (photoFileIds.length === 1) {
@@ -320,7 +340,8 @@ async function sendMessage(chatId: string | number, text: string, photoFileIds?:
             chat_id: chatId,
             photo: photoFileIds[0],
             caption: formattedText,
-            parse_mode: 'MarkdownV2'
+            parse_mode: 'MarkdownV2',
+            ...(replyMarkup ? { reply_markup: replyMarkup } : {})
           })
         })
         
@@ -334,12 +355,14 @@ async function sendMessage(chatId: string | number, text: string, photoFileIds?:
       } else {
         // отправка нескольких фото через media group (2-10 фото)
         // текст может быть только в caption последнего фото
+        // кнопка добавляется только к последнему фото
         const media = photoFileIds.map((fileId, index) => ({
           type: 'photo',
           media: fileId,
           ...(index === photoFileIds.length - 1 && formattedText ? { caption: formattedText, parse_mode: 'MarkdownV2' } : {})
         }))
         
+        // для media group кнопка добавляется через отдельный запрос editMessageCaption
         const response = await fetch(`https://api.telegram.org/bot${token}/sendMediaGroup`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -349,10 +372,33 @@ async function sendMessage(chatId: string | number, text: string, photoFileIds?:
           })
         })
         
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}))
-          console.error('Ошибка отправки media group:', errorData)
+        const result = await response.json().catch(() => ({ ok: false }))
+        
+        if (!response.ok || !result.ok) {
+          console.error('Ошибка отправки media group:', result)
           return false
+        }
+        
+        // если есть кнопка, добавляем её к последнему сообщению альбома
+        if (replyMarkup && result.result && Array.isArray(result.result) && result.result.length > 0) {
+          const lastMessage = result.result[result.result.length - 1]
+          const editResponse = await fetch(`https://api.telegram.org/bot${token}/editMessageCaption`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              message_id: lastMessage.message_id,
+              caption: formattedText,
+              parse_mode: 'MarkdownV2',
+              reply_markup: replyMarkup
+            })
+          })
+          
+          if (!editResponse.ok) {
+            const errorData = await editResponse.json().catch(() => ({}))
+            console.error('Ошибка добавления кнопки к media group:', errorData)
+            return false
+          }
         }
         
         return true
@@ -365,7 +411,8 @@ async function sendMessage(chatId: string | number, text: string, photoFileIds?:
         body: JSON.stringify({
           chat_id: chatId,
           text: formattedText,
-          parse_mode: 'MarkdownV2'
+          parse_mode: 'MarkdownV2',
+          ...(replyMarkup ? { reply_markup: replyMarkup } : {})
         })
       })
       
@@ -380,6 +427,58 @@ async function sendMessage(chatId: string | number, text: string, photoFileIds?:
   } catch (e: any) {
     console.error('ошибка отправки сообщения:', e?.message)
     return false
+  }
+}
+
+// функция для вопроса про кнопку
+async function askAboutButton(ctx: any, chatId: string | number, data: BroadcastData) {
+  waitingForButtonQuestion.add(chatId)
+  const keyboard = new InlineKeyboard()
+    .text('✅ Да, добавить', 'broadcast_button_yes')
+    .text('❌ Нет, без кнопки', 'broadcast_button_no')
+    .row()
+    .text('⛔ Отменить рассылку', 'broadcast_cancel')
+  
+  await ctx.reply('❓ Добавить кнопку с ссылкой на миниапку?', {
+    reply_markup: keyboard
+  })
+}
+
+// функция для начала рассылки
+async function startBroadcast(ctx: any, chatId: string | number, data: BroadcastData) {
+  try {
+    const buttonText = data.needButton && data.buttonText ? data.buttonText : undefined
+    const buttonUrl = data.needButton && data.buttonText ? WEBAPP_URL : undefined
+    
+    await ctx.reply(`✅ Начинаю рассылку ${userChatIds.size} пользователям...`)
+    
+    // отправляем всем пользователям
+    let sent = 0
+    let failed = 0
+    
+    for (const userId of userChatIds) {
+      // пропускаем самого менеджера
+      if (String(userId) === String(chatId)) continue
+      
+      const success = await sendMessage(userId, data.messageText, data.photoFileIds, buttonText, buttonUrl)
+      if (success) {
+        sent++
+      } else {
+        failed++
+      }
+      
+      // небольшая задержка чтобы не получить rate limit
+      await new Promise(resolve => setTimeout(resolve, 50))
+    }
+    
+    // очищаем данные рассылки
+    broadcastData.delete(chatId)
+    
+    await ctx.reply(`✅ Рассылка завершена:\nОтправлено: ${sent}\nОшибок: ${failed}`)
+  } catch (error: any) {
+    console.error('[startBroadcast] ошибка:', error?.message)
+    await ctx.reply('❌ Ошибка при рассылке. Рассылка прервана.')
+    broadcastData.delete(chatId)
   }
 }
 
@@ -402,8 +501,11 @@ bot.command('broadcast', async (ctx) => {
 // отмена рассылки
 bot.command('cancel', async (ctx) => {
   const chatId = ctx.from?.id
-  if (waitingForBroadcast.has(chatId!)) {
+  if (waitingForBroadcast.has(chatId!) || waitingForButtonQuestion.has(chatId!) || waitingForButtonText.has(chatId!)) {
     waitingForBroadcast.delete(chatId!)
+    waitingForButtonQuestion.delete(chatId!)
+    waitingForButtonText.delete(chatId!)
+    broadcastData.delete(chatId!)
     
     // очищаем кэш альбомов и таймеры для этого менеджера
     // (в реальности media_group_id уникален, но на всякий случай очищаем все)
@@ -567,6 +669,49 @@ bot.command('support', async (ctx) => {
   await ctx.reply(`написать менеджеру: https://t.me/${SUPPORT_USERNAME}`);
 });
 
+// обработка callback_query (кнопки)
+bot.callbackQuery(['broadcast_button_yes', 'broadcast_button_no', 'broadcast_cancel'], async (ctx) => {
+  const chatId = ctx.from?.id
+  const username = ctx.from?.username
+  
+  if (!isManager(chatId, username)) {
+    await ctx.answerCallbackQuery('⛔ У вас нет доступа')
+    return
+  }
+  
+  const data = chatId ? broadcastData.get(chatId) : undefined
+  if (!data) {
+    await ctx.answerCallbackQuery('❌ Данные рассылки не найдены')
+    await ctx.reply('❌ Ошибка: данные рассылки не найдены. Используй /cancel и начни заново.')
+    return
+  }
+  
+  if (ctx.callbackQuery.data === 'broadcast_button_yes') {
+    data.needButton = true
+    broadcastData.set(chatId!, data)
+    waitingForButtonQuestion.delete(chatId!)
+    waitingForButtonText.add(chatId!)
+    await ctx.answerCallbackQuery('✅ Кнопка будет добавлена')
+    await ctx.editMessageText('✅ Кнопка будет добавлена.\n\n📝 Введи текст для кнопки (например: "Открыть каталог" или "Перейти в магазин").\nИспользуй /cancel для отмены.')
+    return
+  } else if (ctx.callbackQuery.data === 'broadcast_button_no') {
+    data.needButton = false
+    broadcastData.set(chatId!, data)
+    waitingForButtonQuestion.delete(chatId!)
+    await ctx.answerCallbackQuery('✅ Рассылка без кнопки')
+    await ctx.editMessageText('✅ Начинаю рассылку без кнопки...')
+    await startBroadcast(ctx, chatId!, data)
+    return
+  } else if (ctx.callbackQuery.data === 'broadcast_cancel') {
+    waitingForButtonQuestion.delete(chatId!)
+    waitingForButtonText.delete(chatId!)
+    broadcastData.delete(chatId!)
+    await ctx.answerCallbackQuery('❌ Рассылка отменена')
+    await ctx.editMessageText('❌ Рассылка отменена.')
+    return
+  }
+});
+
 // обработка сообщений (рассылка или обычное сообщение)
 bot.on('message', async (ctx) => {
   const chatId = ctx.from?.id
@@ -580,6 +725,37 @@ bot.on('message', async (ctx) => {
   // обработка кнопки "Старт" из reply keyboard
   if (ctx.message.text === 'Старт') {
     await handleStart(ctx)
+    return
+  }
+  
+  
+  // обработка текста кнопки
+  if (chatId && waitingForButtonText.has(chatId) && isManager(chatId, username)) {
+    const buttonText = ctx.message.text?.trim()
+    
+    if (!buttonText || buttonText.length === 0) {
+      await ctx.reply('❌ Текст кнопки не может быть пустым. Введи текст для кнопки или используй /cancel для отмены.')
+      return
+    }
+    
+    if (buttonText.length > 64) {
+      await ctx.reply('❌ Текст кнопки слишком длинный (максимум 64 символа). Введи более короткий текст или используй /cancel для отмены.')
+      return
+    }
+    
+    const data = broadcastData.get(chatId)
+    if (!data) {
+      await ctx.reply('❌ Ошибка: данные рассылки не найдены. Используй /cancel и начни заново.')
+      waitingForButtonText.delete(chatId)
+      return
+    }
+    
+    data.buttonText = buttonText
+    broadcastData.set(chatId, data)
+    waitingForButtonText.delete(chatId)
+    
+    // начинаем рассылку с кнопкой
+    await startBroadcast(ctx, chatId, data)
     return
   }
   
@@ -651,28 +827,17 @@ bot.on('message', async (ctx) => {
             return
           }
           
-          await ctx.reply(`✅ Проверка пройдена. 📤 Начинаю рассылку ${userChatIds.size} пользователям...`)
-          
-          // отправляем всем пользователям
-          let sent = 0
-          let failed = 0
-          
-          for (const userId of userChatIds) {
-            if (String(userId) === String(chatId)) continue
-            
-            const success = await sendMessage(userId, finalText, photoFileIds)
-            if (success) {
-              sent++
-            } else {
-              failed++
-            }
-            
-            await new Promise(resolve => setTimeout(resolve, 50))
+          // сохраняем данные рассылки
+          const data: BroadcastData = {
+            messageText: finalText,
+            photoFileIds
           }
+          broadcastData.set(chatId, data)
           
-          await ctx.reply(`✅ Рассылка завершена:\nОтправлено: ${sent}\nОшибок: ${failed}`)
+          // спрашиваем про кнопку
           waitingForBroadcast.delete(chatId)
           mediaGroupCache.delete(mediaGroupId)
+          await askAboutButton(ctx, chatId, data)
         } else if (allPhotos.length > 10) {
           await ctx.reply('❌ Максимум 10 фото в одном сообщении. Отправь меньше фото или используй /cancel.')
           waitingForBroadcast.add(chatId)
@@ -732,28 +897,15 @@ bot.on('message', async (ctx) => {
       return
     }
     
-    await ctx.reply(`✅ Проверка пройдена. 📤 Начинаю рассылку ${userChatIds.size} пользователям...`)
-    
-    // отправляем всем пользователям
-    let sent = 0
-    let failed = 0
-    
-    for (const userId of userChatIds) {
-      // пропускаем самого менеджера
-      if (String(userId) === String(chatId)) continue
-      
-      const success = await sendMessage(userId, messageText, photoFileIds)
-      if (success) {
-        sent++
-      } else {
-        failed++
-      }
-      
-      // небольшая задержка чтобы не получить rate limit
-      await new Promise(resolve => setTimeout(resolve, 50))
+    // сохраняем данные рассылки
+    const data: BroadcastData = {
+      messageText,
+      photoFileIds
     }
+    broadcastData.set(chatId, data)
     
-    await ctx.reply(`✅ Рассылка завершена:\nОтправлено: ${sent}\nОшибок: ${failed}`)
+    // спрашиваем про кнопку
+    await askAboutButton(ctx, chatId, data)
     return
   }
   
