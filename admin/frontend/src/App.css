@@ -2114,8 +2114,12 @@
   background: #f9f9f9;
 }
 
-.promocodes-table tbody tr.inactive {
+.promocodes-table tbody tr.inactive td:not(:last-child) {
   opacity: 0.6;
+}
+
+.promocodes-table tbody tr.inactive td:last-child {
+  opacity: 1;
 }
 
 .promocodes-table tbody tr:last-child td {
