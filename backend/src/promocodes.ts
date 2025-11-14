@@ -8,6 +8,7 @@ export type Promocode = {
   expiresAt?: string // дата окончания в формате ISO (YYYY-MM-DDTHH:mm:ss)
   active: boolean // активен ли промокод
   createdAt?: string // дата создания
+  productSlugs?: string[] // массив slug'ов товаров, для которых действует промокод (если пусто или null - действует на все товары)
 }
 
 function getAuthFromEnv() {
@@ -34,7 +35,7 @@ export async function fetchPromocodesFromSheet(sheetId: string): Promise<Promoco
   const sheets = google.sheets({ version: 'v4', auth })
   
   try {
-    const range = 'promocodes!A1:F1000'
+    const range = 'promocodes!A1:G1000'
     const res = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range })
     const rows = res.data.values ?? []
     
@@ -54,6 +55,7 @@ export async function fetchPromocodesFromSheet(sheetId: string): Promise<Promoco
       const valueRaw = String(get('value') || '').trim()
       const expiresAtRaw = String(get('expires_at') || get('expiresat') || '').trim()
       const activeVal = String(get('active') || '').toLowerCase()
+      const productSlugsRaw = String(get('product_slugs') || get('productslugs') || '').trim()
       
       if (!code) continue // пропускаем строки без кода
       
@@ -80,12 +82,25 @@ export async function fetchPromocodesFromSheet(sheetId: string): Promise<Promoco
         }
       }
       
+      // парсим productSlugs (разделенные запятыми или пробелами)
+      let productSlugs: string[] | undefined = undefined
+      if (productSlugsRaw) {
+        productSlugs = productSlugsRaw
+          .split(/[,\s]+/)
+          .map(s => s.trim())
+          .filter(s => s.length > 0)
+        if (productSlugs.length === 0) {
+          productSlugs = undefined
+        }
+      }
+      
       out.push({
         code,
         type: type as 'amount' | 'percent',
         value,
         expiresAt,
-        active
+        active,
+        productSlugs
       })
     }
     
@@ -118,7 +133,12 @@ export function findPromocode(code: string): Promocode | undefined {
 }
 
 // проверка промокода (возвращает скидку или null)
-export function validatePromocode(promocode: Promocode, orderTotal: number): number | null {
+// orderItemSlugs - массив slug'ов товаров в заказе
+export function validatePromocode(
+  promocode: Promocode, 
+  orderTotal: number,
+  orderItemSlugs: string[] = []
+): number | null {
   // проверяем активность
   if (!promocode.active) {
     return null
@@ -132,6 +152,17 @@ export function validatePromocode(promocode: Promocode, orderTotal: number): num
       return null
     }
   }
+  
+  // проверяем соответствие товаров (если промокод привязан к конкретным товарам)
+  if (promocode.productSlugs && promocode.productSlugs.length > 0) {
+    // промокод действует только на указанные товары
+    // проверяем, что хотя бы один товар из заказа есть в списке товаров промокода
+    const hasMatchingProduct = orderItemSlugs.some(slug => promocode.productSlugs!.includes(slug))
+    if (!hasMatchingProduct) {
+      return null // нет подходящих товаров
+    }
+  }
+  // если productSlugs пусто или null - промокод действует на все товары
   
   // вычисляем скидку
   if (promocode.type === 'amount') {

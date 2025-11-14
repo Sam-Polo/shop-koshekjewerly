@@ -349,7 +349,8 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
       
       if (promocode) {
         const subtotal = itemsTotal + deliveryCost
-        const discount = validatePromocode(promocode, subtotal)
+        const orderItemSlugs = validatedItems.map(item => item.slug)
+        const discount = validatePromocode(promocode, subtotal, orderItemSlugs)
         
         if (discount !== null && discount > 0) {
           promocodeDiscount = discount

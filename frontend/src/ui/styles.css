@@ -443,7 +443,7 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 .checkout-form__summary-row:last-child { margin-bottom: 0; }
 .checkout-form__summary-row--total { margin-top: 16px; padding-top: 16px; border-top: 2px solid #eee; font-size: 20px; }
 .checkout-form__summary-row--total strong { font-size: 24px; color: #bf9243; }
-.checkout-form__summary-row--discount { color: #d32f2f; font-weight: 500; }
+.checkout-form__summary-row--discount { color: #d32f94; font-weight: 500; }
 .checkout-form__submit { margin-top: 0; }
 
 /* промокод */

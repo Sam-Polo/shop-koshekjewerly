@@ -115,12 +115,24 @@ router.post('/', async (req, res) => {
 
     const auth = getAuthFromEnv()
     
+    // парсим productSlugs (если переданы)
+    let productSlugs: string[] | undefined = undefined
+    if (promocodeData.productSlugs && Array.isArray(promocodeData.productSlugs)) {
+      productSlugs = promocodeData.productSlugs
+        .map((s: any) => String(s).trim())
+        .filter((s: string) => s.length > 0)
+      if (productSlugs.length === 0) {
+        productSlugs = undefined
+      }
+    }
+    
     const promocode = {
       code,
       type: promocodeData.type as 'amount' | 'percent',
       value,
       expiresAt,
-      active: true // промокод всегда активен при создании
+      active: true, // промокод всегда активен при создании
+      productSlugs
     }
 
     await appendPromocodeToSheet(auth, sheetId, promocode)
