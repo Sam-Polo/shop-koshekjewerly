@@ -372,7 +372,7 @@ function PromocodeFormModal({
             <input
               type="text"
               value={formData.code}
-              onChange={(e) => setFormData({ ...formData, code: e.target.value.toUpperCase() })}
+              onChange={(e) => setFormData({ ...formData, code: e.target.value.replace(/\s/g, '').toUpperCase() })}
               placeholder="PROMO2024"
               maxLength={50}
               required
