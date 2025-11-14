@@ -92,7 +92,8 @@
   background: white;
   padding: 1rem 2rem;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 2rem;
 }
@@ -101,7 +102,7 @@
   font-size: 1.5rem;
   color: #333;
   margin: 0;
-  margin-right: auto;
+  white-space: nowrap;
 }
 
 .logout-btn {
@@ -723,6 +724,8 @@
   position: relative;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
   margin: 0;
+  padding: 2rem;
+  box-sizing: border-box;
 }
 
 .modal-close {
@@ -1089,6 +1092,7 @@
   .modal-content {
     margin: 0;
     max-height: calc(100vh - 2rem);
+    padding: 1.5rem;
   }
 
   .fullscreen-nav {
@@ -1565,7 +1569,7 @@
     width: 100%;
     max-width: 100%;
     max-height: calc(100vh - 2rem);
-    padding: 1rem;
+    padding: 1.5rem;
     margin: 0;
     overflow-x: hidden;
     overflow-y: auto;
@@ -1913,7 +1917,8 @@
     margin: 0;
     border-radius: 8px;
     max-height: calc(100vh - 2rem);
-    padding: 0.75rem;
+    padding: 1.5rem;
+    box-sizing: border-box;
   }
 
   .modal-product {
@@ -1936,6 +1941,7 @@
   align-items: center;
   gap: 0;
   margin: 0;
+  justify-self: start;
 }
 
 .nav-btn {
@@ -1994,7 +2000,7 @@
   display: flex;
   gap: 0.75rem;
   align-items: center;
-  margin-left: auto;
+  justify-self: end;
 }
 
 .btn-add {
