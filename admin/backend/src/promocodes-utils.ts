@@ -226,3 +226,71 @@ export async function deletePromocodeFromSheet(
   logger.info({ code }, 'промокод удален из Google Sheets')
 }
 
+// обновление промокода
+export async function updatePromocodeInSheet(
+  auth: any,
+  sheetId: string,
+  oldCode: string,
+  promocode: Promocode
+): Promise<void> {
+  const sheets = google.sheets({ version: 'v4', auth })
+  const range = 'promocodes!A2:G1000'
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range })
+  const rows = res.data.values ?? []
+  
+  if (rows.length === 0) {
+    throw new Error('Промокод не найден')
+  }
+  
+  const { headers, headerIndex } = await getPromocodesHeaders(auth, sheetId)
+  const codeIndex = headerIndex.code
+  
+  if (codeIndex === undefined) {
+    throw new Error('Колонка code не найдена')
+  }
+  
+  const normalizedOldCode = oldCode.trim().toUpperCase()
+  let rowIndex = -1
+  
+  for (let i = 0; i < rows.length; i++) {
+    if (String(rows[i][codeIndex] || '').trim().toUpperCase() === normalizedOldCode) {
+      rowIndex = i + 2 // +2 потому что первая строка - заголовок, и индексация с 1
+      break
+    }
+  }
+  
+  if (rowIndex === -1) {
+    throw new Error('Промокод не найден')
+  }
+  
+  // создаем строку с обновленными данными
+  const row: any[] = new Array(headers.length).fill('')
+  
+  if (headerIndex.code !== undefined) row[headerIndex.code] = promocode.code.toUpperCase()
+  if (headerIndex.type !== undefined) row[headerIndex.type] = promocode.type
+  if (headerIndex.value !== undefined) row[headerIndex.value] = promocode.value
+  if (headerIndex.expires_at !== undefined) {
+    row[headerIndex.expires_at] = promocode.expiresAt 
+      ? new Date(promocode.expiresAt).toISOString().slice(0, 19).replace('T', ' ')
+      : ''
+  }
+  if (headerIndex.active !== undefined) row[headerIndex.active] = promocode.active ? 1 : 0
+  if (headerIndex.product_slugs !== undefined) {
+    row[headerIndex.product_slugs] = promocode.productSlugs && promocode.productSlugs.length > 0
+      ? promocode.productSlugs.join(', ')
+      : ''
+  }
+  
+  // обновляем строку
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: sheetId,
+    range: `promocodes!A${rowIndex}:G${rowIndex}`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: {
+      values: [row]
+    }
+  })
+  
+  logger.info({ oldCode, newCode: promocode.code }, 'промокод обновлен в Google Sheets')
+}
+

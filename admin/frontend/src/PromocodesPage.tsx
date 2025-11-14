@@ -15,6 +15,7 @@ type Product = {
   slug: string
   title: string
   category: string
+  article?: string
 }
 
 function PromocodesPage({ onNavigate }: { onNavigate?: (page: 'products' | 'promocodes') => void }) {
@@ -27,6 +28,7 @@ function PromocodesPage({ onNavigate }: { onNavigate?: (page: 'products' | 'prom
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<{ code: string } | null>(null)
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
+  const [editingPromocode, setEditingPromocode] = useState<Promocode | null>(null)
 
   useEffect(() => {
     loadPromocodes()
@@ -152,12 +154,21 @@ function PromocodesPage({ onNavigate }: { onNavigate?: (page: 'products' | 'prom
                     <td>{formatDate(promocode.expiresAt)}</td>
                     <td>{status}</td>
                     <td>
-                      <button
-                        className="btn btn-delete"
-                        onClick={() => setDeleteConfirm({ code: promocode.code })}
-                      >
-                        Удалить
-                      </button>
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button
+                          className="btn"
+                          onClick={() => setEditingPromocode(promocode)}
+                          style={{ fontSize: '0.875rem', padding: '0.5rem 1rem' }}
+                        >
+                          Редактировать
+                        </button>
+                        <button
+                          className="btn btn-delete"
+                          onClick={() => setDeleteConfirm({ code: promocode.code })}
+                        >
+                          Удалить
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 )
@@ -174,6 +185,18 @@ function PromocodesPage({ onNavigate }: { onNavigate?: (page: 'products' | 'prom
             setIsAddModalOpen(false)
             loadPromocodes()
             showToast('Промокод создан', 'success')
+          }}
+        />
+      )}
+
+      {editingPromocode && (
+        <PromocodeFormModal
+          promocode={editingPromocode}
+          onClose={() => setEditingPromocode(null)}
+          onSuccess={() => {
+            setEditingPromocode(null)
+            loadPromocodes()
+            showToast('Промокод обновлен', 'success')
           }}
         />
       )}
@@ -205,13 +228,25 @@ function PromocodesPage({ onNavigate }: { onNavigate?: (page: 'products' | 'prom
   )
 }
 
-function PromocodeFormModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+function PromocodeFormModal({ 
+  promocode, 
+  onClose, 
+  onSuccess 
+}: { 
+  promocode?: Promocode
+  onClose: () => void
+  onSuccess: () => void 
+}) {
+  const isEditMode = !!promocode
+  
   const [formData, setFormData] = useState({
-    code: '',
-    type: 'amount' as 'amount' | 'percent',
-    value: '',
-    expiresAt: '',
-    productSlugs: undefined as string[] | undefined
+    code: promocode?.code || '',
+    type: (promocode?.type || 'amount') as 'amount' | 'percent',
+    value: promocode?.value ? String(promocode.value) : '',
+    expiresAt: promocode?.expiresAt 
+      ? new Date(promocode.expiresAt).toISOString().slice(0, 16)
+      : '',
+    productSlugs: promocode?.productSlugs as string[] | undefined
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -248,17 +283,23 @@ function PromocodeFormModal({ onClose, onSuccess }: { onClose: () => void; onSuc
 
     try {
       setSaving(true)
-      await api.createPromocode({
+      const promocodeData = {
         code: formData.code.trim().toUpperCase(),
         type: formData.type,
         value,
         expiresAt: formData.expiresAt || undefined,
-        active: true, // промокод всегда активен при создании
+        active: promocode?.active !== undefined ? promocode.active : true,
         productSlugs: formData.productSlugs && formData.productSlugs.length > 0 ? formData.productSlugs : undefined
-      })
+      }
+      
+      if (isEditMode && promocode) {
+        await api.updatePromocode(promocode.code, promocodeData)
+      } else {
+        await api.createPromocode(promocodeData)
+      }
       onSuccess()
     } catch (err: any) {
-      setError(err.message || 'Ошибка создания промокода')
+      setError(err.message || (isEditMode ? 'Ошибка обновления промокода' : 'Ошибка создания промокода'))
     } finally {
       setSaving(false)
     }
@@ -279,7 +320,8 @@ function PromocodeFormModal({ onClose, onSuccess }: { onClose: () => void; onSuc
       const productsList = (data.products || []).map((p: any) => ({
         slug: p.slug,
         title: p.title,
-        category: p.category
+        category: p.category,
+        article: p.article
       }))
       setProducts(productsList)
     } catch (err: any) {
@@ -293,7 +335,7 @@ function PromocodeFormModal({ onClose, onSuccess }: { onClose: () => void; onSuc
   const filteredProducts = products.filter(p => {
     const searchLower = productSearch.toLowerCase()
     return p.title.toLowerCase().includes(searchLower) || 
-           p.slug.toLowerCase().includes(searchLower) ||
+           (p.article && p.article.toLowerCase().includes(searchLower)) ||
            p.category.toLowerCase().includes(searchLower)
   })
 
@@ -323,7 +365,7 @@ function PromocodeFormModal({ onClose, onSuccess }: { onClose: () => void; onSuc
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
-        <h2>Добавить промокод</h2>
+        <h2>{isEditMode ? 'Редактировать промокод' : 'Добавить промокод'}</h2>
         <form onSubmit={handleSubmit}>
           <div className="form-group">
             <label>Код промокода *</label>
@@ -404,7 +446,7 @@ function PromocodeFormModal({ onClose, onSuccess }: { onClose: () => void; onSuc
             </div>
             <small>
               {formData.productSlugs === undefined 
-                ? 'Промокод действует на все товары' 
+                ? 'По умолчанию промокод действует на ВСЕ товары' 
                 : formData.productSlugs.length === 0
                 ? 'Нажмите "Назначить товары" чтобы выбрать конкретные товары'
                 : `Промокод действует только на ${formData.productSlugs.length} выбранных товаров`}
@@ -422,7 +464,7 @@ function PromocodeFormModal({ onClose, onSuccess }: { onClose: () => void; onSuc
               Отмена
             </button>
             <button type="submit" className="btn btn-save" disabled={saving}>
-              {saving ? 'Создание...' : 'Создать'}
+              {saving ? (isEditMode ? 'Сохранение...' : 'Создание...') : (isEditMode ? 'Сохранить' : 'Создать')}
             </button>
           </div>
         </form>
@@ -436,7 +478,7 @@ function PromocodeFormModal({ onClose, onSuccess }: { onClose: () => void; onSuc
             <div style={{ marginBottom: '1rem' }}>
               <input
                 type="text"
-                placeholder="Поиск по названию, slug или категории..."
+                placeholder="Поиск по названию, артикулу или категории..."
                 value={productSearch}
                 onChange={(e) => setProductSearch(e.target.value)}
                 style={{ width: '100%', padding: '0.75rem', border: '1px solid #ddd', borderRadius: '4px' }}
@@ -462,10 +504,10 @@ function PromocodeFormModal({ onClose, onSuccess }: { onClose: () => void; onSuc
                             display: 'flex',
                             alignItems: 'center',
                             padding: '0.75rem',
-                            border: `1px solid ${isSelected ? '#ec4899' : '#eee'}`,
+                            border: `1px solid ${isSelected ? '#a855f7' : '#eee'}`,
                             borderRadius: '4px',
                             cursor: 'pointer',
-                            backgroundColor: isSelected ? 'rgba(236, 72, 153, 0.05)' : 'white',
+                            backgroundColor: isSelected ? 'rgba(168, 85, 247, 0.1)' : 'white',
                             transition: 'all 0.2s'
                           }}
                         >
@@ -478,7 +520,7 @@ function PromocodeFormModal({ onClose, onSuccess }: { onClose: () => void; onSuc
                           <div style={{ flex: 1 }}>
                             <div style={{ fontWeight: 500 }}>{product.title}</div>
                             <div style={{ fontSize: '0.875rem', color: '#666', marginTop: '0.25rem' }}>
-                              {product.category} • {product.slug}
+                              {product.category} • {product.article || 'нет артикула'}
                             </div>
                           </div>
                         </label>

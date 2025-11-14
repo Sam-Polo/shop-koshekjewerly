@@ -161,6 +161,14 @@ export const api = {
     })
   },
 
+  async updatePromocode(code: string, promocode: any) {
+    return fetchWithAuth(`/api/promocodes/${code}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(promocode)
+    })
+  },
+
   async deletePromocode(code: string) {
     return fetchWithAuth(`/api/promocodes/${code}`, {
       method: 'DELETE'
