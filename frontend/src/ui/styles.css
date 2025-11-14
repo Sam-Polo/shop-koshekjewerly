@@ -447,18 +447,28 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 .checkout-form__submit { margin-top: 0; }
 
 /* промокод */
-.checkout-form__promocode { display: flex; gap: 8px; margin-top: 6px; }
+.checkout-form__promocode { 
+  display: flex; 
+  gap: 8px; 
+  margin-top: 6px; 
+  align-items: center;
+}
 .checkout-form__promocode-input { flex: 1; }
 .checkout-form__promocode-btn { 
-  padding: 12px 20px; 
+  padding: 12px 16px; 
   background: #d480e0; 
   color: white; 
   border: none; 
   border-radius: 6px; 
-  font-size: 18px; 
+  font-size: 16px; 
   cursor: pointer; 
   transition: background 0.2s;
-  min-width: 50px;
+  min-width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 .checkout-form__promocode-btn:hover:not(:disabled) { background: #c069d0; }
 .checkout-form__promocode-btn:disabled { background: #ccc; cursor: not-allowed; }
