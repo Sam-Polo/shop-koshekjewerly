@@ -640,6 +640,10 @@ const CheckoutForm = ({
     comments: ''
   })
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [promocode, setPromocode] = useState('')
+  const [promocodeStatus, setPromocodeStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle')
+  const [promocodeDiscount, setPromocodeDiscount] = useState(0)
+  const [promocodeInfo, setPromocodeInfo] = useState<{ type: 'amount' | 'percent'; value: number } | null>(null)
 
   // получаем username из Telegram
   useEffect(() => {
@@ -666,7 +670,8 @@ const CheckoutForm = ({
   // если в корзине только тестовые товары - доставка бесплатная
   const isOnlyTestProducts = isCartOnlyTestProducts(cart, products)
   const deliveryCost = isOnlyTestProducts ? 0 : DELIVERY_COSTS[deliveryRegion]
-  const total = cartTotal + deliveryCost
+  const subtotal = cartTotal + deliveryCost
+  const total = Math.max(0, subtotal - promocodeDiscount)
   
   console.log('[CheckoutForm] расчет доставки:', {
     cartLength: cart.length,
@@ -728,7 +733,8 @@ const CheckoutForm = ({
         ...formData,
         deliveryRegion,
         deliveryCost,
-        total
+        total,
+        promocode: promocodeStatus === 'valid' ? promocode.trim().toUpperCase() : undefined
       })
     }
   }
@@ -739,6 +745,46 @@ const CheckoutForm = ({
       setErrors(prev => ({ ...prev, [field]: '' }))
     }
   }
+
+  const handlePromocodeApply = async () => {
+    if (!promocode.trim()) {
+      setPromocodeStatus('idle')
+      setPromocodeDiscount(0)
+      setPromocodeInfo(null)
+      return
+    }
+
+    setPromocodeStatus('checking')
+    try {
+      const apiUrl = import.meta.env.VITE_API_URL || '/api'
+      const currentSubtotal = cartTotal + deliveryCost
+      const response = await fetch(`${apiUrl}/api/promocodes/validate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code: promocode.trim().toUpperCase(),
+          orderTotal: currentSubtotal
+        })
+      })
+
+      const data = await response.json()
+
+      if (data.valid && data.discount) {
+        setPromocodeStatus('valid')
+        setPromocodeDiscount(data.discount)
+        setPromocodeInfo({ type: data.type, value: data.value })
+      } else {
+        setPromocodeStatus('invalid')
+        setPromocodeDiscount(0)
+        setPromocodeInfo(null)
+      }
+    } catch (error) {
+      setPromocodeStatus('invalid')
+      setPromocodeDiscount(0)
+      setPromocodeInfo(null)
+    }
+  }
+
 
   return (
     <form className="checkout-form" onSubmit={handleSubmit}>
@@ -827,6 +873,45 @@ const CheckoutForm = ({
         </label>
 
         <label className="checkout-form__label">
+          Промокод
+          <div className="checkout-form__promocode">
+            <input
+              type="text"
+              className={`checkout-form__input checkout-form__promocode-input ${promocodeStatus === 'invalid' ? 'error' : ''}`}
+              value={promocode}
+              onChange={(e) => {
+                setPromocode(e.target.value.toUpperCase())
+                if (promocodeStatus !== 'idle') {
+                  setPromocodeStatus('idle')
+                  setPromocodeDiscount(0)
+                  setPromocodeInfo(null)
+                }
+              }}
+              placeholder="Введите промокод"
+              maxLength={50}
+            />
+            <button
+              type="button"
+              className="checkout-form__promocode-btn"
+              onClick={handlePromocodeApply}
+              disabled={promocodeStatus === 'checking' || !promocode.trim()}
+            >
+              {promocodeStatus === 'checking' ? '...' : '✓'}
+            </button>
+          </div>
+          {promocodeStatus === 'valid' && (
+            <span className="checkout-form__promocode-message checkout-form__promocode-message--success">
+              Промокод активирован
+            </span>
+          )}
+          {promocodeStatus === 'invalid' && (
+            <span className="checkout-form__promocode-message checkout-form__promocode-message--error">
+              Промокод недействителен
+            </span>
+          )}
+        </label>
+
+        <label className="checkout-form__label">
           Комментарии
           <textarea
             className={`checkout-form__textarea ${errors.comments ? 'error' : ''}`}
@@ -850,6 +935,14 @@ const CheckoutForm = ({
           <span>Доставка ({DELIVERY_LABELS[deliveryRegion]}):</span>
           <span>{isOnlyTestProducts ? 'Бесплатно' : `${deliveryCost} ₽`}</span>
         </div>
+        {promocodeStatus === 'valid' && promocodeDiscount > 0 && (
+          <div className="checkout-form__summary-row checkout-form__summary-row--discount">
+            <span>
+              Скидка {promocodeInfo?.type === 'percent' ? `(${promocodeInfo.value}%)` : ''}:
+            </span>
+            <span>-{promocodeDiscount} ₽</span>
+          </div>
+        )}
         <div className="checkout-form__summary-row checkout-form__summary-row--total">
           <span>Итого:</span>
           <strong>{total} ₽</strong>

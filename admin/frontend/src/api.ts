@@ -146,6 +146,25 @@ export const api = {
 
     const data = await response.json()
     return data.url
+  },
+
+  // промокоды
+  async getPromocodes() {
+    return fetchWithAuth('/api/promocodes')
+  },
+
+  async createPromocode(promocode: any) {
+    return fetchWithAuth('/api/promocodes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(promocode)
+    })
+  },
+
+  async deletePromocode(code: string) {
+    return fetchWithAuth(`/api/promocodes/${code}`, {
+      method: 'DELETE'
+    })
   }
 }
 

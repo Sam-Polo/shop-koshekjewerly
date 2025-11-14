@@ -41,10 +41,12 @@ app.get('/health', (req: express.Request, res: express.Response) => {
 import authRoutes from './routes/auth.js'
 import productRoutes from './routes/products.js'
 import uploadRoutes from './routes/upload.js'
+import promocodeRoutes from './routes/promocodes.js'
 
 app.use('/api/auth', authRoutes)
 app.use('/api/products', productRoutes)
 app.use('/api/upload', uploadRoutes)
+app.use('/api/promocodes', promocodeRoutes)
 
 app.listen(PORT, () => {
   logger.info(`Админ-панель бэкенд запущен на порту ${PORT}`)

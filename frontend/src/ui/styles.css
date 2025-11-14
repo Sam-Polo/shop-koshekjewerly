@@ -443,7 +443,28 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 .checkout-form__summary-row:last-child { margin-bottom: 0; }
 .checkout-form__summary-row--total { margin-top: 16px; padding-top: 16px; border-top: 2px solid #eee; font-size: 20px; }
 .checkout-form__summary-row--total strong { font-size: 24px; color: #bf9243; }
+.checkout-form__summary-row--discount { color: #d32f2f; font-weight: 500; }
 .checkout-form__submit { margin-top: 0; }
+
+/* промокод */
+.checkout-form__promocode { display: flex; gap: 8px; margin-top: 6px; }
+.checkout-form__promocode-input { flex: 1; }
+.checkout-form__promocode-btn { 
+  padding: 12px 20px; 
+  background: #d480e0; 
+  color: white; 
+  border: none; 
+  border-radius: 6px; 
+  font-size: 18px; 
+  cursor: pointer; 
+  transition: background 0.2s;
+  min-width: 50px;
+}
+.checkout-form__promocode-btn:hover:not(:disabled) { background: #c069d0; }
+.checkout-form__promocode-btn:disabled { background: #ccc; cursor: not-allowed; }
+.checkout-form__promocode-message { display: block; margin-top: 6px; font-size: 14px; }
+.checkout-form__promocode-message--success { color: #2e7d32; }
+.checkout-form__promocode-message--error { color: #d32f2f; }
 
 /* информационное окно успешного заказа */
 .modal-content--success { max-width: 500px; text-align: center; }

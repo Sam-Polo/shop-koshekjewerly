@@ -26,6 +26,12 @@ export type Order = {
     deliveryCost: number
     total: number
     comments?: string
+    promocode?: {
+      code: string
+      type: 'amount' | 'percent'
+      value: number
+      discount: number
+    }
   }
   customerChatId?: string | null
 }

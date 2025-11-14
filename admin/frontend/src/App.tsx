@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { api, getToken, saveToken, removeToken } from './api'
 import { generateSlug, formatArticle, parseArticle } from './utils'
+import PromocodesPage from './PromocodesPage'
 import {
   DndContext,
   closestCenter,
@@ -137,7 +138,7 @@ function LoginForm({ onLogin }: { onLogin: () => void }) {
   )
 }
 
-function ProductsList() {
+function ProductsList({ onNavigate }: { onNavigate?: (page: 'products' | 'promocodes') => void }) {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -440,6 +441,20 @@ function ProductsList() {
     <div className="admin-container">
       <header className="admin-header">
         <h1>Админ-панель - KOSHEK JEWERLY</h1>
+        <div className="header-nav">
+          <button 
+            className="nav-btn active"
+            onClick={() => onNavigate?.('products')}
+          >
+            Товары
+          </button>
+          <button 
+            className="nav-btn"
+            onClick={() => onNavigate?.('promocodes')}
+          >
+            Промокоды
+          </button>
+        </div>
         <button onClick={handleLogout} className="logout-btn">
           Выйти
         </button>
@@ -1844,6 +1859,7 @@ function ProductFormModal({
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [checking, setChecking] = useState(true)
+  const [currentPage, setCurrentPage] = useState<'products' | 'promocodes'>('products')
 
   useEffect(() => {
     // проверяем наличие токена
@@ -1862,6 +1878,10 @@ export default function App() {
     return <LoginForm onLogin={() => setIsAuthenticated(true)} />
   }
 
-  return <ProductsList />
+  if (currentPage === 'promocodes') {
+    return <PromocodesPage onNavigate={(page: 'products' | 'promocodes') => setCurrentPage(page)} />
+  }
+
+  return <ProductsList onNavigate={(page: 'products' | 'promocodes') => setCurrentPage(page)} />
 }
 

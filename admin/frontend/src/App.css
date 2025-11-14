@@ -1922,3 +1922,120 @@
   }
 }
 
+/* навигация в хэдере */
+.header-nav {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0 1rem;
+}
+
+.nav-btn {
+  padding: 0.5rem 1rem;
+  background: #f0f0f0;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s;
+}
+
+.nav-btn:hover {
+  background: #e0e0e0;
+}
+
+.nav-btn.active {
+  background: #667eea;
+  color: white;
+  border-color: #667eea;
+}
+
+.header-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+/* стили для промокодов */
+.promocodes-list {
+  padding: 1.5rem;
+}
+
+.promocodes-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: white;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.promocodes-table thead {
+  background: #667eea;
+  color: white;
+}
+
+.promocodes-table th {
+  padding: 1rem;
+  text-align: left;
+  font-weight: 600;
+}
+
+.promocodes-table td {
+  padding: 1rem;
+  border-bottom: 1px solid #eee;
+}
+
+.promocodes-table tbody tr:hover {
+  background: #f9f9f9;
+}
+
+.promocodes-table tbody tr.inactive {
+  opacity: 0.6;
+}
+
+.promocodes-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 3rem;
+  color: #666;
+  font-size: 1.1rem;
+}
+
+@media (max-width: 768px) {
+  .header-nav {
+    margin: 0 0.5rem;
+    gap: 0.25rem;
+  }
+
+  .nav-btn {
+    padding: 0.4rem 0.75rem;
+    font-size: 0.85rem;
+  }
+
+  .header-actions {
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .promocodes-list {
+    padding: 1rem;
+  }
+
+  .promocodes-table {
+    font-size: 0.85rem;
+  }
+
+  .promocodes-table th,
+  .promocodes-table td {
+    padding: 0.75rem 0.5rem;
+  }
+
+  .promocodes-table {
+    display: block;
+    overflow-x: auto;
+  }
+}
+

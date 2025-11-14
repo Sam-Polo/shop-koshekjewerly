@@ -7,6 +7,7 @@ import { fetchProductsFromSheet } from './sheets.js';
 import { listProducts, upsertProducts, decreaseProductStock } from './store.js';
 import { createOrder, getOrder, updateOrderStatus, type OrderStatus } from './orders.js';
 import { generatePaymentUrl, verifyResultSignature } from './robokassa.js';
+import { fetchPromocodesFromSheet, loadPromocodes, findPromocode, validatePromocode, listPromocodes } from './promocodes.js';
 
 const logger = pino();
 const app = express();
@@ -37,6 +38,23 @@ async function importProducts() {
     logger.info({ imported: rows.length }, 'товары импортированы');
   } catch (e: any) {
     logger.error({ error: e?.message }, 'ошибка импорта товаров');
+  }
+}
+
+// автоматический импорт промокодов из google sheets
+async function importPromocodes() {
+  const sheetId = process.env.IMPORT_SHEET_ID;
+  if (!sheetId) {
+    logger.warn('IMPORT_SHEET_ID не задан, импорт промокодов пропущен');
+    return;
+  }
+  try {
+    logger.info('импорт промокодов из google sheets...');
+    const promocodes = await fetchPromocodesFromSheet(sheetId);
+    loadPromocodes(promocodes);
+    logger.info({ imported: promocodes.length }, 'промокоды импортированы');
+  } catch (e: any) {
+    logger.error({ error: e?.message }, 'ошибка импорта промокодов');
   }
 }
 
@@ -97,6 +115,41 @@ app.get('/health', (_req, res) => {
 app.get('/api/products', (_req, res) => {
   const items = listProducts().filter(p => p.active)
   res.json({ items, total: items.length });
+});
+
+// проверка промокода
+app.post('/api/promocodes/validate', async (req, res) => {
+  try {
+    const { code, orderTotal } = req.body
+    
+    if (!code || typeof code !== 'string') {
+      return res.status(400).json({ error: 'invalid_code' })
+    }
+    
+    if (typeof orderTotal !== 'number' || orderTotal <= 0) {
+      return res.status(400).json({ error: 'invalid_order_total' })
+    }
+    
+    const promocode = findPromocode(code)
+    if (!promocode) {
+      return res.json({ valid: false, error: 'not_found' })
+    }
+    
+    const discount = validatePromocode(promocode, orderTotal)
+    if (discount === null) {
+      return res.json({ valid: false, error: 'invalid' })
+    }
+    
+    res.json({
+      valid: true,
+      discount,
+      type: promocode.type,
+      value: promocode.value
+    })
+  } catch (e: any) {
+    logger.error({ error: e?.message }, 'ошибка проверки промокода')
+    res.status(500).json({ error: 'validation_failed' })
+  }
 });
 
 // отправка сообщения через Telegram Bot API
@@ -286,8 +339,44 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
       ? orderData.deliveryCost 
       : 0
     
-    // пересчитываем итоговую сумму на бэкенде
-    const total = itemsTotal + deliveryCost
+    // проверка и применение промокода (если передан)
+    let promocodeDiscount = 0
+    let promocodeInfo: { code: string; type: 'amount' | 'percent'; value: number; discount: number } | undefined = undefined
+    
+    if (orderData.promocode && typeof orderData.promocode === 'string' && orderData.promocode.trim()) {
+      const promocodeCode = orderData.promocode.trim().toUpperCase()
+      const promocode = findPromocode(promocodeCode)
+      
+      if (promocode) {
+        const subtotal = itemsTotal + deliveryCost
+        const discount = validatePromocode(promocode, subtotal)
+        
+        if (discount !== null && discount > 0) {
+          promocodeDiscount = discount
+          promocodeInfo = {
+            code: promocode.code,
+            type: promocode.type,
+            value: promocode.value,
+            discount: promocodeDiscount
+          }
+          logger.info({ 
+            code: promocodeCode, 
+            type: promocode.type, 
+            value: promocode.value, 
+            discount: promocodeDiscount 
+          }, 'промокод применен к заказу')
+        } else {
+          logger.warn({ code: promocodeCode }, 'промокод недействителен или истек срок действия')
+          return res.status(400).json({ error: 'invalid_promocode' })
+        }
+      } else {
+        logger.warn({ code: promocodeCode }, 'промокод не найден')
+        return res.status(400).json({ error: 'promocode_not_found' })
+      }
+    }
+    
+    // пересчитываем итоговую сумму на бэкенде (с учетом промокода)
+    const total = Math.max(0, itemsTotal + deliveryCost - promocodeDiscount)
     
     // Робокасса требует числовой InvId, используем timestamp
     // но сохраняем префикс для внутреннего использования
@@ -309,8 +398,9 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
       address: orderData.address || '',
       deliveryRegion: orderData.deliveryRegion || '',
       deliveryCost: deliveryCost,
-      total: total, // пересчитанная сумма на бэкенде
-      comments: orderData.comments
+      total: total, // пересчитанная сумма на бэкенде (с учетом промокода)
+      comments: orderData.comments,
+      promocode: promocodeInfo
     }, customerChatId)
     
     logger.info({ 
@@ -318,6 +408,7 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
       itemsCount: validatedItems.length,
       itemsTotal,
       deliveryCost,
+      promocodeDiscount,
       total,
       clientTotal: orderData.total // логируем что прислал клиент для сравнения
     }, 'заказ создан с пересчитанными ценами на бэкенде, ожидает оплаты')
@@ -557,12 +648,14 @@ app.post('/admin/import/sheets', async (req, res) => {
   }, 30000);
   
   try {
-    logger.info('начат ручной импорт товаров');
+    logger.info('начат ручной импорт товаров и промокодов');
     await importProducts();
+    await importPromocodes();
     const count = listProducts().length;
+    const promocodesCount = listPromocodes().length;
     clearTimeout(timeout);
     if (!res.headersSent) {
-      res.json({ ok: true, total: count });
+      res.json({ ok: true, total: count, promocodes: promocodesCount });
     }
   } catch (e: any) {
     clearTimeout(timeout);
@@ -592,12 +685,14 @@ app.listen(port, async () => {
   
   // импорт при запуске
   await importProducts();
+  await importPromocodes();
   
   // периодический импорт (по умолчанию каждые 10 минут)
   const intervalMinutes = Number(process.env.IMPORT_INTERVAL_MINUTES ?? 10);
   if (intervalMinutes > 0) {
     setInterval(() => {
       importProducts();
+      importPromocodes();
     }, intervalMinutes * 60 * 1000);
     logger.info({ intervalMinutes }, 'периодический импорт настроен');
   }
