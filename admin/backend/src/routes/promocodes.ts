@@ -120,7 +120,7 @@ router.post('/', async (req, res) => {
       type: promocodeData.type as 'amount' | 'percent',
       value,
       expiresAt,
-      active: promocodeData.active !== undefined ? Boolean(promocodeData.active) : true
+      active: true // промокод всегда активен при создании
     }
 
     await appendPromocodeToSheet(auth, sheetId, promocode)

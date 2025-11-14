@@ -641,7 +641,7 @@ const CheckoutForm = ({
   })
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [promocode, setPromocode] = useState('')
-  const [promocodeStatus, setPromocodeStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle')
+  const [promocodeStatus, setPromocodeStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid' | 'not_found'>('idle')
   const [promocodeDiscount, setPromocodeDiscount] = useState(0)
   const [promocodeInfo, setPromocodeInfo] = useState<{ type: 'amount' | 'percent'; value: number } | null>(null)
 
@@ -774,7 +774,8 @@ const CheckoutForm = ({
         setPromocodeDiscount(data.discount)
         setPromocodeInfo({ type: data.type, value: data.value })
       } else {
-        setPromocodeStatus('invalid')
+        // различаем ошибки: не найден или недействителен
+        setPromocodeStatus(data.error === 'not_found' ? 'not_found' : 'invalid')
         setPromocodeDiscount(0)
         setPromocodeInfo(null)
       }
@@ -877,7 +878,7 @@ const CheckoutForm = ({
           <div className="checkout-form__promocode">
             <input
               type="text"
-              className={`checkout-form__input checkout-form__promocode-input ${promocodeStatus === 'invalid' ? 'error' : ''}`}
+              className={`checkout-form__input checkout-form__promocode-input ${(promocodeStatus === 'invalid' || promocodeStatus === 'not_found') ? 'error' : ''}`}
               value={promocode}
               onChange={(e) => {
                 setPromocode(e.target.value.toUpperCase())
@@ -902,6 +903,11 @@ const CheckoutForm = ({
           {promocodeStatus === 'valid' && (
             <span className="checkout-form__promocode-message checkout-form__promocode-message--success">
               Промокод активирован
+            </span>
+          )}
+          {promocodeStatus === 'not_found' && (
+            <span className="checkout-form__promocode-message checkout-form__promocode-message--error">
+              Промокод не найден
             </span>
           )}
           {promocodeStatus === 'invalid' && (

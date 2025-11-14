@@ -455,7 +455,7 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 }
 .checkout-form__promocode-input { flex: 1; }
 .checkout-form__promocode-btn { 
-  padding: 8px 12px; 
+  padding: 10px 10px; 
   background: #d480e0; 
   color: white; 
   border: none; 

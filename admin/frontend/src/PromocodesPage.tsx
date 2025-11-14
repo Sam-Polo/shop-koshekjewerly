@@ -197,8 +197,7 @@ function PromocodeFormModal({ onClose, onSuccess }: { onClose: () => void; onSuc
     code: '',
     type: 'amount' as 'amount' | 'percent',
     value: '',
-    expiresAt: '',
-    active: true
+    expiresAt: ''
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -236,7 +235,7 @@ function PromocodeFormModal({ onClose, onSuccess }: { onClose: () => void; onSuc
         type: formData.type,
         value,
         expiresAt: formData.expiresAt || undefined,
-        active: formData.active
+        active: true // промокод всегда активен при создании
       })
       onSuccess()
     } catch (err: any) {
@@ -307,18 +306,7 @@ function PromocodeFormModal({ onClose, onSuccess }: { onClose: () => void; onSuc
               onChange={(e) => setFormData({ ...formData, expiresAt: e.target.value })}
               min={getMinDateTime()}
             />
-            <small>Оставьте пустым, если промокод без срока действия</small>
-          </div>
-
-          <div className="form-group">
-            <label>
-              <input
-                type="checkbox"
-                checked={formData.active}
-                onChange={(e) => setFormData({ ...formData, active: e.target.checked })}
-              />
-              Активен
-            </label>
+            <small>Оставьте пустым, если промокод без срока действия. Промокод будет активен до указанной даты.</small>
           </div>
 
           {error && (
