@@ -1,7 +1,7 @@
 import express from 'express'
 import { requireAuth } from '../auth.js'
+import { getAuthFromEnv } from '../sheets-utils.js'
 import {
-  getAuthFromEnv,
   fetchPromocodesFromSheet,
   appendPromocodeToSheet,
   deletePromocodeFromSheet
