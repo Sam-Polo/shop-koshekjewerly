@@ -118,11 +118,11 @@ router.post('/', async (req, res) => {
     // парсим productSlugs (если переданы)
     let productSlugs: string[] | undefined = undefined
     if (promocodeData.productSlugs && Array.isArray(promocodeData.productSlugs)) {
-      productSlugs = promocodeData.productSlugs
+      const filtered = promocodeData.productSlugs
         .map((s: any) => String(s).trim())
         .filter((s: string) => s.length > 0)
-      if (productSlugs.length === 0) {
-        productSlugs = undefined
+      if (filtered.length > 0) {
+        productSlugs = filtered
       }
     }
     
