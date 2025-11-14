@@ -139,28 +139,29 @@ function PromocodesPage({ onNavigate }: { onNavigate?: (page: 'products' | 'prom
                 
                 return (
                   <tr key={promocode.code} className={!promocode.active || expired ? 'inactive' : ''}>
-                    <td><strong>{promocode.code}</strong></td>
-                    <td>{promocode.type === 'amount' ? 'Сумма' : 'Процент'}</td>
-                    <td>
+                    <td data-label="Код"><strong>{promocode.code}</strong></td>
+                    <td data-label="Тип">{promocode.type === 'amount' ? 'Сумма' : 'Процент'}</td>
+                    <td data-label="Значение">
                       {promocode.type === 'amount' 
                         ? `${promocode.value} ₽` 
                         : `${promocode.value}%`}
                     </td>
-                    <td>
+                    <td data-label="Товары">
                       {promocode.productSlugs === undefined || promocode.productSlugs.length === 0
                         ? <span style={{ color: '#666' }}>Все товары</span>
                         : <span title={promocode.productSlugs.join(', ')}>{promocode.productSlugs.length} товар(ов)</span>}
                     </td>
-                    <td>{formatDate(promocode.expiresAt)}</td>
-                    <td>{status}</td>
+                    <td data-label="Окончание">{formatDate(promocode.expiresAt)}</td>
+                    <td data-label="Статус">{status}</td>
                     <td>
                       <div style={{ display: 'flex', gap: '0.5rem' }}>
                         <button
                           className="btn"
                           onClick={() => setEditingPromocode(promocode)}
-                          style={{ fontSize: '0.875rem', padding: '0.5rem 1rem' }}
+                          style={{ fontSize: '0.875rem', padding: '0.5rem', minWidth: '2rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                          title="Редактировать"
                         >
-                          Редактировать
+                          ✏️
                         </button>
                         <button
                           className="btn btn-delete"
