@@ -758,12 +758,15 @@ const CheckoutForm = ({
     try {
       const apiUrl = import.meta.env.VITE_API_URL || '/api'
       const currentSubtotal = cartTotal + deliveryCost
+      // получаем slug'и товаров из корзины для проверки привязки промокода
+      const orderItemSlugs = cart.map(item => item.slug)
       const response = await fetch(`${apiUrl}/api/promocodes/validate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           code: promocode.trim().toUpperCase(),
-          orderTotal: currentSubtotal
+          orderTotal: currentSubtotal,
+          orderItemSlugs
         })
       })
 

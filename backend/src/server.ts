@@ -120,7 +120,7 @@ app.get('/api/products', (_req, res) => {
 // проверка промокода
 app.post('/api/promocodes/validate', async (req, res) => {
   try {
-    const { code, orderTotal } = req.body
+    const { code, orderTotal, orderItemSlugs } = req.body
     
     if (!code || typeof code !== 'string') {
       return res.status(400).json({ error: 'invalid_code' })
@@ -135,7 +135,12 @@ app.post('/api/promocodes/validate', async (req, res) => {
       return res.json({ valid: false, error: 'not_found' })
     }
     
-    const discount = validatePromocode(promocode, orderTotal)
+    // передаем товары из корзины для проверки привязки промокода к товарам
+    const itemSlugs = Array.isArray(orderItemSlugs) 
+      ? orderItemSlugs.filter((slug: any) => typeof slug === 'string')
+      : []
+    
+    const discount = validatePromocode(promocode, orderTotal, itemSlugs)
     if (discount === null) {
       return res.json({ valid: false, error: 'invalid' })
     }
