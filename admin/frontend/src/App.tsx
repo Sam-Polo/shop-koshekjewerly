@@ -1860,6 +1860,7 @@ export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [checking, setChecking] = useState(true)
   const [currentPage, setCurrentPage] = useState<'products' | 'promocodes'>('products')
+  const [isPageLoading, setIsPageLoading] = useState(false)
 
   useEffect(() => {
     // проверяем наличие токена
@@ -1870,6 +1871,17 @@ export default function App() {
     setChecking(false)
   }, [])
 
+  const handlePageChange = (page: 'products' | 'promocodes') => {
+    if (page !== currentPage) {
+      setIsPageLoading(true)
+      // небольшая задержка для плавной анимации
+      setTimeout(() => {
+        setCurrentPage(page)
+        setIsPageLoading(false)
+      }, 150)
+    }
+  }
+
   if (checking) {
     return <div className="loading">Загрузка...</div>
   }
@@ -1878,10 +1890,21 @@ export default function App() {
     return <LoginForm onLogin={() => setIsAuthenticated(true)} />
   }
 
-  if (currentPage === 'promocodes') {
-    return <PromocodesPage onNavigate={(page: 'products' | 'promocodes') => setCurrentPage(page)} />
-  }
-
-  return <ProductsList onNavigate={(page: 'products' | 'promocodes') => setCurrentPage(page)} />
+  return (
+    <div className="admin-wrapper">
+      {isPageLoading && (
+        <div className="page-loading-overlay">
+          <div className="page-loading-spinner"></div>
+        </div>
+      )}
+      <div className={`admin-content-wrapper ${isPageLoading ? 'fade-out' : 'fade-in'}`}>
+        {currentPage === 'promocodes' ? (
+          <PromocodesPage onNavigate={handlePageChange} />
+        ) : (
+          <ProductsList onNavigate={handlePageChange} />
+        )}
+      </div>
+    </div>
+  )
 }
 
