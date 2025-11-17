@@ -231,7 +231,7 @@ async function sendMessage(
         const media = photoFileIds.map((fileId, index) => ({
           type: 'photo',
           media: fileId,
-          ...(index === 0 && hasText ? { caption: text } : {})
+          ...(index === photoFileIds.length - 1 && hasText ? { caption: text } : {})
         }))
         
         const response = await fetch(`https://api.telegram.org/bot${token}/sendMediaGroup`, {
@@ -251,8 +251,7 @@ async function sendMessage(
         }
         
         if (replyMarkup && result.result && Array.isArray(result.result) && result.result.length > 0) {
-          const targetIndex = hasText ? 0 : result.result.length - 1
-          const targetMessage = result.result[targetIndex]
+          const targetMessage = result.result[result.result.length - 1]
           const editResponse = await fetch(`https://api.telegram.org/bot${token}/editMessageReplyMarkup`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
