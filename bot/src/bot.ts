@@ -265,8 +265,13 @@ async function sendMessage(
           const editResult = await editResponse.json().catch(() => ({}))
           
           if (!editResponse.ok || !editResult.ok) {
-            console.error('Ошибка добавления кнопки к media group:', editResult)
-            return { success: false, error: editResult.description || 'telegram error' }
+            const description = editResult.description || ''
+            if (description.includes('message is not modified')) {
+              console.warn('[sendMessage] кнопка уже установлена, игнорируем message is not modified')
+            } else {
+              console.error('Ошибка добавления кнопки к media group:', editResult)
+              return { success: false, error: description || 'telegram error' }
+            }
           }
         }
         
@@ -629,7 +634,7 @@ bot.on('message', async (ctx) => {
     
     await ctx.reply(
       `✅ Канал @${channel} сохранен.\n` +
-      `Теперь введи текст кнопки (до 64 символов). Используй /cancel для отмены.`
+      `Теперь введи текст КНОПКИ (до 64 символов). Используй /cancel для отмены.`
     )
     return
   }
