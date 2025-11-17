@@ -153,8 +153,9 @@ const waitingForButtonQuestion = new Set<string | number>();
 // состояние ожидания текста кнопки
 const waitingForButtonText = new Set<string | number>();
 
-// состояние ожидания username канала и контента
+// состояние ожидания username канала, текста кнопки и контента
 const waitingForChannelPost = new Set<string | number>();
+const waitingForChannelButtonText = new Set<string | number>();
 const waitingForChannelContent = new Set<string | number>();
 
 // хранилище данных рассылки (chatId -> { messageText, photoFileIds, needButton, buttonText })
@@ -168,6 +169,7 @@ const broadcastData = new Map<string | number, BroadcastData>();
 
 type ChannelPostDraft = {
   channel: string
+  buttonText?: string
 }
 const channelPostDrafts = new Map<string | number, ChannelPostDraft>();
 
@@ -182,151 +184,6 @@ const mediaGroupCache = new Map<string, MediaGroupCacheEntry>();
 // таймеры для обработки альбомов (media_group_id -> timeout)
 const mediaGroupTimers = new Map<string, NodeJS.Timeout>();
 
-// экранирование специальных символов для MarkdownV2
-function escapeMarkdownV2(text: string): string {
-  // символы, которые нужно экранировать в MarkdownV2
-  const specialChars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
-  let result = text
-  for (const char of specialChars) {
-    // экранируем только неэкранированные символы
-    const regex = new RegExp(`(^|[^\\\\])${char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g')
-    result = result.replace(regex, `$1\\${char}`)
-  }
-  return result
-}
-
-// преобразование обычного Markdown в Telegram MarkdownV2
-function convertToMarkdownV2(text: string): { success: boolean; text?: string; error?: string } {
-  try {
-    if (!text) {
-      return { success: true, text: '' }
-    }
-    
-    let result = text
-    const placeholders: Array<{ placeholder: string; replacement: string }> = []
-    let placeholderIndex = 0
-    
-    // сохраняем блоки кода (```...```) - не трогаем их содержимое
-    result = result.replace(/```([\s\S]*?)```/g, (match) => {
-      const placeholder = `\u0001CODEBLOCK${placeholderIndex}\u0001`
-      placeholders.push({ placeholder, replacement: match })
-      placeholderIndex++
-      return placeholder
-    })
-    
-    // сохраняем inline код (`...`) - не трогаем его содержимое
-    result = result.replace(/`([^`\n]+)`/g, (match) => {
-      const placeholder = `\u0001CODE${placeholderIndex}\u0001`
-      placeholders.push({ placeholder, replacement: match })
-      placeholderIndex++
-      return placeholder
-    })
-    
-    // преобразуем форматирование:
-    // **жирный** → *жирный* (MarkdownV2 использует одну звездочку)
-    result = result.replace(/\*\*([^*\n]+)\*\*/g, '*$1*')
-    
-    // __курсив__ → _курсив_ (MarkdownV2 использует одно подчеркивание)
-    result = result.replace(/__([^_\n]+)__/g, '_$1_')
-    
-    // ~~перечеркнутый~~ → ~перечеркнутый~
-    result = result.replace(/~~([^~\n]+)~~/g, '~$1~')
-    
-    // ||скрытый текст|| остается как есть (это уже правильный синтаксис MarkdownV2)
-    
-    // сохраняем все форматированные части, чтобы не экранировать их содержимое
-    const formattedParts: Array<{ placeholder: string; replacement: string }> = []
-    let formattedIndex = 0
-    
-    // сохраняем жирный текст (*...*)
-    result = result.replace(/\*([^*\n]+)\*/g, (match) => {
-      const placeholder = `\u0001BOLD${formattedIndex}\u0001`
-      formattedParts.push({ placeholder, replacement: match })
-      formattedIndex++
-      return placeholder
-    })
-    
-    // сохраняем курсив (_..._)
-    result = result.replace(/_([^_\n]+)_/g, (match) => {
-      const placeholder = `\u0001ITALIC${formattedIndex}\u0001`
-      formattedParts.push({ placeholder, replacement: match })
-      formattedIndex++
-      return placeholder
-    })
-    
-    // сохраняем перечеркнутый (~...~)
-    result = result.replace(/~([^~\n]+)~/g, (match) => {
-      const placeholder = `\u0001STRIKE${formattedIndex}\u0001`
-      formattedParts.push({ placeholder, replacement: match })
-      formattedIndex++
-      return placeholder
-    })
-    
-    // сохраняем скрытый текст (||...||)
-    result = result.replace(/\|\|([^|\n]+)\|\|/g, (match) => {
-      const placeholder = `\u0001SPOILER${formattedIndex}\u0001`
-      formattedParts.push({ placeholder, replacement: match })
-      formattedIndex++
-      return placeholder
-    })
-    
-    // экранируем специальные символы в оставшемся тексте
-    result = escapeMarkdownV2(result)
-    
-    // возвращаем форматированные части обратно
-    for (const { placeholder, replacement } of formattedParts.reverse()) {
-      result = result.replace(placeholder, replacement)
-    }
-    
-    // возвращаем блоки кода обратно (они уже правильно отформатированы)
-    for (const { placeholder, replacement } of placeholders.reverse()) {
-      result = result.replace(placeholder, replacement)
-    }
-    
-    return { success: true, text: result }
-  } catch (error: any) {
-    return { success: false, error: error?.message || 'Ошибка преобразования форматирования' }
-  }
-}
-
-// валидация MarkdownV2 форматирования через тестовую отправку
-async function validateMarkdownV2(chatId: string | number, formattedText: string): Promise<{ valid: boolean; error?: string }> {
-  try {
-    // пробуем отправить тестовое сообщение самому себе для проверки форматирования
-    const testResponse = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: formattedText,
-        parse_mode: 'MarkdownV2'
-      })
-    })
-    
-    const result = await testResponse.json()
-    
-    if (!result.ok) {
-      return { valid: false, error: result.description || 'Неверное форматирование MarkdownV2' }
-    }
-    
-    // удаляем тестовое сообщение
-    if (result.result?.message_id) {
-      await fetch(`https://api.telegram.org/bot${token}/deleteMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          message_id: result.result.message_id
-        })
-      }).catch(() => {}) // игнорируем ошибки удаления
-    }
-    
-    return { valid: true }
-  } catch (error: any) {
-    return { valid: false, error: error?.message || 'Ошибка валидации форматирования' }
-  }
-}
-
 type SendMessageResult = { success: boolean; messageId?: number; error?: string }
 
 // отправка сообщения через Telegram Bot API (для рассылки и канала)
@@ -339,16 +196,8 @@ async function sendMessage(
   buttonMode: 'web_app' | 'url' = 'web_app'
 ): Promise<SendMessageResult> {
   try {
-    // преобразуем форматирование в MarkdownV2
-    const converted = convertToMarkdownV2(text)
-    if (!converted.success || !converted.text) {
-      console.error('Ошибка преобразования форматирования:', converted.error)
-      return { success: false, error: converted.error || 'ошибка форматирования' }
-    }
+    const hasText = typeof text === 'string' && text.trim().length > 0
     
-    const formattedText = converted.text
-    
-    // формируем клавиатуру с кнопкой, если указаны текст и URL
     const replyMarkup = (buttonText && buttonUrl) ? {
       inline_keyboard: [[
         buttonMode === 'web_app'
@@ -359,15 +208,13 @@ async function sendMessage(
     
     if (photoFileIds && photoFileIds.length > 0) {
       if (photoFileIds.length === 1) {
-        // отправка одного фото
         const response = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: chatId,
             photo: photoFileIds[0],
-            caption: formattedText,
-            parse_mode: 'MarkdownV2',
+            ...(hasText ? { caption: text } : {}),
             ...(replyMarkup ? { reply_markup: replyMarkup } : {})
           })
         })
@@ -381,22 +228,18 @@ async function sendMessage(
         
         return { success: true, messageId: result.result?.message_id }
       } else {
-        // отправка нескольких фото через media group (2-10 фото)
-        // текст может быть только в caption последнего фото
-        // кнопка добавляется только к последнему фото
         const media = photoFileIds.map((fileId, index) => ({
           type: 'photo',
           media: fileId,
-          ...(index === photoFileIds.length - 1 && formattedText ? { caption: formattedText, parse_mode: 'MarkdownV2' } : {})
+          ...(index === photoFileIds.length - 1 && hasText ? { caption: text } : {})
         }))
         
-        // для media group кнопка добавляется через отдельный запрос editMessageCaption
         const response = await fetch(`https://api.telegram.org/bot${token}/sendMediaGroup`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: chatId,
-            media: media
+            media
           })
         })
         
@@ -407,17 +250,14 @@ async function sendMessage(
           return { success: false, error: result.description || 'telegram error' }
         }
         
-        // если есть кнопка, добавляем её к последнему сообщению альбома
         if (replyMarkup && result.result && Array.isArray(result.result) && result.result.length > 0) {
           const lastMessage = result.result[result.result.length - 1]
-          const editResponse = await fetch(`https://api.telegram.org/bot${token}/editMessageCaption`, {
+          const editResponse = await fetch(`https://api.telegram.org/bot${token}/editMessageReplyMarkup`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               chat_id: chatId,
               message_id: lastMessage.message_id,
-              caption: formattedText,
-              parse_mode: 'MarkdownV2',
               reply_markup: replyMarkup
             })
           })
@@ -436,14 +276,16 @@ async function sendMessage(
         return { success: true, messageId: lastMessageId }
       }
     } else {
-      // отправка текста
+      if (!hasText) {
+        return { success: false, error: 'empty_message' }
+      }
+      
       const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           chat_id: chatId,
-          text: formattedText,
-          parse_mode: 'MarkdownV2',
+          text,
           ...(replyMarkup ? { reply_markup: replyMarkup } : {})
         })
       })
@@ -547,6 +389,11 @@ bot.command('cancel', async (ctx) => {
     channelPostDrafts.delete(chatId!)
     wasCancelled = true
   }
+  if (waitingForChannelButtonText.has(chatId!)) {
+    waitingForChannelButtonText.delete(chatId!)
+    channelPostDrafts.delete(chatId!)
+    wasCancelled = true
+  }
   if (waitingForChannelContent.has(chatId!)) {
     waitingForChannelContent.delete(chatId!)
     channelPostDrafts.delete(chatId!)
@@ -592,15 +439,18 @@ async function getMiniAppDeepLink(): Promise<string> {
   return cachedMiniAppLink
 }
 
-async function sendChannelPostContent(channelUsername: string, messageText: string, photoFileIds?: string[]) {
+async function sendChannelPostContent(channelUsername: string, messageText: string, photoFileIds?: string[], buttonText?: string) {
   try {
     const channel = channelUsername.replace('@', '')
     const miniappLink = await getMiniAppDeepLink()
+    const finalButtonText = buttonText && buttonText.trim().length > 0
+      ? buttonText.trim().slice(0, 64)
+      : 'Открыть каталог 🛍️'
     const result = await sendMessage(
       `@${channel}`,
       messageText,
       photoFileIds,
-      'Открыть каталог 🛍️',
+      finalButtonText,
       miniappLink,
       'url'
     )
@@ -775,11 +625,42 @@ bot.on('message', async (ctx) => {
     waitingForChannelPost.delete(chatId)
     const channel = normalized
     channelPostDrafts.set(chatId, { channel })
+    waitingForChannelButtonText.add(chatId)
+    
+    await ctx.reply(
+      `✅ Канал @${channel} сохранен.\n` +
+      `Теперь введи текст кнопки (до 64 символов). Используй /cancel для отмены.`
+    )
+    return
+  }
+  
+  // ожидание текста кнопки для поста в канал
+  if (chatId && waitingForChannelButtonText.has(chatId) && isManager(chatId, username)) {
+    const buttonText = ctx.message.text?.trim()
+    if (!buttonText) {
+      await ctx.reply('❌ Текст кнопки не может быть пустым. Введи текст или используй /cancel.')
+      return
+    }
+    if (buttonText.length > 64) {
+      await ctx.reply('❌ Текст кнопки должен быть короче 64 символов. Попробуй еще раз.')
+      return
+    }
+    
+    const draft = channelPostDrafts.get(chatId)
+    if (!draft) {
+      waitingForChannelButtonText.delete(chatId)
+      await ctx.reply('❌ Канал не найден. Используй /channel_post заново.')
+      return
+    }
+    
+    draft.buttonText = buttonText
+    channelPostDrafts.set(chatId, draft)
+    waitingForChannelButtonText.delete(chatId)
     waitingForChannelContent.add(chatId)
     
     await ctx.reply(
-      `✅ Канал @${channel} сохранен.\nТеперь пришли текст/фото поста (можно альбом до 10 фото).` +
-      `\nК каждой публикации автоматом добавлю кнопку открытия миниапки.\nИспользуй /cancel для отмены.`
+      '✅ Кнопка сохранена.\nПришли текст/фото поста (можно альбом до 10 фото). ' +
+      'К посту автоматически добавлю эту кнопку. Используй /cancel для отмены.'
     )
     return
   }
@@ -884,27 +765,6 @@ bot.on('message', async (ctx) => {
           const photoFileIds = items.map(p => p.fileId)
           const finalText = items[items.length - 1]?.text || ''
           
-          if (finalText) {
-            await ctx.reply(`🔍 Проверяю форматирование текста в альбоме для ${localGenitive}...`)
-            const converted = convertToMarkdownV2(finalText)
-            
-            if (!converted.success || !converted.text) {
-              await ctx.reply(`❌ Ошибка обработки форматирования: ${converted.error || 'неизвестная ошибка'}\n\n${localAction} отменена. Исправь текст или используй /cancel.`)
-              if (target === 'broadcast') waitingForBroadcast.add(targetChatId)
-              mediaGroupCache.delete(mediaGroupId)
-              return
-            }
-            
-            const validation = await validateMarkdownV2(targetChatId, converted.text)
-            
-            if (!validation.valid) {
-              await ctx.reply(`❌ Ошибка форматирования: ${validation.error || 'неверное форматирование MarkdownV2'}\n\n${localAction} отменена. Исправь текст или используй /cancel.`)
-              if (target === 'broadcast') waitingForBroadcast.add(targetChatId)
-              mediaGroupCache.delete(mediaGroupId)
-              return
-            }
-          }
-          
           await ctx.reply(`🔍 Проверяю альбом перед ${localGenitive}...`)
           const testResult = await sendMessage(targetChatId, finalText, photoFileIds)
           
@@ -932,7 +792,13 @@ bot.on('message', async (ctx) => {
               waitingForChannelContent.delete(targetChatId)
               return
             }
-            const result = await sendChannelPostContent(draft.channel, finalText, photoFileIds)
+            if (!draft.buttonText) {
+              await ctx.reply('❌ Текст кнопки не найден. Введи его заново.')
+              waitingForChannelContent.delete(targetChatId)
+              waitingForChannelButtonText.add(targetChatId)
+              return
+            }
+            const result = await sendChannelPostContent(draft.channel, finalText, photoFileIds, draft.buttonText)
             if (result.success) {
               waitingForChannelContent.delete(targetChatId)
               channelPostDrafts.delete(targetChatId)
@@ -963,23 +829,6 @@ bot.on('message', async (ctx) => {
       return
     }
     
-    if (messageText) {
-      await ctx.reply(`🔍 Проверяю форматирование текста для ${contextGenitive}...`)
-      const converted = convertToMarkdownV2(messageText)
-      
-      if (!converted.success || !converted.text) {
-        await handleFatalError(`❌ Ошибка обработки форматирования: ${converted.error || 'неизвестная ошибка'}\n\n${contextAction} отменена. Исправь текст или используй /cancel.`)
-        return
-      }
-      
-      const validation = await validateMarkdownV2(chatId, converted.text)
-      
-      if (!validation.valid) {
-        await handleFatalError(`❌ Ошибка форматирования: ${validation.error || 'неверное форматирование MarkdownV2'}\n\n${contextAction} отменена. Исправь текст или используй /cancel.`)
-        return
-      }
-    }
-    
     const photoFileIds = photos.length > 0 
       ? [photos[photos.length - 1].file_id]
       : undefined
@@ -1007,8 +856,14 @@ bot.on('message', async (ctx) => {
         await ctx.reply('❌ Канал не найден. Используй /channel_post заново.')
         return
       }
+      if (!draft.buttonText) {
+        waitingForChannelContent.delete(chatId)
+        waitingForChannelButtonText.add(chatId)
+        await ctx.reply('❌ Сначала введи текст кнопки для поста.')
+        return
+      }
       
-      const result = await sendChannelPostContent(draft.channel, messageText, photoFileIds)
+      const result = await sendChannelPostContent(draft.channel, messageText, photoFileIds, draft.buttonText)
       if (result.success) {
         waitingForChannelContent.delete(chatId)
         channelPostDrafts.delete(chatId)
