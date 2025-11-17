@@ -231,7 +231,7 @@ async function sendMessage(
         const media = photoFileIds.map((fileId, index) => ({
           type: 'photo',
           media: fileId,
-          ...(index === photoFileIds.length - 1 && hasText ? { caption: text } : {})
+          ...(index === 0 && hasText ? { caption: text } : {})
         }))
         
         const response = await fetch(`https://api.telegram.org/bot${token}/sendMediaGroup`, {
@@ -251,13 +251,14 @@ async function sendMessage(
         }
         
         if (replyMarkup && result.result && Array.isArray(result.result) && result.result.length > 0) {
-          const lastMessage = result.result[result.result.length - 1]
+          const targetIndex = hasText ? 0 : result.result.length - 1
+          const targetMessage = result.result[targetIndex]
           const editResponse = await fetch(`https://api.telegram.org/bot${token}/editMessageReplyMarkup`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               chat_id: chatId,
-              message_id: lastMessage.message_id,
+              message_id: targetMessage.message_id,
               reply_markup: replyMarkup
             })
           })
@@ -612,7 +613,7 @@ bot.on('message', async (ctx) => {
   if (chatId && waitingForChannelPost.has(chatId) && isManager(chatId, username)) {
     const rawInput = ctx.message.text?.trim()
     if (!rawInput) {
-      await ctx.reply('❌ Нужно прислать username канала в формате @channel или ссылку t.me/channel')
+      await ctx.reply('❌ Нужно прислать username канала в формате @channel или ссылку t.me')
       return
     }
     
