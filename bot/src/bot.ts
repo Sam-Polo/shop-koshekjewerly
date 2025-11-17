@@ -627,7 +627,7 @@ bot.command('channel_post', async (ctx) => {
   
   waitingForChannelPost.add(chatId!)
   const example = CHANNEL_USERNAME ? `@${CHANNEL_USERNAME.replace('@', '')}` : '@channelname'
-  await ctx.reply(`📢 Введи username канала, куда отправить пост (например, ${example})\nИспользуй /cancel для отмены.`)
+  await ctx.reply(`📢 Введи username канала, куда отправить пост: @channel \nИспользуй /cancel для отмены.`)
 });
 
 // создаем reply keyboard с кнопкой "Старт"
