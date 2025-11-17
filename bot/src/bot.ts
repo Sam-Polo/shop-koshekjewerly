@@ -153,6 +153,10 @@ const waitingForButtonQuestion = new Set<string | number>();
 // состояние ожидания текста кнопки
 const waitingForButtonText = new Set<string | number>();
 
+// состояние ожидания username канала и контента
+const waitingForChannelPost = new Set<string | number>();
+const waitingForChannelContent = new Set<string | number>();
+
 // хранилище данных рассылки (chatId -> { messageText, photoFileIds, needButton, buttonText })
 type BroadcastData = {
   messageText: string
@@ -162,8 +166,18 @@ type BroadcastData = {
 }
 const broadcastData = new Map<string | number, BroadcastData>();
 
+type ChannelPostDraft = {
+  channel: string
+}
+const channelPostDrafts = new Map<string | number, ChannelPostDraft>();
+
 // временное хранилище для альбомов (media_group_id -> массив фото)
-const mediaGroupCache = new Map<string, Array<{ fileId: string, text?: string }>>();
+type MediaGroupCacheEntry = {
+  chatId: string | number
+  target: 'broadcast' | 'channel'
+  items: Array<{ fileId: string, text?: string }>
+}
+const mediaGroupCache = new Map<string, MediaGroupCacheEntry>();
 
 // таймеры для обработки альбомов (media_group_id -> timeout)
 const mediaGroupTimers = new Map<string, NodeJS.Timeout>();
@@ -313,21 +327,34 @@ async function validateMarkdownV2(chatId: string | number, formattedText: string
   }
 }
 
-// отправка сообщения через Telegram Bot API (для рассылки)
-async function sendMessage(chatId: string | number, text: string, photoFileIds?: string[], buttonText?: string, buttonUrl?: string): Promise<boolean> {
+type SendMessageResult = { success: boolean; messageId?: number; error?: string }
+
+// отправка сообщения через Telegram Bot API (для рассылки и канала)
+async function sendMessage(
+  chatId: string | number,
+  text: string,
+  photoFileIds?: string[],
+  buttonText?: string,
+  buttonUrl?: string,
+  buttonMode: 'web_app' | 'url' = 'web_app'
+): Promise<SendMessageResult> {
   try {
     // преобразуем форматирование в MarkdownV2
     const converted = convertToMarkdownV2(text)
     if (!converted.success || !converted.text) {
       console.error('Ошибка преобразования форматирования:', converted.error)
-      return false
+      return { success: false, error: converted.error || 'ошибка форматирования' }
     }
     
     const formattedText = converted.text
     
     // формируем клавиатуру с кнопкой, если указаны текст и URL
     const replyMarkup = (buttonText && buttonUrl) ? {
-      inline_keyboard: [[{ text: buttonText, web_app: { url: buttonUrl } }]]
+      inline_keyboard: [[
+        buttonMode === 'web_app'
+          ? { text: buttonText, web_app: { url: buttonUrl } }
+          : { text: buttonText, url: buttonUrl }
+      ]]
     } : undefined
     
     if (photoFileIds && photoFileIds.length > 0) {
@@ -345,13 +372,14 @@ async function sendMessage(chatId: string | number, text: string, photoFileIds?:
           })
         })
         
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}))
-          console.error('Ошибка отправки фото с текстом:', errorData)
-          return false
+        const result = await response.json().catch(() => ({}))
+        
+        if (!response.ok || !result.ok) {
+          console.error('Ошибка отправки фото с текстом:', result)
+          return { success: false, error: result.description || 'telegram error' }
         }
         
-        return true
+        return { success: true, messageId: result.result?.message_id }
       } else {
         // отправка нескольких фото через media group (2-10 фото)
         // текст может быть только в caption последнего фото
@@ -376,7 +404,7 @@ async function sendMessage(chatId: string | number, text: string, photoFileIds?:
         
         if (!response.ok || !result.ok) {
           console.error('Ошибка отправки media group:', result)
-          return false
+          return { success: false, error: result.description || 'telegram error' }
         }
         
         // если есть кнопка, добавляем её к последнему сообщению альбома
@@ -394,14 +422,18 @@ async function sendMessage(chatId: string | number, text: string, photoFileIds?:
             })
           })
           
-          if (!editResponse.ok) {
-            const errorData = await editResponse.json().catch(() => ({}))
-            console.error('Ошибка добавления кнопки к media group:', errorData)
-            return false
+          const editResult = await editResponse.json().catch(() => ({}))
+          
+          if (!editResponse.ok || !editResult.ok) {
+            console.error('Ошибка добавления кнопки к media group:', editResult)
+            return { success: false, error: editResult.description || 'telegram error' }
           }
         }
         
-        return true
+        const lastMessageId = Array.isArray(result.result) && result.result.length > 0
+          ? result.result[result.result.length - 1]?.message_id
+          : undefined
+        return { success: true, messageId: lastMessageId }
       }
     } else {
       // отправка текста
@@ -416,17 +448,18 @@ async function sendMessage(chatId: string | number, text: string, photoFileIds?:
         })
       })
       
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        console.error('Ошибка отправки текста:', errorData)
-        return false
+      const result = await response.json().catch(() => ({}))
+      
+      if (!response.ok || !result.ok) {
+        console.error('Ошибка отправки текста:', result)
+        return { success: false, error: result.description || 'telegram error' }
       }
       
-      return true
+      return { success: true, messageId: result.result?.message_id }
     }
   } catch (e: any) {
     console.error('ошибка отправки сообщения:', e?.message)
-    return false
+    return { success: false, error: e?.message || 'unknown error' }
   }
 }
 
@@ -460,8 +493,8 @@ async function startBroadcast(ctx: any, chatId: string | number, data: Broadcast
       // пропускаем самого менеджера
       if (String(userId) === String(chatId)) continue
       
-      const success = await sendMessage(userId, data.messageText, data.photoFileIds, buttonText, buttonUrl)
-      if (success) {
+      const result = await sendMessage(userId, data.messageText, data.photoFileIds, buttonText, buttonUrl)
+      if (result.success) {
         sent++
       } else {
         failed++
@@ -501,11 +534,25 @@ bot.command('broadcast', async (ctx) => {
 // отмена рассылки
 bot.command('cancel', async (ctx) => {
   const chatId = ctx.from?.id
+  let wasCancelled = false
   if (waitingForBroadcast.has(chatId!) || waitingForButtonQuestion.has(chatId!) || waitingForButtonText.has(chatId!)) {
     waitingForBroadcast.delete(chatId!)
     waitingForButtonQuestion.delete(chatId!)
     waitingForButtonText.delete(chatId!)
     broadcastData.delete(chatId!)
+    wasCancelled = true
+  }
+  if (waitingForChannelPost.has(chatId!)) {
+    waitingForChannelPost.delete(chatId!)
+    channelPostDrafts.delete(chatId!)
+    wasCancelled = true
+  }
+  if (waitingForChannelContent.has(chatId!)) {
+    waitingForChannelContent.delete(chatId!)
+    channelPostDrafts.delete(chatId!)
+    wasCancelled = true
+  }
+  if (wasCancelled) {
     
     // очищаем кэш альбомов и таймеры для этого менеджера
     // (в реальности media_group_id уникален, но на всякий случай очищаем все)
@@ -515,7 +562,7 @@ bot.command('cancel', async (ctx) => {
       mediaGroupCache.delete(groupId)
     }
     
-    await ctx.reply('❌ Рассылка отменена.')
+    await ctx.reply('❌ Действие отменено.')
   }
 });
 
@@ -533,37 +580,35 @@ bot.command('users', async (ctx) => {
   await ctx.reply(`👥 Всего пользователей: <b>${usersCount}</b>`, { parse_mode: 'HTML' })
 });
 
-// функция отправки сообщения в канал с кнопкой для открытия мини-приложения
-async function sendChannelPost(channelUsername: string): Promise<{ success: boolean; messageId?: number; error?: string }> {
+let cachedMiniAppLink: string | null = null
+
+async function getMiniAppDeepLink(): Promise<string> {
+  if (cachedMiniAppLink) {
+    return cachedMiniAppLink
+  }
+  const botInfo = await bot.api.getMe()
+  const botUsername = botInfo.username
+  cachedMiniAppLink = `https://t.me/${botUsername}/miniapp`
+  return cachedMiniAppLink
+}
+
+async function sendChannelPostContent(channelUsername: string, messageText: string, photoFileIds?: string[]) {
   try {
-    // убираем @ если есть
     const channel = channelUsername.replace('@', '')
-    
-    // для каналов WebApp кнопки не поддерживаются, используем URL кнопку
-    // получаем username бота для создания deep link мини-приложения
-    const botInfo = await bot.api.getMe()
-    const botUsername = botInfo.username
-    
-    // используем специальный deep link для мини-приложения (формат: t.me/botname/miniapp)
-    // это откроет мини-приложение внутри Telegram, а не в браузере
-    const miniappLink = `https://t.me/${botUsername}/miniapp`
-    
-    // создаем клавиатуру с URL кнопкой
-    const kb = new InlineKeyboard().url('Открыть каталог 🛍️', miniappLink)
-    
-    // текст сообщения
-    const messageText = `🛍️ <b>KOSHEK JEWERLY</b>\n\n` +
-      `Добро пожаловать в наш каталог украшений!\n\n` +
-      `Нажмите на кнопку ниже, чтобы открыть каталог и выбрать украшения. 💖`
-    
-    // отправляем сообщение в канал
-    const result = await bot.api.sendMessage(`@${channel}`, messageText, {
-      parse_mode: 'HTML',
-      reply_markup: kb
-    })
-    
-    console.log(`[sendChannelPost] сообщение отправлено в канал @${channel}, message_id: ${result.message_id}`)
-    return { success: true, messageId: result.message_id }
+    const miniappLink = await getMiniAppDeepLink()
+    const result = await sendMessage(
+      `@${channel}`,
+      messageText,
+      photoFileIds,
+      'Открыть каталог 🛍️',
+      miniappLink,
+      'url'
+    )
+    if (!result.success) {
+      return { success: false, error: result.error || 'telegram error' }
+    }
+    console.log(`[sendChannelPost] сообщение отправлено в канал @${channel}, message_id: ${result.messageId}`)
+    return { success: true, messageId: result.messageId }
   } catch (error: any) {
     console.error('[sendChannelPost] ошибка отправки в канал:', error?.message || error)
     return { success: false, error: error?.message || 'unknown error' }
@@ -580,23 +625,9 @@ bot.command('channel_post', async (ctx) => {
     return
   }
   
-  await ctx.reply('📢 Отправляю пост в канал...')
-  
-  const result = await sendChannelPost(CHANNEL_USERNAME)
-  
-  if (result.success) {
-    await ctx.reply(`✅ Пост успешно отправлен в канал @${CHANNEL_USERNAME.replace('@', '')}\n\n` +
-      `Message ID: <code>${result.messageId}</code>\n\n` +
-      `Теперь закрепи это сообщение в канале, чтобы кнопка всегда была видна.`,
-      { parse_mode: 'HTML' })
-  } else {
-    await ctx.reply(`❌ Ошибка отправки поста в канал:\n<code>${result.error}</code>\n\n` +
-      `Проверь:\n` +
-      `1. Бот добавлен в канал как администратор\n` +
-      `2. У бота есть права на отправку сообщений\n` +
-      `3. Правильное имя канала: @${CHANNEL_USERNAME.replace('@', '')}`,
-      { parse_mode: 'HTML' })
-  }
+  waitingForChannelPost.add(chatId!)
+  const example = CHANNEL_USERNAME ? `@${CHANNEL_USERNAME.replace('@', '')}` : '@channelname'
+  await ctx.reply(`📢 Введи username канала, куда отправить пост (например, ${example})\nИспользуй /cancel для отмены.`)
 });
 
 // создаем reply keyboard с кнопкой "Старт"
@@ -721,6 +752,37 @@ bot.on('message', async (ctx) => {
   if (chatId) {
     addUserChatId(chatId)
   }
+
+  // ожидание username канала для поста
+  if (chatId && waitingForChannelPost.has(chatId) && isManager(chatId, username)) {
+    const rawInput = ctx.message.text?.trim()
+    if (!rawInput) {
+      await ctx.reply('❌ Нужно прислать username канала в формате @channel или ссылку t.me/channel')
+      return
+    }
+    
+    let normalized = rawInput.trim()
+    if (normalized.toLowerCase().startsWith('https://t.me/')) {
+      normalized = normalized.slice('https://t.me/'.length)
+    }
+    normalized = normalized.replace('@', '').trim()
+    
+    if (!normalized || !/^[a-zA-Z0-9_]{5,32}$/.test(normalized)) {
+      await ctx.reply('❌ Неверный username. Используй только латиницу/цифры/подчёркивание, минимум 5 символов.')
+      return
+    }
+    
+    waitingForChannelPost.delete(chatId)
+    const channel = normalized
+    channelPostDrafts.set(chatId, { channel })
+    waitingForChannelContent.add(chatId)
+    
+    await ctx.reply(
+      `✅ Канал @${channel} сохранен.\nТеперь пришли текст/фото поста (можно альбом до 10 фото).` +
+      `\nК каждой публикации автоматом добавлю кнопку открытия миниапки.\nИспользуй /cancel для отмены.`
+    )
+    return
+  }
   
   // обработка кнопки "Старт" из reply keyboard
   if (ctx.message.text === 'Старт') {
@@ -759,153 +821,202 @@ bot.on('message', async (ctx) => {
     return
   }
   
-  // если менеджер в режиме рассылки
-  if (chatId && waitingForBroadcast.has(chatId) && isManager(chatId, username)) {
+  // если менеджер готовит рассылку или пост в канал
+  const isManagerUser = chatId && isManager(chatId, username)
+  const targetMode: 'broadcast' | 'channel' | null = isManagerUser
+    ? (waitingForBroadcast.has(chatId!) ? 'broadcast'
+      : waitingForChannelContent.has(chatId!) ? 'channel'
+      : null)
+    : null
+  
+  if (chatId && targetMode) {
     const photos = ctx.message.photo || []
     const mediaGroupId = ctx.message.media_group_id
+    const contextAction = targetMode === 'broadcast' ? 'Рассылка' : 'Отправка'
+    const contextGenitive = targetMode === 'broadcast' ? 'рассылки' : 'поста'
+    const contextAccusative = targetMode === 'broadcast' ? 'рассылку' : 'пост'
+    const channelDraft = targetMode === 'channel' ? channelPostDrafts.get(chatId) : null
     
-    // если это альбом (несколько фото), собираем их в кэш
+    if (targetMode === 'channel' && !channelDraft) {
+      waitingForChannelContent.delete(chatId)
+      await ctx.reply('❌ Канал не выбран. Используй /channel_post заново.')
+      return
+    }
+    
+    const handleFatalError = async (message: string) => {
+      await ctx.reply(message)
+      if (targetMode === 'broadcast') {
+        waitingForBroadcast.add(chatId)
+      }
+    }
+    
+    // обработка альбомов
     if (mediaGroupId && photos.length > 0) {
-      const photoFileId = photos[photos.length - 1]?.file_id // берем самое большое качество
+      const photoFileId = photos[photos.length - 1]?.file_id
       const messageText = ctx.message.caption || ''
       
       if (!mediaGroupCache.has(mediaGroupId)) {
-        mediaGroupCache.set(mediaGroupId, [])
+        mediaGroupCache.set(mediaGroupId, { chatId, target: targetMode, items: [] })
       }
       
       const cache = mediaGroupCache.get(mediaGroupId)!
-      cache.push({ 
-        fileId: photoFileId,
-        text: messageText // текст может быть только в последнем сообщении альбома
-      })
+      cache.items.push({ fileId: photoFileId, text: messageText })
+      cache.target = targetMode
+      cache.chatId = chatId
       
-      // отменяем предыдущий таймер для этого альбома (если есть)
       if (mediaGroupTimers.has(mediaGroupId)) {
         clearTimeout(mediaGroupTimers.get(mediaGroupId)!)
       }
       
-      // устанавливаем новый таймер: если в течение 2 секунд не придет новое фото - обрабатываем альбом
       const timer = setTimeout(async () => {
-        const allPhotos = mediaGroupCache.get(mediaGroupId) || []
+        const cacheEntry = mediaGroupCache.get(mediaGroupId)
         mediaGroupTimers.delete(mediaGroupId)
+        if (!cacheEntry) return
         
-        if (allPhotos.length > 0 && allPhotos.length <= 10) {
-          const photoFileIds = allPhotos.map(p => p.fileId)
-          const finalText = allPhotos[allPhotos.length - 1]?.text || ''
+        const target = cacheEntry.target
+        const targetChatId = cacheEntry.chatId as string | number
+        const localAction = target === 'broadcast' ? 'Рассылка' : 'Отправка'
+        const localGenitive = target === 'broadcast' ? 'рассылки' : 'поста'
+        const localAccusative = target === 'broadcast' ? 'рассылку' : 'пост'
+        const items = cacheEntry.items || []
+        
+        if (items.length > 0 && items.length <= 10) {
+          const photoFileIds = items.map(p => p.fileId)
+          const finalText = items[items.length - 1]?.text || ''
           
-          // преобразуем и валидируем форматирование (если есть текст)
           if (finalText) {
-            await ctx.reply('🔍 Проверяю форматирование текста в альбоме...')
+            await ctx.reply(`🔍 Проверяю форматирование текста в альбоме для ${localGenitive}...`)
             const converted = convertToMarkdownV2(finalText)
             
             if (!converted.success || !converted.text) {
-              await ctx.reply(`❌ Ошибка обработки форматирования: ${converted.error || 'неизвестная ошибка'}\n\nРассылка отменена. Проверь форматирование и попробуй еще раз или используй /cancel.`)
-              waitingForBroadcast.add(chatId)
+              await ctx.reply(`❌ Ошибка обработки форматирования: ${converted.error || 'неизвестная ошибка'}\n\n${localAction} отменена. Исправь текст или используй /cancel.`)
+              if (target === 'broadcast') waitingForBroadcast.add(targetChatId)
               mediaGroupCache.delete(mediaGroupId)
               return
             }
             
-            // валидируем форматирование через тестовую отправку
-            const validation = await validateMarkdownV2(chatId, converted.text)
+            const validation = await validateMarkdownV2(targetChatId, converted.text)
             
             if (!validation.valid) {
-              await ctx.reply(`❌ Ошибка форматирования: ${validation.error || 'неверное форматирование MarkdownV2'}\n\nРассылка отменена. Исправь форматирование и попробуй еще раз или используй /cancel.`)
-              waitingForBroadcast.add(chatId)
+              await ctx.reply(`❌ Ошибка форматирования: ${validation.error || 'неверное форматирование MarkdownV2'}\n\n${localAction} отменена. Исправь текст или используй /cancel.`)
+              if (target === 'broadcast') waitingForBroadcast.add(targetChatId)
               mediaGroupCache.delete(mediaGroupId)
               return
             }
           }
           
-          // валидация перед рассылкой
-          await ctx.reply('🔍 Проверяю альбом перед рассылкой...')
-          const testSuccess = await sendMessage(chatId, finalText, photoFileIds)
+          await ctx.reply(`🔍 Проверяю альбом перед ${localGenitive}...`)
+          const testResult = await sendMessage(targetChatId, finalText, photoFileIds)
           
-          if (!testSuccess) {
-            await ctx.reply('❌ Ошибка при проверке альбома. Рассылка отменена.\nПроверь формат сообщения и попробуй еще раз или используй /cancel.')
-            waitingForBroadcast.add(chatId)
+          if (!testResult.success) {
+            await ctx.reply(`❌ Ошибка при проверке альбома. ${localAction} отменена.\nПроверь текст/фото или используй /cancel.`)
+            if (target === 'broadcast') waitingForBroadcast.add(targetChatId)
             mediaGroupCache.delete(mediaGroupId)
             return
           }
           
-          // сохраняем данные рассылки
-          const data: BroadcastData = {
-            messageText: finalText,
-            photoFileIds
-          }
-          broadcastData.set(chatId, data)
-          
-          // спрашиваем про кнопку
-          waitingForBroadcast.delete(chatId)
           mediaGroupCache.delete(mediaGroupId)
-          await askAboutButton(ctx, chatId, data)
-        } else if (allPhotos.length > 10) {
+          
+          if (target === 'broadcast') {
+            const data: BroadcastData = {
+              messageText: finalText,
+              photoFileIds
+            }
+            broadcastData.set(targetChatId, data)
+            waitingForBroadcast.delete(targetChatId)
+            await askAboutButton(ctx, targetChatId, data)
+          } else {
+            const draft = channelPostDrafts.get(targetChatId)
+            if (!draft) {
+              await ctx.reply('❌ Канал не найден. Используй /channel_post заново.')
+              waitingForChannelContent.delete(targetChatId)
+              return
+            }
+            const result = await sendChannelPostContent(draft.channel, finalText, photoFileIds)
+            if (result.success) {
+              waitingForChannelContent.delete(targetChatId)
+              channelPostDrafts.delete(targetChatId)
+              await ctx.reply(`✅ Пост отправлен в @${draft.channel}\nMessage ID: <code>${result.messageId}</code>`, { parse_mode: 'HTML' })
+            } else {
+              await ctx.reply(`❌ Ошибка отправки: <code>${result.error || 'unknown'}</code>\nОтредактируй пост и пришли снова или используй /cancel.`, { parse_mode: 'HTML' })
+            }
+          }
+        } else if (items.length > 10) {
           await ctx.reply('❌ Максимум 10 фото в одном сообщении. Отправь меньше фото или используй /cancel.')
-          waitingForBroadcast.add(chatId)
+          if (target === 'broadcast') waitingForBroadcast.add(targetChatId)
           mediaGroupCache.delete(mediaGroupId)
         }
-      }, 2000) // ждем 2 секунды после последнего фото альбома
+      }, 2000)
       
       mediaGroupTimers.set(mediaGroupId, timer)
       return
     }
     
-    // если это не альбом, обрабатываем как обычное сообщение
-    waitingForBroadcast.delete(chatId)
-    
-    // получаем текст и фото
+    // одиночное сообщение
     const messageText = ctx.message.text || ctx.message.caption || ''
     
     if (!messageText && photos.length === 0) {
       await ctx.reply('❌ Сообщение пустое. Попробуй еще раз или используй /cancel.')
-      waitingForBroadcast.add(chatId)
+      if (targetMode === 'broadcast') {
+        waitingForBroadcast.add(chatId)
+      }
       return
     }
     
-    // преобразуем и валидируем форматирование
     if (messageText) {
-      await ctx.reply('🔍 Проверяю форматирование текста...')
+      await ctx.reply(`🔍 Проверяю форматирование текста для ${contextGenitive}...`)
       const converted = convertToMarkdownV2(messageText)
       
       if (!converted.success || !converted.text) {
-        await ctx.reply(`❌ Ошибка обработки форматирования: ${converted.error || 'неизвестная ошибка'}\n\nРассылка отменена. Проверь форматирование и попробуй еще раз или используй /cancel.`)
-        waitingForBroadcast.add(chatId)
+        await handleFatalError(`❌ Ошибка обработки форматирования: ${converted.error || 'неизвестная ошибка'}\n\n${contextAction} отменена. Исправь текст или используй /cancel.`)
         return
       }
       
-      // валидируем форматирование через тестовую отправку
       const validation = await validateMarkdownV2(chatId, converted.text)
       
       if (!validation.valid) {
-        await ctx.reply(`❌ Ошибка форматирования: ${validation.error || 'неверное форматирование MarkdownV2'}\n\nРассылка отменена. Исправь форматирование и попробуй еще раз или используй /cancel.`)
-        waitingForBroadcast.add(chatId)
+        await handleFatalError(`❌ Ошибка форматирования: ${validation.error || 'неверное форматирование MarkdownV2'}\n\n${contextAction} отменена. Исправь текст или используй /cancel.`)
         return
       }
     }
     
-    // получаем file_id фото (берем самое большое качество)
     const photoFileIds = photos.length > 0 
       ? [photos[photos.length - 1].file_id]
       : undefined
     
-    // валидация: пробуем отправить тестовое сообщение менеджеру перед рассылкой
-    await ctx.reply('🔍 Проверяю сообщение перед рассылкой...')
-    const testSuccess = await sendMessage(chatId, messageText, photoFileIds)
+    await ctx.reply(`🔍 Проверяю сообщение перед ${contextGenitive}...`)
+    const testResult = await sendMessage(chatId, messageText, photoFileIds)
     
-    if (!testSuccess) {
-      await ctx.reply('❌ Ошибка при проверке сообщения. Рассылка отменена.\nПроверь формат сообщения и попробуй еще раз или используй /cancel.')
-      waitingForBroadcast.add(chatId)
+    if (!testResult.success) {
+      await handleFatalError(`❌ Ошибка при проверке сообщения. ${contextAction} отменена.\nПроверь текст/фото и попробуй еще раз или используй /cancel.`)
       return
     }
     
-    // сохраняем данные рассылки
-    const data: BroadcastData = {
-      messageText,
-      photoFileIds
+    if (targetMode === 'broadcast') {
+      waitingForBroadcast.delete(chatId)
+      const data: BroadcastData = {
+        messageText,
+        photoFileIds
+      }
+      broadcastData.set(chatId, data)
+      await askAboutButton(ctx, chatId, data)
+    } else {
+      const draft = channelPostDrafts.get(chatId)
+      if (!draft) {
+        waitingForChannelContent.delete(chatId)
+        await ctx.reply('❌ Канал не найден. Используй /channel_post заново.')
+        return
+      }
+      
+      const result = await sendChannelPostContent(draft.channel, messageText, photoFileIds)
+      if (result.success) {
+        waitingForChannelContent.delete(chatId)
+        channelPostDrafts.delete(chatId)
+        await ctx.reply(`✅ Пост отправлен в @${draft.channel}\nMessage ID: <code>${result.messageId}</code>`, { parse_mode: 'HTML' })
+      } else {
+        await ctx.reply(`❌ Ошибка отправки: <code>${result.error || 'unknown'}</code>\nПопробуй снова или используй /cancel.`, { parse_mode: 'HTML' })
+      }
     }
-    broadcastData.set(chatId, data)
-    
-    // спрашиваем про кнопку
-    await askAboutButton(ctx, chatId, data)
     return
   }
   
