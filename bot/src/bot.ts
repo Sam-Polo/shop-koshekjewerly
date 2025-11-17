@@ -158,10 +158,15 @@ const waitingForChannelPost = new Set<string | number>();
 const waitingForChannelButtonText = new Set<string | number>();
 const waitingForChannelContent = new Set<string | number>();
 
-// хранилище данных рассылки (chatId -> { messageText, photoFileIds, needButton, buttonText })
+type MediaAttachment = {
+  type: 'photo' | 'video'
+  fileId: string
+}
+
+// хранилище данных рассылки (chatId -> { messageText, media, needButton, buttonText })
 type BroadcastData = {
   messageText: string
-  photoFileIds?: string[]
+  media?: MediaAttachment
   needButton?: boolean
   buttonText?: string
 }
@@ -173,24 +178,13 @@ type ChannelPostDraft = {
 }
 const channelPostDrafts = new Map<string | number, ChannelPostDraft>();
 
-// временное хранилище для альбомов (media_group_id -> массив фото)
-type MediaGroupCacheEntry = {
-  chatId: string | number
-  target: 'broadcast' | 'channel'
-  items: Array<{ fileId: string, text?: string }>
-}
-const mediaGroupCache = new Map<string, MediaGroupCacheEntry>();
-
-// таймеры для обработки альбомов (media_group_id -> timeout)
-const mediaGroupTimers = new Map<string, NodeJS.Timeout>();
-
 type SendMessageResult = { success: boolean; messageId?: number; error?: string }
 
 // отправка сообщения через Telegram Bot API (для рассылки и канала)
 async function sendMessage(
   chatId: string | number,
   text: string,
-  photoFileIds?: string[],
+  media?: MediaAttachment,
   buttonText?: string,
   buttonUrl?: string,
   buttonMode: 'web_app' | 'url' = 'web_app'
@@ -206,80 +200,36 @@ async function sendMessage(
       ]]
     } : undefined
     
-    if (photoFileIds && photoFileIds.length > 0) {
-      if (photoFileIds.length === 1) {
-        const response = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: chatId,
-            photo: photoFileIds[0],
-            ...(hasText ? { caption: text } : {}),
-            ...(replyMarkup ? { reply_markup: replyMarkup } : {})
-          })
-        })
-        
-        const result = await response.json().catch(() => ({}))
-        
-        if (!response.ok || !result.ok) {
-          console.error('Ошибка отправки фото с текстом:', result)
-          return { success: false, error: result.description || 'telegram error' }
-        }
-        
-        return { success: true, messageId: result.result?.message_id }
-      } else {
-        const media = photoFileIds.map((fileId, index) => ({
-          type: 'photo',
-          media: fileId,
-          ...(index === photoFileIds.length - 1 && hasText ? { caption: text } : {})
-        }))
-        
-        const response = await fetch(`https://api.telegram.org/bot${token}/sendMediaGroup`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: chatId,
-            media
-          })
-        })
-        
-        const result = await response.json().catch(() => ({ ok: false }))
-        
-        if (!response.ok || !result.ok) {
-          console.error('Ошибка отправки media group:', result)
-          return { success: false, error: result.description || 'telegram error' }
-        }
-        
-        if (replyMarkup && result.result && Array.isArray(result.result) && result.result.length > 0) {
-          const targetMessage = result.result[result.result.length - 1]
-          const editResponse = await fetch(`https://api.telegram.org/bot${token}/editMessageReplyMarkup`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              chat_id: chatId,
-              message_id: targetMessage.message_id,
-              reply_markup: replyMarkup
-            })
-          })
-          
-          const editResult = await editResponse.json().catch(() => ({}))
-          
-          if (!editResponse.ok || !editResult.ok) {
-            const description = editResult.description || ''
-            if (description.includes('message is not modified')) {
-              console.warn('[sendMessage] кнопка уже установлена, игнорируем message is not modified')
-            } else {
-              console.error('Ошибка добавления кнопки к media group:', editResult)
-              return { success: false, error: description || 'telegram error' }
-            }
-          }
-        }
-        
-        const lastMessageId = Array.isArray(result.result) && result.result.length > 0
-          ? result.result[result.result.length - 1]?.message_id
-          : undefined
-        return { success: true, messageId: lastMessageId }
+    if (media) {
+      const payload: Record<string, any> = {
+        chat_id: chatId,
+        ...(hasText ? { caption: text } : {}),
+        ...(replyMarkup ? { reply_markup: replyMarkup } : {})
       }
+      
+      let endpoint = ''
+      if (media.type === 'photo') {
+        endpoint = 'sendPhoto'
+        payload.photo = media.fileId
+      } else {
+        endpoint = 'sendVideo'
+        payload.video = media.fileId
+      }
+      
+      const response = await fetch(`https://api.telegram.org/bot${token}/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+      
+      const result = await response.json().catch(() => ({}))
+      
+      if (!response.ok || !result.ok) {
+        console.error(`Ошибка отправки ${media.type}:`, result)
+        return { success: false, error: result.description || 'telegram error' }
+      }
+      
+      return { success: true, messageId: result.result?.message_id }
     } else {
       if (!hasText) {
         return { success: false, error: 'empty_message' }
@@ -340,7 +290,7 @@ async function startBroadcast(ctx: any, chatId: string | number, data: Broadcast
       // пропускаем самого менеджера
       if (String(userId) === String(chatId)) continue
       
-      const result = await sendMessage(userId, data.messageText, data.photoFileIds, buttonText, buttonUrl)
+      const result = await sendMessage(userId, data.messageText, data.media, buttonText, buttonUrl)
       if (result.success) {
         sent++
       } else {
@@ -405,15 +355,6 @@ bot.command('cancel', async (ctx) => {
     wasCancelled = true
   }
   if (wasCancelled) {
-    
-    // очищаем кэш альбомов и таймеры для этого менеджера
-    // (в реальности media_group_id уникален, но на всякий случай очищаем все)
-    for (const [groupId, timer] of mediaGroupTimers.entries()) {
-      clearTimeout(timer)
-      mediaGroupTimers.delete(groupId)
-      mediaGroupCache.delete(groupId)
-    }
-    
     await ctx.reply('❌ Действие отменено.')
   }
 });
@@ -444,7 +385,7 @@ async function getMiniAppDeepLink(): Promise<string> {
   return cachedMiniAppLink
 }
 
-async function sendChannelPostContent(channelUsername: string, messageText: string, photoFileIds?: string[], buttonText?: string) {
+async function sendChannelPostContent(channelUsername: string, messageText: string, media?: MediaAttachment, buttonText?: string) {
   try {
     const channel = channelUsername.replace('@', '')
     const miniappLink = await getMiniAppDeepLink()
@@ -454,7 +395,7 @@ async function sendChannelPostContent(channelUsername: string, messageText: stri
     const result = await sendMessage(
       `@${channel}`,
       messageText,
-      photoFileIds,
+      media,
       finalButtonText,
       miniappLink,
       'url'
@@ -717,6 +658,7 @@ bot.on('message', async (ctx) => {
   
   if (chatId && targetMode) {
     const photos = ctx.message.photo || []
+    const video = ctx.message.video
     const mediaGroupId = ctx.message.media_group_id
     const contextAction = targetMode === 'broadcast' ? 'Рассылка' : 'Отправка'
     const contextGenitive = targetMode === 'broadcast' ? 'рассылки' : 'поста'
@@ -736,97 +678,19 @@ bot.on('message', async (ctx) => {
       }
     }
     
-    // обработка альбомов
-    if (mediaGroupId && photos.length > 0) {
-      const photoFileId = photos[photos.length - 1]?.file_id
-      const messageText = ctx.message.caption || ''
-      
-      if (!mediaGroupCache.has(mediaGroupId)) {
-        mediaGroupCache.set(mediaGroupId, { chatId, target: targetMode, items: [] })
-      }
-      
-      const cache = mediaGroupCache.get(mediaGroupId)!
-      cache.items.push({ fileId: photoFileId, text: messageText })
-      cache.target = targetMode
-      cache.chatId = chatId
-      
-      if (mediaGroupTimers.has(mediaGroupId)) {
-        clearTimeout(mediaGroupTimers.get(mediaGroupId)!)
-      }
-      
-      const timer = setTimeout(async () => {
-        const cacheEntry = mediaGroupCache.get(mediaGroupId)
-        mediaGroupTimers.delete(mediaGroupId)
-        if (!cacheEntry) return
-        
-        const target = cacheEntry.target
-        const targetChatId = cacheEntry.chatId as string | number
-        const localAction = target === 'broadcast' ? 'Рассылка' : 'Отправка'
-        const localGenitive = target === 'broadcast' ? 'рассылки' : 'поста'
-        const localAccusative = target === 'broadcast' ? 'рассылку' : 'пост'
-        const items = cacheEntry.items || []
-        
-        if (items.length > 0 && items.length <= 10) {
-          const photoFileIds = items.map(p => p.fileId)
-          const finalText = items[items.length - 1]?.text || ''
-          
-          await ctx.reply(`🔍 Проверяю альбом перед ${localGenitive}...`)
-          const testResult = await sendMessage(targetChatId, finalText, photoFileIds)
-          
-          if (!testResult.success) {
-            await ctx.reply(`❌ Ошибка при проверке альбома. ${localAction} отменена.\nПроверь текст/фото или используй /cancel.`)
-            if (target === 'broadcast') waitingForBroadcast.add(targetChatId)
-            mediaGroupCache.delete(mediaGroupId)
-            return
-          }
-          
-          mediaGroupCache.delete(mediaGroupId)
-          
-          if (target === 'broadcast') {
-            const data: BroadcastData = {
-              messageText: finalText,
-              photoFileIds
-            }
-            broadcastData.set(targetChatId, data)
-            waitingForBroadcast.delete(targetChatId)
-            await askAboutButton(ctx, targetChatId, data)
-          } else {
-            const draft = channelPostDrafts.get(targetChatId)
-            if (!draft) {
-              await ctx.reply('❌ Канал не найден. Используй /channel_post заново.')
-              waitingForChannelContent.delete(targetChatId)
-              return
-            }
-            if (!draft.buttonText) {
-              await ctx.reply('❌ Текст кнопки не найден. Введи его заново.')
-              waitingForChannelContent.delete(targetChatId)
-              waitingForChannelButtonText.add(targetChatId)
-              return
-            }
-            const result = await sendChannelPostContent(draft.channel, finalText, photoFileIds, draft.buttonText)
-            if (result.success) {
-              waitingForChannelContent.delete(targetChatId)
-              channelPostDrafts.delete(targetChatId)
-              await ctx.reply(`✅ Пост отправлен в @${draft.channel}\nMessage ID: <code>${result.messageId}</code>`, { parse_mode: 'HTML' })
-            } else {
-              await ctx.reply(`❌ Ошибка отправки: <code>${result.error || 'unknown'}</code>\nОтредактируй пост и пришли снова или используй /cancel.`, { parse_mode: 'HTML' })
-            }
-          }
-        } else if (items.length > 10) {
-          await ctx.reply('❌ Максимум 10 фото в одном сообщении. Отправь меньше фото или используй /cancel.')
-          if (target === 'broadcast') waitingForBroadcast.add(targetChatId)
-          mediaGroupCache.delete(mediaGroupId)
-        }
-      }, 2000)
-      
-      mediaGroupTimers.set(mediaGroupId, timer)
+    // запрет альбомов
+    if (mediaGroupId) {
+      const errorText = targetMode === 'broadcast'
+        ? '❌ Рассылка поддерживает только одно фото или одно видео. Отправь новое сообщение без альбома.'
+        : '❌ Пост в канал поддерживает только одно фото или одно видео. Отправь новое сообщение без альбома.'
+      await ctx.reply(errorText)
       return
     }
     
     // одиночное сообщение
     const messageText = ctx.message.text || ctx.message.caption || ''
     
-    if (!messageText && photos.length === 0) {
+    if (!messageText && photos.length === 0 && !video) {
       await ctx.reply('❌ Сообщение пустое. Попробуй еще раз или используй /cancel.')
       if (targetMode === 'broadcast') {
         waitingForBroadcast.add(chatId)
@@ -834,12 +698,15 @@ bot.on('message', async (ctx) => {
       return
     }
     
-    const photoFileIds = photos.length > 0 
-      ? [photos[photos.length - 1].file_id]
-      : undefined
+    let mediaAttachment: MediaAttachment | undefined
+    if (video) {
+      mediaAttachment = { type: 'video', fileId: video.file_id }
+    } else if (photos.length > 0) {
+      mediaAttachment = { type: 'photo', fileId: photos[photos.length - 1].file_id }
+    }
     
     await ctx.reply(`🔍 Проверяю сообщение перед ${contextGenitive}...`)
-    const testResult = await sendMessage(chatId, messageText, photoFileIds)
+    const testResult = await sendMessage(chatId, messageText, mediaAttachment)
     
     if (!testResult.success) {
       await handleFatalError(`❌ Ошибка при проверке сообщения. ${contextAction} отменена.\nПроверь текст/фото и попробуй еще раз или используй /cancel.`)
@@ -850,7 +717,7 @@ bot.on('message', async (ctx) => {
       waitingForBroadcast.delete(chatId)
       const data: BroadcastData = {
         messageText,
-        photoFileIds
+        media: mediaAttachment
       }
       broadcastData.set(chatId, data)
       await askAboutButton(ctx, chatId, data)
@@ -868,7 +735,7 @@ bot.on('message', async (ctx) => {
         return
       }
       
-      const result = await sendChannelPostContent(draft.channel, messageText, photoFileIds, draft.buttonText)
+      const result = await sendChannelPostContent(draft.channel, messageText, mediaAttachment, draft.buttonText)
       if (result.success) {
         waitingForChannelContent.delete(chatId)
         channelPostDrafts.delete(chatId)
