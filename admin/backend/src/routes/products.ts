@@ -152,7 +152,7 @@ router.post('/', async (req, res) => {
     const auth = getAuthFromEnv()
     
     // проверяем что лист существует и нормализуем имя
-    const sheetNames = process.env.SHEET_NAMES?.split(',') || ['ягоды', 'выпечка', 'шея', 'руки', 'уши', 'сертификаты']
+    const sheetNames = process.env.SHEET_NAMES?.split(',') || ['ягоды', 'выпечка', 'pets', 'шея', 'руки', 'уши', 'сертификаты']
     const normalizedCategory = sheetNames.find(name => name.trim().toLowerCase() === productData.category.toLowerCase())
     if (!normalizedCategory) {
       logger.warn({ category: productData.category }, 'категория не найдена')
@@ -286,7 +286,7 @@ router.put('/:slug', async (req, res) => {
     const auth = getAuthFromEnv()
     
     // проверяем что лист существует и нормализуем имя
-    const sheetNames = process.env.SHEET_NAMES?.split(',') || ['ягоды', 'выпечка', 'шея', 'руки', 'уши', 'сертификаты']
+    const sheetNames = process.env.SHEET_NAMES?.split(',') || ['ягоды', 'выпечка', 'pets', 'шея', 'руки', 'уши', 'сертификаты']
     const normalizedCategory = sheetNames.find(name => name.trim().toLowerCase() === productData.category.toLowerCase())
     if (!normalizedCategory) {
       logger.warn({ category: productData.category }, 'категория не найдена')

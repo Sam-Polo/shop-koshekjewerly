@@ -16,6 +16,7 @@ const neckImage = `${baseUrl}assets/neck-category.jpg`
 const handsImage = `${baseUrl}assets/hands-category.jpg`
 const earsImage = `${baseUrl}assets/ears-category.jpg`
 const bakeryImage = `${baseUrl}assets/bakery-category.jpg`
+const petsImage = `${baseUrl}assets/pets-category.jpg`
 const certificateImage = `${baseUrl}assets/certificate-category.jpg`
 const logoImage = `${baseUrl}assets/logo_.PNG`
 const backgroundImage = `${baseUrl}assets/background.jpg`
@@ -57,6 +58,7 @@ function getProductPrice(product: Product): number {
 const categories: Category[] = [
   { key: 'ягоды', title: 'Ягоды (special)', description: 'Эксклюзивная коллекция KOSHEK, украшения в виде реалистичных ягод из полимерной глины', image: berriesImage },
   { key: 'выпечка', title: 'Выпечка', description: 'Эксклюзивная коллекция КОШЕК, украшения в виде реалистичной выпечки из полимерной глины', image: bakeryImage },
+  { key: 'pets', title: 'FOR PETS', description: 'Украшения для ваших питомцев.', image: petsImage },
   { key: 'шея', title: 'Шея', description: 'Чокеры, колье, подвески, кулоны', image: neckImage },
   { key: 'руки', title: 'Руки', description: 'Браслеты, кольца', image: handsImage },
   { key: 'уши', title: 'Уши', description: 'Серьги, каффы', image: earsImage },

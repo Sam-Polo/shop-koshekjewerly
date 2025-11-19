@@ -1447,8 +1447,16 @@ function ProductFormModal({
     })
   )
 
-  // получаем список категорий (с заглавной буквы для отображения, но отправляется маленькими)
-  const categories = ['Ягоды', 'Выпечка', 'Шея', 'Руки', 'Уши', 'Сертификаты']
+  // список категорий с отображением и значением
+  const categories = [
+    { label: 'Ягоды', value: 'ягоды' },
+    { label: 'Выпечка', value: 'выпечка' },
+    { label: 'FOR PETS', value: 'pets' },
+    { label: 'Шея', value: 'шея' },
+    { label: 'Руки', value: 'руки' },
+    { label: 'Уши', value: 'уши' },
+    { label: 'Сертификаты', value: 'сертификаты' }
+  ]
 
   // валидация формы
   const validate = (): boolean => {
@@ -1657,7 +1665,7 @@ function ProductFormModal({
               >
                 <option value="">Выберите категорию</option>
                 {categories.map(cat => (
-                  <option key={cat} value={cat.toLowerCase()}>{cat}</option>
+                  <option key={cat.value} value={cat.value}>{cat.label}</option>
                 ))}
               </select>
             </div>

@@ -89,6 +89,7 @@ export async function fetchProductsFromSheet(sheetId: string): Promise<SheetProd
   const sheetNames = process.env.SHEET_NAMES?.split(',') || [
     'ягоды',
     'выпечка',
+    'pets',
     'шея',
     'руки',
     'уши',
