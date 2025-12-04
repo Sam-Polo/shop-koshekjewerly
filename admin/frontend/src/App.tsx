@@ -1585,8 +1585,12 @@ function ProductFormModal({
     if (!files || files.length === 0) return
 
     Array.from(files).forEach(file => {
-      if (file.type.startsWith('image/')) {
+      // поддерживаем jpeg, jpg, png, webp
+      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
+      if (allowedTypes.includes(file.type.toLowerCase())) {
         handleFileUpload(file)
+      } else if (!file.type.startsWith('image/')) {
+        showToast('Поддерживаются только изображения: JPG, PNG, WebP', 'error')
       }
     })
 
@@ -1812,7 +1816,7 @@ function ProductFormModal({
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
+                accept="image/jpeg,image/jpg,image/png,image/webp"
                 multiple
                 onChange={handleFileSelect}
                 style={{ display: 'none' }}

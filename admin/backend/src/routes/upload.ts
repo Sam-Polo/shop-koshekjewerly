@@ -17,11 +17,12 @@ const upload = multer({
     fileSize: 10 * 1024 * 1024 // 10MB максимум
   },
   fileFilter: (req, file, cb) => {
-    // разрешаем только изображения
-    if (file.mimetype.startsWith('image/')) {
+    // поддерживаем jpeg, jpg, png, webp
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
+    if (allowedTypes.includes(file.mimetype.toLowerCase())) {
       cb(null, true)
     } else {
-      cb(new Error('Разрешены только изображения'))
+      cb(new Error('Разрешены только изображения: JPG, PNG, WebP'))
     }
   }
 })
