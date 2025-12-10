@@ -203,13 +203,17 @@ const ProductModal = ({
   cart, 
   onAddToCart, 
   onClose,
-  onAddedToCart
+  onAddedToCart,
+  ordersClosed,
+  onOrdersClosedClick
 }: { 
   product: Product
   cart: CartItem[]
   onAddToCart: (slug: string, quantity: number) => void
   onClose: () => void
   onAddedToCart: () => void
+  ordersClosed: boolean
+  onOrdersClosedClick: () => void
 }) => {
   const [selectedImageIndex, setSelectedImageIndex] = useState(0)
   const [quantity, setQuantity] = useState(1)
@@ -1200,6 +1204,9 @@ export default function App() {
   const [paymentRedirectOpen, setPaymentRedirectOpen] = useState(false)
   const [pendingPaymentUrl, setPendingPaymentUrl] = useState<string | null>(null)
   const [telegramRequiredOpen, setTelegramRequiredOpen] = useState(false)
+  const [ordersClosed, setOrdersClosed] = useState(false)
+  const [ordersCloseDate, setOrdersCloseDate] = useState<string | undefined>(undefined)
+  const [ordersClosedModalOpen, setOrdersClosedModalOpen] = useState(false)
   const mainContentRef = useRef<HTMLElement>(null)
   const productsTitleRef = useRef<HTMLHeadingElement>(null)
   
@@ -1230,6 +1237,24 @@ export default function App() {
       // очищаем URL
       window.history.replaceState({}, '', window.location.pathname)
     }
+  }, [])
+
+  // загрузка статуса заказов
+  useEffect(() => {
+    const loadOrdersStatus = async () => {
+      try {
+        const apiUrl = import.meta.env.VITE_API_URL || '/api'
+        const response = await fetch(`${apiUrl}/api/settings/orders-status`)
+        if (response.ok) {
+          const data = await response.json()
+          setOrdersClosed(data.ordersClosed || false)
+          setOrdersCloseDate(data.closeDate)
+        }
+      } catch (error) {
+        console.error('Ошибка загрузки статуса заказов:', error)
+      }
+    }
+    loadOrdersStatus()
   }, [])
 
   // управление корзиной с проверкой stock

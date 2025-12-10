@@ -8,6 +8,7 @@ import { listProducts, upsertProducts, decreaseProductStock } from './store.js';
 import { createOrder, getOrder, updateOrderStatus, type OrderStatus } from './orders.js';
 import { generatePaymentUrl, verifyResultSignature } from './robokassa.js';
 import { fetchPromocodesFromSheet, loadPromocodes, findPromocode, validatePromocode, listPromocodes } from './promocodes.js';
+import { fetchOrdersSettingsFromSheet } from './settings.js';
 
 const logger = pino();
 const app = express();
@@ -115,6 +116,23 @@ app.get('/health', (_req, res) => {
 app.get('/api/products', (_req, res) => {
   const items = listProducts().filter(p => p.active)
   res.json({ items, total: items.length });
+});
+
+// получение статуса заказов
+app.get('/api/settings/orders-status', async (_req, res) => {
+  try {
+    const sheetId = process.env.IMPORT_SHEET_ID
+    if (!sheetId) {
+      return res.json({ ordersClosed: false })
+    }
+    
+    const settings = await fetchOrdersSettingsFromSheet(sheetId)
+    res.json(settings)
+  } catch (error: any) {
+    logger.error({ error: error?.message }, 'ошибка получения статуса заказов')
+    // при ошибке возвращаем, что заказы открыты
+    res.json({ ordersClosed: false })
+  }
 });
 
 // проверка промокода
@@ -294,6 +312,21 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
       hasInitData: !!orderData.initData,
       deliveryRegion: orderData.deliveryRegion
     }, 'получен запрос на создание заказа')
+    
+    // проверка статуса заказов
+    const sheetId = process.env.IMPORT_SHEET_ID
+    if (sheetId) {
+      try {
+        const settings = await fetchOrdersSettingsFromSheet(sheetId)
+        if (settings.ordersClosed) {
+          logger.warn('заказ отклонен: заказы закрыты')
+          return res.status(403).json({ error: 'orders_closed', closeDate: settings.closeDate })
+        }
+      } catch (error: any) {
+        logger.error({ error: error?.message }, 'ошибка проверки статуса заказов, продолжаем')
+        // при ошибке продолжаем обработку заказа
+      }
+    }
     
     // минимальная проверка - должны быть товары
     if (!orderData.items || !Array.isArray(orderData.items) || orderData.items.length === 0) {

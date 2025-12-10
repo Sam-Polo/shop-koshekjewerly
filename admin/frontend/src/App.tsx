@@ -156,10 +156,50 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: 'products' | 'promoc
   const [reorderedProductsByCategory, setReorderedProductsByCategory] = useState<Record<string, Product[]>>({})
   const [isSavingProductsOrder, setIsSavingProductsOrder] = useState(false)
   const [showScrollTop, setShowScrollTop] = useState(false)
+  const [ordersClosed, setOrdersClosed] = useState(false)
+  const [ordersCloseDate, setOrdersCloseDate] = useState<string>('')
+  const [isOrdersSettingsModalOpen, setIsOrdersSettingsModalOpen] = useState(false)
+  const [isLoadingOrdersSettings, setIsLoadingOrdersSettings] = useState(false)
+  const [isSavingOrdersSettings, setIsSavingOrdersSettings] = useState(false)
 
   useEffect(() => {
     loadProducts()
+    loadOrdersSettings()
   }, [])
+
+  const loadOrdersSettings = async () => {
+    try {
+      setIsLoadingOrdersSettings(true)
+      const settings = await api.getOrdersSettings()
+      setOrdersClosed(settings.ordersClosed || false)
+      setOrdersCloseDate(settings.closeDate || '')
+    } catch (error: any) {
+      console.error('Ошибка загрузки настроек заказов:', error)
+    } finally {
+      setIsLoadingOrdersSettings(false)
+    }
+  }
+
+  const handleToggleOrdersStatus = () => {
+    setIsOrdersSettingsModalOpen(true)
+  }
+
+  const handleSaveOrdersSettings = async () => {
+    try {
+      setIsSavingOrdersSettings(true)
+      await api.updateOrdersSettings({
+        ordersClosed: !ordersClosed,
+        closeDate: ordersCloseDate || undefined
+      })
+      setOrdersClosed(!ordersClosed)
+      setIsOrdersSettingsModalOpen(false)
+      setToast({ message: ordersClosed ? 'Заказы открыты' : 'Заказы закрыты', type: 'success' })
+    } catch (error: any) {
+      setToast({ message: error.message || 'Ошибка сохранения настроек', type: 'error' })
+    } finally {
+      setIsSavingOrdersSettings(false)
+    }
+  }
 
   const loadProducts = async (): Promise<Product[]> => {
     try {
@@ -558,6 +598,9 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: 'products' | 'promoc
           <div className="toolbar-actions">
             {!isReorderProductsMode ? (
               <>
+                <button onClick={handleToggleOrdersStatus} className="btn-orders-status">
+                  {ordersClosed ? 'Открыть заказы' : 'Закрыть заказы'}
+                </button>
                 <button onClick={handleStartReorderProducts} className="btn-reorder-products">
                   Порядок товаров
                 </button>
@@ -787,6 +830,63 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: 'products' | 'promoc
           showToast={showToast}
         />
       )}
+
+      {isOrdersSettingsModalOpen && (
+        <OrdersSettingsModal
+          ordersClosed={ordersClosed}
+          closeDate={ordersCloseDate}
+          onClose={() => setIsOrdersSettingsModalOpen(false)}
+          onSave={handleSaveOrdersSettings}
+          isSaving={isSavingOrdersSettings}
+          onCloseDateChange={setOrdersCloseDate}
+        />
+      )}
+    </div>
+  )
+}
+
+// модальное окно для управления статусом заказов
+function OrdersSettingsModal({
+  ordersClosed,
+  closeDate,
+  onClose,
+  onSave,
+  isSaving,
+  onCloseDateChange
+}: {
+  ordersClosed: boolean
+  closeDate: string
+  onClose: () => void
+  onSave: () => void
+  isSaving: boolean
+  onCloseDateChange: (date: string) => void
+}) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={e => e.stopPropagation()}>
+        <button className="modal-close" onClick={onClose}>&times;</button>
+        <h2>{ordersClosed ? 'Открыть заказы' : 'Закрыть заказы'}</h2>
+        <div className="form-group">
+          <label htmlFor="close-date">Дата закрытия (для информационного сообщения):</label>
+          <input
+            type="date"
+            id="close-date"
+            value={closeDate}
+            onChange={(e) => onCloseDateChange(e.target.value)}
+            className="form-input"
+            min={new Date().toISOString().split('T')[0]}
+          />
+          <p className="form-hint">Дата нужна только для информационного сообщения пользователям. Открытие/закрытие происходит вручную.</p>
+        </div>
+        <div className="modal-actions">
+          <button className="btn btn-primary" onClick={onSave} disabled={isSaving}>
+            {isSaving ? 'Сохранение...' : ordersClosed ? 'Открыть заказы' : 'Закрыть заказы'}
+          </button>
+          <button className="btn btn-secondary" onClick={onClose} disabled={isSaving}>
+            Отмена
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
