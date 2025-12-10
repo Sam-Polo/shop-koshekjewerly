@@ -116,8 +116,15 @@ export async function saveOrdersSettingsToSheet(sheetId: string, settings: Order
     // обновляем значения
     // сначала обновляем заголовки, если их нет
     const headerRange = 'settings!A1:B1'
-    const headerRes = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: headerRange })
-    const headerRows = headerRes.data.values ?? []
+    let headerRes
+    try {
+      headerRes = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: headerRange })
+    } catch (error: any) {
+      // если лист только что создан, может быть ошибка, создаем заголовки
+      logger.warn({ error: error?.message }, 'ошибка чтения заголовков, создаем заново')
+    }
+    
+    const headerRows = headerRes?.data.values ?? []
     
     if (headerRows.length === 0 || headerRows[0]?.[0] !== 'key') {
       // добавляем заголовки
@@ -131,12 +138,16 @@ export async function saveOrdersSettingsToSheet(sheetId: string, settings: Order
       })
     }
     
-    // обновляем значения orders_closed и close_date
-    const values: string[][] = []
-    
     // проверяем, есть ли уже строки с этими ключами
     const dataRange = 'settings!A1:B10'
-    const dataRes = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: dataRange })
+    let dataRes
+    try {
+      dataRes = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: dataRange })
+    } catch (error: any) {
+      logger.warn({ error: error?.message }, 'ошибка чтения данных настроек')
+      dataRes = { data: { values: [] } }
+    }
+    
     const dataRows = dataRes.data.values ?? []
     
     let ordersClosedRowIndex = -1
@@ -167,6 +178,7 @@ export async function saveOrdersSettingsToSheet(sheetId: string, settings: Order
         spreadsheetId: sheetId,
         range: 'settings!A:B',
         valueInputOption: 'USER_ENTERED',
+        insertDataOption: 'INSERT_ROWS',
         requestBody: {
           values: [['orders_closed', settings.ordersClosed ? 'true' : 'false']]
         }
@@ -190,6 +202,7 @@ export async function saveOrdersSettingsToSheet(sheetId: string, settings: Order
         spreadsheetId: sheetId,
         range: 'settings!A:B',
         valueInputOption: 'USER_ENTERED',
+        insertDataOption: 'INSERT_ROWS',
         requestBody: {
           values: [['close_date', closeDateValue]]
         }

@@ -36,8 +36,19 @@ async function fetchWithAuth(url: string, options: RequestInit = {}) {
   }
   
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'unknown_error' }))
-    const errorMessage = error.error || 'request_failed'
+    let errorMessage = 'request_failed'
+    try {
+      const error = await response.json()
+      errorMessage = error.error || error.message || 'request_failed'
+    } catch {
+      // если не удалось распарсить JSON, пробуем получить текст
+      try {
+        const text = await response.text()
+        errorMessage = text || `Ошибка ${response.status}: ${response.statusText}`
+      } catch {
+        errorMessage = `Ошибка ${response.status}: ${response.statusText}`
+      }
+    }
     
     // переводим коды ошибок в понятные сообщения
     const errorMessages: Record<string, string> = {
@@ -52,7 +63,10 @@ async function fetchWithAuth(url: string, options: RequestInit = {}) {
       'product_not_found': 'Товар не найден',
       'failed_to_create_product': 'Ошибка создания товара',
       'failed_to_update_product': 'Ошибка обновления товара',
-      'failed_to_delete_product': 'Ошибка удаления товара'
+      'failed_to_delete_product': 'Ошибка удаления товара',
+      'GOOGLE_SHEET_ID not configured': 'GOOGLE_SHEET_ID не настроен',
+      'ordersClosed must be a boolean': 'ordersClosed должен быть boolean',
+      'closeDate must be in format YYYY-MM-DD': 'Дата должна быть в формате YYYY-MM-DD'
     }
     
     throw new Error(errorMessages[errorMessage] || errorMessage)
