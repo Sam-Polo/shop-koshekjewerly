@@ -1724,12 +1724,14 @@ export default function App() {
 
       {aboutModalOpen && <AboutUsModal onClose={() => setAboutModalOpen(false)} />}
       {selectedProduct && (
-        <ProductModal 
+        <ProductModal
           product={selectedProduct}
           cart={cart}
           onAddToCart={updateCart}
           onClose={() => setSelectedProduct(null)}
           onAddedToCart={handleAddedToCart}
+          ordersClosed={ordersClosed}
+          onOrdersClosedClick={() => setOrdersClosedModalOpen(true)}
         />
       )}
       {cartOpen && (
