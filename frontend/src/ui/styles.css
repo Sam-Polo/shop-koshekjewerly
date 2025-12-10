@@ -70,7 +70,7 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 .page-header__title { margin: 0 0 16px; font-size: 48px; letter-spacing: 0.06em; font-weight: 400; position: relative; z-index: 1; color: #ffffff; }
 .page-header__text { margin: 0; font-size: 20px; line-height: 1.4; font-weight: 400; position: relative; z-index: 1; color: #ffffff; }
 .page-header__orders-closed { margin: 16px 0; position: relative; z-index: 1; }
-.page-header__orders-closed-text { margin: 0; font-size: 16px; line-height: 1.5; font-weight: 400; color: #ffffff; background: rgba(255, 152, 0, 0.2); padding: 12px 20px; border-radius: 8px; border: 1px solid rgba(255, 152, 0, 0.5); }
+.page-header__orders-closed-text { margin: 0; font-size: 16px; line-height: 1.5; font-weight: 400; color: #ffffff; background: rgba(255, 152, 0, 0.6); padding: 12px 20px; border-radius: 0; border: none; }
 
 .scroll-down-btn {
   position: absolute;

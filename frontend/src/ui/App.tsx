@@ -21,6 +21,20 @@ const certificateImage = `${baseUrl}assets/certificate-category.jpg`
 const logoImage = `${baseUrl}assets/logo_.PNG`
 const backgroundImage = `${baseUrl}assets/background.jpg`
 
+// форматирование даты из YYYY-MM-DD в дд.мм.гггг
+function formatDate(dateString: string): string {
+  if (!dateString) return ''
+  try {
+    const [year, month, day] = dateString.split('-')
+    if (year && month && day) {
+      return `${day}.${month}.${year}`
+    }
+    return dateString
+  } catch {
+    return dateString
+  }
+}
+
 type Category = {
   key: string
   title: string
@@ -457,10 +471,10 @@ const OrdersClosedModal = ({
       <div className="modal-content modal-content--success" onClick={e => e.stopPropagation()}>
         <button className="modal-close" onClick={onClose}>&times;</button>
         <div className="order-success">
-          <div className="order-success__icon" style={{ background: '#ff9800' }}>⏸️</div>
+          <div className="order-success__icon" style={{ background: '#ff9800' }}>💡</div>
           <h2 className="order-success__title">Заказы временно закрыты</h2>
           <p className="order-success__text">
-            Заказы временно не принимаются{closeDate ? ` до ${closeDate}` : ''}, но каталог по-прежнему доступен для просмотра.
+            Заказы временно не принимаются{closeDate ? ` до ${formatDate(closeDate)}` : ''}, но каталог по-прежнему доступен для просмотра.
           </p>
           <button className="btn btn--primary order-success__button" onClick={onClose}>
             Понятно
@@ -1592,7 +1606,7 @@ export default function App() {
         {ordersClosed && (
           <div className="page-header__orders-closed">
             <p className="page-header__orders-closed-text">
-              ⏸️ Заказы временно не принимаются{ordersCloseDate ? ` до ${ordersCloseDate}` : ''}, но каталог по-прежнему доступен для просмотра.
+              💡 Заказы временно не принимаются{ordersCloseDate ? ` до ${formatDate(ordersCloseDate)}` : ''}, но каталог по-прежнему доступен для просмотра.
             </p>
           </div>
         )}
