@@ -177,20 +177,44 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: 'products' | 'promoc
   }
 
   const handleToggleOrdersStatus = () => {
-    setIsOrdersSettingsModalOpen(true)
+    if (ordersClosed) {
+      // если заказы закрыты - открываем простое подтверждающее окно
+      setIsOrdersSettingsModalOpen(true)
+    } else {
+      // если заказы открыты - открываем модальное окно с полем для даты
+      setIsOrdersSettingsModalOpen(true)
+    }
+  }
+
+  const handleOpenOrders = async () => {
+    try {
+      setIsSavingOrdersSettings(true)
+      await api.updateOrdersSettings({
+        ordersClosed: false,
+        closeDate: undefined // очищаем дату при открытии
+      })
+      // перезагружаем настройки из API, чтобы синхронизировать состояние
+      await loadOrdersSettings()
+      setIsOrdersSettingsModalOpen(false)
+      setToast({ message: 'Заказы открыты', type: 'success' })
+    } catch (error: any) {
+      setToast({ message: error.message || 'Ошибка открытия заказов', type: 'error' })
+    } finally {
+      setIsSavingOrdersSettings(false)
+    }
   }
 
   const handleSaveOrdersSettings = async () => {
     try {
       setIsSavingOrdersSettings(true)
       await api.updateOrdersSettings({
-        ordersClosed: !ordersClosed,
+        ordersClosed: true,
         closeDate: ordersCloseDate || undefined
       })
       // перезагружаем настройки из API, чтобы синхронизировать состояние
       await loadOrdersSettings()
       setIsOrdersSettingsModalOpen(false)
-      setToast({ message: ordersClosed ? 'Заказы открыты' : 'Заказы закрыты', type: 'success' })
+      setToast({ message: 'Заказы закрыты', type: 'success' })
     } catch (error: any) {
       setToast({ message: error.message || 'Ошибка сохранения настроек', type: 'error' })
     } finally {
@@ -833,7 +857,7 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: 'products' | 'promoc
           ordersClosed={ordersClosed}
           closeDate={ordersCloseDate}
           onClose={() => setIsOrdersSettingsModalOpen(false)}
-          onSave={handleSaveOrdersSettings}
+          onSave={ordersClosed ? handleOpenOrders : handleSaveOrdersSettings}
           isSaving={isSavingOrdersSettings}
           onCloseDateChange={setOrdersCloseDate}
         />
@@ -858,11 +882,33 @@ function OrdersSettingsModal({
   isSaving: boolean
   onCloseDateChange: (date: string) => void
 }) {
+  // если заказы закрыты - показываем простое подтверждающее окно для открытия
+  if (ordersClosed) {
+    return (
+      <div className="modal-overlay" onClick={onClose}>
+        <div className="modal-content" onClick={e => e.stopPropagation()}>
+          <button className="modal-close" onClick={onClose}>&times;</button>
+          <h2>Открыть заказы</h2>
+          <p style={{ marginBottom: '1.5rem' }}>Вы уверены, что хотите открыть заказы?</p>
+          <div className="modal-actions">
+            <button className="btn btn-primary" onClick={onSave} disabled={isSaving}>
+              {isSaving ? 'Открытие...' : 'Да, открыть заказы'}
+            </button>
+            <button className="btn btn-secondary" onClick={onClose} disabled={isSaving}>
+              Отмена
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // если заказы открыты - показываем модальное окно с полем для даты закрытия
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={e => e.stopPropagation()}>
         <button className="modal-close" onClick={onClose}>&times;</button>
-        <h2>{ordersClosed ? 'Открыть заказы' : 'Закрыть заказы'}</h2>
+        <h2>Закрыть заказы</h2>
         <div className="form-group">
           <label htmlFor="close-date">Дата закрытия (для информационного сообщения):</label>
           <input
@@ -877,7 +923,7 @@ function OrdersSettingsModal({
         </div>
         <div className="modal-actions">
           <button className="btn btn-primary" onClick={onSave} disabled={isSaving}>
-            {isSaving ? 'Сохранение...' : ordersClosed ? 'Открыть заказы' : 'Закрыть заказы'}
+            {isSaving ? 'Сохранение...' : 'Закрыть заказы'}
           </button>
           <button className="btn btn-secondary" onClick={onClose} disabled={isSaving}>
             Отмена
