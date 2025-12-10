@@ -61,17 +61,22 @@ export async function fetchOrdersSettingsFromSheet(sheetId: string): Promise<Ord
       if (!row || row.length < 2) continue
       
       const key = String(row[0] || '').trim().toLowerCase()
-      const value = String(row[1] || '').trim()
+      const value = String(row[1] || '').trim().toLowerCase()
       
-      if (key === 'orders_closed') {
+      // поддерживаем оба варианта ключа (orders_closed и order_closed)
+      if (key === 'orders_closed' || key === 'order_closed') {
         settings.ordersClosed = value === 'true' || value === '1' || value === 'yes'
+        console.log(`[settings] найдена настройка ${key} = ${value}, ordersClosed = ${settings.ordersClosed}`)
       } else if (key === 'close_date') {
-        if (value) {
-          settings.closeDate = value
+        // для даты берем оригинальное значение (не lowercase)
+        const originalValue = String(row[1] || '').trim()
+        if (originalValue) {
+          settings.closeDate = originalValue
         }
       }
     }
     
+    console.log(`[settings] итоговые настройки: ordersClosed=${settings.ordersClosed}, closeDate=${settings.closeDate || 'нет'}`)
     return settings
   } catch (error: any) {
     console.error('ошибка чтения настроек заказов:', error?.message)

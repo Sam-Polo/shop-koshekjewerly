@@ -18,3 +18,5 @@ IMPORT_COMMAND.md
 admin/DEPLOY_TIMEWEB.md
 admin/UPLOAD_DIST.md
 rebuild-all.ps1
+trigger-import.bat
+trigger-import.ps1

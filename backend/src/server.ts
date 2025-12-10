@@ -140,10 +140,13 @@ app.get('/api/settings/orders-status', async (_req, res) => {
   try {
     const sheetId = process.env.IMPORT_SHEET_ID
     if (!sheetId) {
+      logger.warn('IMPORT_SHEET_ID не задан, возвращаем ordersClosed: false')
       return res.json({ ordersClosed: false })
     }
     
+    logger.info('запрос статуса заказов')
     const settings = await fetchOrdersSettingsFromSheet(sheetId)
+    logger.info({ ordersClosed: settings.ordersClosed, closeDate: settings.closeDate }, 'статус заказов получен')
     res.json(settings)
   } catch (error: any) {
     logger.error({ error: error?.message }, 'ошибка получения статуса заказов')
