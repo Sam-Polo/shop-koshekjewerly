@@ -1092,22 +1092,6 @@
   background: #c82333;
 }
 
-.btn-orders-status {
-  background: #dc3545;
-  color: white;
-  padding: 0.5rem 1rem;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.95rem;
-  font-weight: 500;
-  transition: background 0.2s;
-}
-
-.btn-orders-status:hover {
-  background: #c82333;
-}
-
 /* полноэкранная галерея */
 .fullscreen-overlay {
   position: fixed;
@@ -1657,7 +1641,8 @@
   }
 
   .btn-add,
-  .btn-reorder-products {
+  .btn-reorder-products,
+  .btn-orders-status {
     width: auto;
     padding: 0.5rem 1rem;
     font-size: 0.9rem;
@@ -1733,6 +1718,15 @@
   .modal-content button {
     word-wrap: break-word;
     white-space: normal;
+  }
+
+  .modal-actions {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .modal-actions .btn {
+    width: 100%;
   }
 
   .modal-product-info {
