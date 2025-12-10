@@ -1271,14 +1271,20 @@ export default function App() {
     const loadOrdersStatus = async () => {
       try {
         const apiUrl = import.meta.env.VITE_API_URL || '/api'
-        const response = await fetch(`${apiUrl}/api/settings/orders-status`)
+        const url = apiUrl.endsWith('/api') ? `${apiUrl}/settings/orders-status` : `${apiUrl}/api/settings/orders-status`
+        console.log('[mini-app] загрузка статуса заказов из', url)
+        const response = await fetch(url)
         if (response.ok) {
           const data = await response.json()
+          console.log('[mini-app] получены настройки заказов:', data)
           setOrdersClosed(data.ordersClosed || false)
           setOrdersCloseDate(data.closeDate)
+          console.log('[mini-app] ordersClosed установлен в:', data.ordersClosed || false)
+        } else {
+          console.error('[mini-app] ошибка ответа при загрузке статуса заказов:', response.status, response.statusText)
         }
       } catch (error) {
-        console.error('Ошибка загрузки статуса заказов:', error)
+        console.error('[mini-app] ошибка загрузки статуса заказов:', error)
       }
     }
     loadOrdersStatus()
@@ -1286,8 +1292,10 @@ export default function App() {
 
   // управление корзиной с проверкой stock и статуса заказов
   const updateCart = (slug: string, delta: number) => {
+    console.log('[mini-app] updateCart вызван:', { slug, delta, ordersClosed })
     // проверка статуса заказов при добавлении товара (delta > 0)
     if (delta > 0 && ordersClosed) {
+      console.log('[mini-app] заказы закрыты, показываем модальное окно')
       setOrdersClosedModalOpen(true)
       return
     }
