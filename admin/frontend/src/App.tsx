@@ -187,7 +187,8 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: 'products' | 'promoc
         ordersClosed: !ordersClosed,
         closeDate: ordersCloseDate || undefined
       })
-      setOrdersClosed(!ordersClosed)
+      // перезагружаем настройки из API, чтобы синхронизировать состояние
+      await loadOrdersSettings()
       setIsOrdersSettingsModalOpen(false)
       setToast({ message: ordersClosed ? 'Заказы открыты' : 'Заказы закрыты', type: 'success' })
     } catch (error: any) {
