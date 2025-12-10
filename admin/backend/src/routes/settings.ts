@@ -5,9 +5,31 @@ import {
   saveOrdersSettingsToSheet
 } from '../settings-utils.js'
 import pino from 'pino'
+import axios from 'axios'
 
 const logger = pino()
 const router = express.Router()
+
+// функция для вызова импорта в основном бэкенде
+async function triggerBackendImport() {
+  try {
+    const backendUrl = process.env.BACKEND_URL || 'https://shop-koshekjewerly.onrender.com'
+    const adminKey = process.env.ADMIN_IMPORT_KEY
+    
+    if (adminKey) {
+      await axios.post(`${backendUrl}/admin/import/sheets`, {}, {
+        headers: { 'x-admin-key': adminKey },
+        timeout: 30000
+      })
+      logger.info('импорт настроек заказов в основном бэкенде вызван')
+    } else {
+      logger.warn('ADMIN_IMPORT_KEY не задан, импорт в основном бэкенде пропущен')
+    }
+  } catch (error: any) {
+    // не блокируем выполнение, если импорт не удался
+    logger.warn({ error: error?.message }, 'не удалось вызвать импорт в основном бэкенде')
+  }
+}
 
 // все роуты требуют авторизации
 router.use(requireAuth)
@@ -62,6 +84,9 @@ router.put('/orders-status', async (req, res) => {
     })
     
     logger.info('настройки заказов сохранены')
+    
+    // триггерим импорт в основном бэкенде
+    await triggerBackendImport()
     
     return res.json({ success: true })
   } catch (error: any) {

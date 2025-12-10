@@ -59,6 +59,23 @@ async function importPromocodes() {
   }
 }
 
+// импорт настроек заказов из google sheets (только для чтения, не кешируем)
+// настройки читаются напрямую из таблицы при каждом запросе
+async function importOrdersSettings() {
+  const sheetId = process.env.IMPORT_SHEET_ID;
+  if (!sheetId) {
+    logger.warn('IMPORT_SHEET_ID не задан, импорт настроек заказов пропущен');
+    return;
+  }
+  try {
+    logger.info('проверка настроек заказов из google sheets...');
+    const settings = await fetchOrdersSettingsFromSheet(sheetId);
+    logger.info({ ordersClosed: settings.ordersClosed, closeDate: settings.closeDate }, 'настройки заказов проверены');
+  } catch (e: any) {
+    logger.error({ error: e?.message }, 'ошибка проверки настроек заказов');
+  }
+}
+
 app.use(express.json({ limit: '1mb' }));
 
 // настройка CORS - проверяем что TG_WEBAPP_URL задан
@@ -687,9 +704,10 @@ app.post('/admin/import/sheets', async (req, res) => {
   }, 30000);
   
   try {
-    logger.info('начат ручной импорт товаров и промокодов');
+    logger.info('начат ручной импорт товаров, промокодов и настроек заказов');
     await importProducts();
     await importPromocodes();
+    await importOrdersSettings();
     const count = listProducts().length;
     const promocodesCount = listPromocodes().length;
     clearTimeout(timeout);
