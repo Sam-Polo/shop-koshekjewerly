@@ -444,6 +444,33 @@ const TelegramRequiredModal = ({
   )
 }
 
+// модальное окно с информацией о закрытых заказах
+const OrdersClosedModal = ({ 
+  closeDate,
+  onClose 
+}: { 
+  closeDate?: string
+  onClose: () => void 
+}) => {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content modal-content--success" onClick={e => e.stopPropagation()}>
+        <button className="modal-close" onClick={onClose}>&times;</button>
+        <div className="order-success">
+          <div className="order-success__icon" style={{ background: '#ff9800' }}>⏸️</div>
+          <h2 className="order-success__title">Заказы временно закрыты</h2>
+          <p className="order-success__text">
+            Заказы временно не принимаются{closeDate ? ` до ${closeDate}` : ''}, но каталог по-прежнему доступен для просмотра.
+          </p>
+          <button className="btn btn--primary order-success__button" onClick={onClose}>
+            Понятно
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // модальное окно перед перенаправлением на оплату
 const PaymentRedirectModal = ({ 
   onConfirm,
@@ -1257,8 +1284,14 @@ export default function App() {
     loadOrdersStatus()
   }, [])
 
-  // управление корзиной с проверкой stock
+  // управление корзиной с проверкой stock и статуса заказов
   const updateCart = (slug: string, delta: number) => {
+    // проверка статуса заказов при добавлении товара (delta > 0)
+    if (delta > 0 && ordersClosed) {
+      setOrdersClosedModalOpen(true)
+      return
+    }
+    
     setCart(prev => {
       const existing = prev.find(item => item.slug === slug)
       const product = products.find(p => p.slug === slug)
@@ -1548,6 +1581,13 @@ export default function App() {
         <img src={logoImage} alt="KOSHEK logo" className={`header-logo ${logoImageLoaded ? 'image-loaded' : ''}`} />
         <h1 className="page-header__title">KOSHEK</h1>
         <p className="page-header__text">Girls выбирают KOSHEK и бриллианты.</p>
+        {ordersClosed && (
+          <div className="page-header__orders-closed">
+            <p className="page-header__orders-closed-text">
+              ⏸️ Заказы временно не принимаются{ordersCloseDate ? ` до ${ordersCloseDate}` : ''}, но каталог по-прежнему доступен для просмотра.
+            </p>
+          </div>
+        )}
         <button
           className="scroll-down-btn"
           onClick={() => mainContentRef.current?.scrollIntoView({ behavior: 'smooth' })}
@@ -1737,8 +1777,15 @@ export default function App() {
               }}
             />
           )}
-    </>
-  )
-}
+
+          {ordersClosedModalOpen && (
+            <OrdersClosedModal
+              closeDate={ordersCloseDate}
+              onClose={() => setOrdersClosedModalOpen(false)}
+            />
+          )}
+        </>
+      )
+    }
 
 

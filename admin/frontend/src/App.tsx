@@ -159,7 +159,6 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: 'products' | 'promoc
   const [ordersClosed, setOrdersClosed] = useState(false)
   const [ordersCloseDate, setOrdersCloseDate] = useState<string>('')
   const [isOrdersSettingsModalOpen, setIsOrdersSettingsModalOpen] = useState(false)
-  const [isLoadingOrdersSettings, setIsLoadingOrdersSettings] = useState(false)
   const [isSavingOrdersSettings, setIsSavingOrdersSettings] = useState(false)
 
   useEffect(() => {
@@ -169,14 +168,11 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: 'products' | 'promoc
 
   const loadOrdersSettings = async () => {
     try {
-      setIsLoadingOrdersSettings(true)
       const settings = await api.getOrdersSettings()
       setOrdersClosed(settings.ordersClosed || false)
       setOrdersCloseDate(settings.closeDate || '')
     } catch (error: any) {
       console.error('Ошибка загрузки настроек заказов:', error)
-    } finally {
-      setIsLoadingOrdersSettings(false)
     }
   }
 
