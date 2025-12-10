@@ -8,25 +8,21 @@ export type OrdersSettings = {
 
 function getAuthFromEnv() {
   // можно указать GOOGLE_SA_FILE=путь/к/sa.json или GOOGLE_SA_JSON=строкой
-  const saFile = process.env.GOOGLE_SA_FILE
-  const saJson = process.env.GOOGLE_SA_JSON
+  const filePath = process.env.GOOGLE_SA_FILE
+  const raw = process.env.GOOGLE_SA_JSON
+  let creds: any
   
-  if (saJson) {
-    try {
-      return JSON.parse(saJson)
-    } catch (e) {
-      throw new Error('не удалось распарсить GOOGLE_SA_JSON')
-    }
+  if (filePath) {
+    const txt = fs.readFileSync(filePath, 'utf8')
+    creds = JSON.parse(txt)
+  } else if (raw) {
+    creds = JSON.parse(raw)
+  } else {
+    throw new Error('GOOGLE_SA_JSON or GOOGLE_SA_FILE is required')
   }
   
-  if (saFile) {
-    if (!fs.existsSync(saFile)) {
-      throw new Error(`файл ${saFile} не найден`)
-    }
-    return JSON.parse(fs.readFileSync(saFile, 'utf-8'))
-  }
-  
-  throw new Error('GOOGLE_SA_FILE или GOOGLE_SA_JSON должны быть заданы')
+  const scopes = ['https://www.googleapis.com/auth/spreadsheets.readonly']
+  return new google.auth.JWT(creds.client_email, undefined, creds.private_key, scopes)
 }
 
 // получение настроек заказов из Google Sheets
