@@ -207,7 +207,7 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
   top: 6px; /* отступ от верхней границы карточки товара */
   left: 50%;
   transform: translateX(-50%);
-  background: #d65fa9;
+  background: #5e6623;
   color: white;
   padding: 2px 12px; /* вертикальный отступ (сверху и снизу) между границей текста и бейджем */
   border-radius: 24px;
@@ -235,7 +235,7 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
   top: 8px; /* отступ от верхней границы галереи товара */
   left: 50%;
   transform: translateX(-50%);
-  background: #d65fa9;
+  background: #5e6623;
   color: white;
   padding: 4px 20px; /* вертикальный отступ (сверху и снизу) между границей текста и бейджем */
   border-radius: 20px;

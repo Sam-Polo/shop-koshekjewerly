@@ -1181,7 +1181,7 @@ function ProductModal({
                   <span className="detail-label">Бейдж:</span>
                   <span className="detail-value">
                     <span style={{ 
-                      background: '#d32f94', 
+                      background: '#5e6623', 
                       color: 'white', 
                       padding: '2px 12px', /* вертикальный отступ (сверху и снизу) между границей текста и бейджем */
                       borderRadius: '20px', 
