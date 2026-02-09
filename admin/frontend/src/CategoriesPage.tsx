@@ -46,10 +46,13 @@ function areaToPosition(area: Area): string {
   return `${Math.round(cx * 10) / 10}% ${Math.round(cy * 10) / 10}%`
 }
 
+// соотношение сторон категории: 2 колонки, min-height 350px → примерно 0.5 (портрет)
+const CATEGORY_ASPECT = 0.5 // width/height, как у карточки категории
+
 // позиция "X% Y%" -> initialCroppedAreaPercentages для react-easy-crop
 function positionToInitialArea(pos: string): Area {
   const { x, y } = parseImagePosition(pos)
-  const w = 50
+  const w = 50 * CATEGORY_ASPECT // пропорционально соотношению
   const h = 50
   const ax = Math.max(0, Math.min(100 - w, x - w / 2))
   const ay = Math.max(0, Math.min(100 - h, y - h / 2))
@@ -87,8 +90,8 @@ function ImagePositionPicker({
           mediaSizeRef.current,
           0,
           cropSizeRef.current,
-          1,
-          3
+          0.5,
+          5
         )
         setCrop(initCrop)
         setZoom(initZoom)
@@ -130,9 +133,11 @@ function ImagePositionPicker({
           image={imageUrl}
           crop={crop}
           zoom={zoom}
-          aspect={1}
+          aspect={CATEGORY_ASPECT}
           objectFit="cover"
           showGrid={false}
+          minZoom={0.5}
+          maxZoom={5}
           onCropChange={setCrop}
           onZoomChange={setZoom}
           onCropComplete={onCropComplete}
