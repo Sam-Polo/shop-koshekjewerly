@@ -1520,6 +1520,17 @@
   width: 100%;
 }
 
+/* Превью в соотношении карточки категории в миниапке (1.59) */
+.category-form-preview {
+  width: 100%;
+  max-width: 320px;
+  aspect-ratio: 1.59;
+  margin-top: 0.75rem;
+  background: #f0f0f0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
 .image-upload-button {
   display: inline-block;
   padding: 0.75rem 1.5rem;
@@ -2288,34 +2299,6 @@
 
 /* btn-edit, btn-delete now use .btn-icon */
 
-.image-position-picker {
-  margin-top: 1rem;
-}
-
-.image-position-picker label {
-  display: block;
-  margin-bottom: 0.5rem;
-  font-weight: 500;
-}
-
-.crop-container {
-  position: relative;
-  width: 100%;
-  height: 400px;
-  min-height: 350px;
-  margin-top: 0.5rem;
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.image-position-placeholder {
-  padding: 2rem;
-  text-align: center;
-  color: #999;
-  background: #f5f5f5;
-  border-radius: 8px;
-}
-
 .btn-icon {
   display: inline-flex;
   align-items: center;
@@ -2340,79 +2323,6 @@
 
 .btn-icon.btn-delete:hover {
   color: #dc3545;
-}
-
-.image-position-preview {
-  width: 100%;
-  max-width: 300px;
-  aspect-ratio: 1;
-  background: #f0f0f0;
-  border-radius: 8px;
-  overflow: hidden;
-  margin-bottom: 1rem;
-}
-
-.image-position-preview-inner {
-  width: 100%;
-  height: 100%;
-}
-
-.image-position-placeholder {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #999;
-}
-
-.image-position-presets label {
-  display: block;
-  margin-bottom: 0.5rem;
-  font-weight: 500;
-}
-
-.position-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.position-btn {
-  padding: 0.4rem 0.8rem;
-  font-size: 0.85rem;
-  border: 1px solid #ddd;
-  background: white;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.position-btn:hover {
-  background: #f5f5f5;
-}
-
-.position-btn.active {
-  background: #667eea;
-  color: white;
-  border-color: #667eea;
-}
-
-.crop-zoom-control {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 1rem;
-}
-
-.crop-zoom-control label {
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.crop-zoom-control input[type="range"] {
-  flex: 1;
-  min-width: 120px;
-  accent-color: #667eea;
 }
 
 .empty-state {

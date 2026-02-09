@@ -1,6 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
-import Cropper, { getInitialCropFromCroppedAreaPercentages } from 'react-easy-crop'
-import type { Area } from 'react-easy-crop'
+import { useState, useEffect, useRef } from 'react'
 import { api, removeToken } from './api'
 import {
   DndContext,
@@ -28,145 +26,6 @@ type Category = {
   image: string
   image_position?: string
   order: number
-}
-
-// парсим "50% 50%" в { x, y }
-function parseImagePosition(value: string): { x: number; y: number } {
-  const match = value.match(/(\d+(?:\.\d+)?)\s*%\s+(\d+(?:\.\d+)?)\s*%/)
-  if (match) {
-    return { x: parseFloat(match[1]), y: parseFloat(match[2]) }
-  }
-  return { x: 50, y: 50 }
-}
-
-// конвертируем центр crop area в "X% Y%" (area должна быть в процентах 0–100)
-function areaToPosition(area: Area): string {
-  const cx = area.x + area.width / 2
-  const cy = area.y + area.height / 2
-  const clampedX = Math.max(0, Math.min(100, cx))
-  const clampedY = Math.max(0, Math.min(100, cy))
-  return `${Math.round(clampedX * 10) / 10}% ${Math.round(clampedY * 10) / 10}%`
-}
-
-// Соотношение сторон карточки категории в миниапке:
-// .page max-width 1180px, 2 колонки, gap 28px → ~556px ширина, min-height 350px
-// aspect = width/height = 556/350 ≈ 1.59 (landscape)
-const CATEGORY_ASPECT = 1.59
-
-// позиция "X% Y%" -> initialCroppedAreaPercentages для react-easy-crop
-function positionToInitialArea(pos: string): Area {
-  const { x, y } = parseImagePosition(pos)
-  const w = 50 * CATEGORY_ASPECT
-  const h = 50
-  const ax = Math.max(0, Math.min(100 - w, x - w / 2))
-  const ay = Math.max(0, Math.min(100 - h, y - h / 2))
-  return { x: ax, y: ay, width: w, height: h }
-}
-
-function ImagePositionPicker({
-  imageUrl,
-  value,
-  onChange
-}: {
-  imageUrl: string
-  value: string
-  onChange: (v: string) => void
-}) {
-  const [crop, setCrop] = useState({ x: 0, y: 0 })
-  const [zoom, setZoom] = useState(1)
-  const cropSizeRef = useRef<{ width: number; height: number } | null>(null)
-
-  const onCropComplete = useCallback(
-    (croppedAreaPercentages: Area, _croppedAreaPixels: Area) => {
-      onChange(areaToPosition(croppedAreaPercentages))
-    },
-    [onChange]
-  )
-
-  const mediaSizeRef = useRef<{ width: number; height: number; naturalWidth: number; naturalHeight: number } | null>(null)
-
-  const applyInitialPosition = useCallback(() => {
-    if (value && cropSizeRef.current && mediaSizeRef.current) {
-      try {
-        const area = positionToInitialArea(value)
-        const { crop: initCrop, zoom: initZoom } = getInitialCropFromCroppedAreaPercentages(
-          area,
-          mediaSizeRef.current,
-          0,
-          cropSizeRef.current,
-          1,
-          5
-        )
-        setCrop(initCrop)
-        setZoom(initZoom)
-      } catch {
-        // fallback to center
-      }
-    }
-  }, [value])
-
-  const onMediaLoaded = useCallback(
-    (mediaSize: { width: number; height: number; naturalWidth: number; naturalHeight: number }) => {
-      mediaSizeRef.current = mediaSize
-      applyInitialPosition()
-    },
-    [applyInitialPosition]
-  )
-
-  const setCropSize = useCallback(
-    (size: { width: number; height: number }) => {
-      cropSizeRef.current = size
-      applyInitialPosition()
-    },
-    [applyInitialPosition]
-  )
-
-  if (!imageUrl) {
-    return (
-      <div className="image-position-picker">
-        <div className="image-position-placeholder">Загрузите фото</div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="image-position-picker">
-      <label>Перетащите фото для выбора области отображения (сохраняется формат категории):</label>
-      <div className="crop-container">
-        <Cropper
-          image={imageUrl}
-          crop={crop}
-          zoom={zoom}
-          aspect={CATEGORY_ASPECT}
-          objectFit="cover"
-          showGrid={false}
-          minZoom={1}
-          maxZoom={5}
-          zoomSpeed={0.2}
-          restrictPosition={true}
-          onCropChange={setCrop}
-          onZoomChange={setZoom}
-          onCropComplete={onCropComplete}
-          onMediaLoaded={onMediaLoaded}
-          setCropSize={setCropSize}
-          style={{
-            containerStyle: { background: '#333' }
-          }}
-        />
-      </div>
-      <div className="crop-zoom-control">
-        <label>Масштаб:</label>
-        <input
-          type="range"
-          min={0.5}
-          max={5}
-          step={0.05}
-          value={zoom}
-          onChange={(e) => setZoom(parseFloat(e.target.value))}
-        />
-      </div>
-    </div>
-  )
 }
 
 const EditIcon = () => (
@@ -245,12 +104,11 @@ function CategoriesPage({
   const [deleteConfirm, setDeleteConfirm] = useState<Category | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingCategory, setEditingCategory] = useState<Category | null>(null)
-  const [formData, setFormData] = useState<{ key: string; title: string; description: string; image: string; image_position: string }>({
+  const [formData, setFormData] = useState<{ key: string; title: string; description: string; image: string }>({
     key: '',
     title: '',
     description: '',
-    image: '',
-    image_position: '50% 50%'
+    image: ''
   })
   const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -287,8 +145,7 @@ function CategoriesPage({
       key: '',
       title: '',
       description: '',
-      image: '',
-      image_position: '50% 50%'
+      image: ''
     })
     setIsModalOpen(true)
   }
@@ -299,8 +156,7 @@ function CategoriesPage({
       key: c.key,
       title: c.title,
       description: c.description || '',
-      image: c.image || '',
-      image_position: c.image_position || '50% 50%'
+      image: c.image || ''
     })
     setIsModalOpen(true)
   }
@@ -335,7 +191,7 @@ function CategoriesPage({
   }
 
   const handleSave = async () => {
-    const { key, title, description, image, image_position } = formData
+    const { key, title, description, image } = formData
     if (!key.trim()) {
       showToast('Укажите ключ (имя листа в таблице)', 'error')
       return
@@ -351,17 +207,18 @@ function CategoriesPage({
       return
     }
 
+    const imagePosition = 'center'
     let next: Category[]
     if (editingCategory) {
       next = categories.map((c) =>
         c.key === editingCategory.key
-          ? { ...c, key: normalizedKey, title: title.trim(), description: description.trim() || undefined, image, image_position }
+          ? { ...c, key: normalizedKey, title: title.trim(), description: description.trim() || undefined, image, image_position: imagePosition }
           : c
       )
     } else {
       next = [
         ...categories,
-        { key: normalizedKey, title: title.trim(), description: description.trim() || undefined, image, image_position, order: categories.length }
+        { key: normalizedKey, title: title.trim(), description: description.trim() || undefined, image, image_position: imagePosition, order: categories.length }
       ]
     }
     await saveCategories(next)
@@ -567,14 +424,17 @@ function CategoriesPage({
                 <label htmlFor="category-image-input" className="image-upload-button">
                   {uploading ? 'Загрузка...' : 'Загрузить фото'}
                 </label>
+                {formData.image && (
+                  <div
+                    className="category-form-preview"
+                    style={{
+                      backgroundImage: `url(${formData.image})`,
+                      backgroundSize: 'cover',
+                      backgroundPosition: 'center'
+                    }}
+                  />
+                )}
               </div>
-            </div>
-            <div className="form-group">
-              <ImagePositionPicker
-                imageUrl={formData.image}
-                value={formData.image_position}
-                onChange={(v) => setFormData((p) => ({ ...p, image_position: v }))}
-              />
             </div>
             <div className="modal-actions">
               <button type="button" className="btn btn-cancel" onClick={() => setIsModalOpen(false)}>Отмена</button>
