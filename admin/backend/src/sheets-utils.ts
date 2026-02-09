@@ -47,6 +47,43 @@ export function normalizeSheetName(category: string): string {
   return normalized || category.toLowerCase()
 }
 
+// колонки листа товаров категории
+const PRODUCT_SHEET_HEADERS = ['slug', 'title', 'description', 'price_rub', 'discount_price_rub', 'badge_text', 'images', 'active', 'stock', 'article']
+
+// проверка/создание листа товаров для категории (с заголовками)
+export async function ensureProductSheet(
+  auth: any,
+  sheetId: string,
+  sheetName: string
+): Promise<void> {
+  const sheets = google.sheets({ version: 'v4', auth })
+  const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId })
+  const exists = spreadsheet.data.sheets?.some(
+    (s: any) => s.properties?.title === sheetName
+  )
+  if (!exists) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: sheetId,
+      requestBody: {
+        requests: [{
+          addSheet: {
+            properties: { title: sheetName }
+          }
+        }]
+      }
+    })
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: sheetId,
+      range: `${sheetName}!A1:J1`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: {
+        values: [PRODUCT_SHEET_HEADERS]
+      }
+    })
+    logger.info({ sheetName }, 'лист категории создан')
+  }
+}
+
 // получение структуры заголовков листа
 export async function getSheetHeaders(
   auth: any,

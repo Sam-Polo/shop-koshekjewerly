@@ -9,6 +9,7 @@ import {
   normalizeSheetName,
   reorderProductsInSheet
 } from '../sheets-utils.js'
+import { fetchCategoriesFromSheet } from '../categories-utils.js'
 import pino from 'pino'
 import axios from 'axios'
 
@@ -151,9 +152,10 @@ router.post('/', async (req, res) => {
 
     const auth = getAuthFromEnv()
     
-    // проверяем что лист существует и нормализуем имя
-    const sheetNames = process.env.SHEET_NAMES?.split(',') || ['ягоды', 'выпечка', 'pets', 'шея', 'руки', 'уши', 'сертификаты']
-    const normalizedCategory = sheetNames.find(name => name.trim().toLowerCase() === productData.category.toLowerCase())
+    // проверяем что категория есть в листе categories
+    const categories = await fetchCategoriesFromSheet(sheetId)
+    const sheetNames = categories.map((c) => c.key)
+    const normalizedCategory = sheetNames.find(name => name.trim().toLowerCase() === productData.category.trim().toLowerCase())
     if (!normalizedCategory) {
       logger.warn({ category: productData.category }, 'категория не найдена')
       return res.status(400).json({ error: 'invalid_category' })
@@ -285,9 +287,10 @@ router.put('/:slug', async (req, res) => {
 
     const auth = getAuthFromEnv()
     
-    // проверяем что лист существует и нормализуем имя
-    const sheetNames = process.env.SHEET_NAMES?.split(',') || ['ягоды', 'выпечка', 'pets', 'шея', 'руки', 'уши', 'сертификаты']
-    const normalizedCategory = sheetNames.find(name => name.trim().toLowerCase() === productData.category.toLowerCase())
+    // проверяем что категория есть в листе categories
+    const categories = await fetchCategoriesFromSheet(sheetId)
+    const sheetNames = categories.map((c) => c.key)
+    const normalizedCategory = sheetNames.find(name => name.trim().toLowerCase() === productData.category.trim().toLowerCase())
     if (!normalizedCategory) {
       logger.warn({ category: productData.category }, 'категория не найдена')
       return res.status(400).json({ error: 'invalid_category' })

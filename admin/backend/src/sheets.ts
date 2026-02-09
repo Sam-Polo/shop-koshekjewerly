@@ -100,19 +100,15 @@ async function fetchSheetRange(
   return out
 }
 
-// чтение всех товаров из Google Sheets
+// чтение всех товаров из Google Sheets (листы берутся из categories)
 export async function fetchProductsFromSheet(sheetId: string): Promise<SheetProduct[]> {
   const auth = getAuthFromEnv()
   
-  const sheetNames = process.env.SHEET_NAMES?.split(',') || [
-    'ягоды',
-    'выпечка',
-    'pets',
-    'шея',
-    'руки',
-    'уши',
-    'сертификаты'
-  ]
+  const { fetchCategoriesFromSheet } = await import('./categories-utils.js')
+  const categories = await fetchCategoriesFromSheet(sheetId)
+  const sheetNames = categories.length > 0
+    ? categories.map((c) => c.key)
+    : (process.env.SHEET_NAMES?.split(',') || ['ягоды', 'выпечка', 'pets', 'шея', 'руки', 'уши', 'сертификаты']).map((s) => s.trim())
   
   const allProducts: SheetProduct[] = []
   

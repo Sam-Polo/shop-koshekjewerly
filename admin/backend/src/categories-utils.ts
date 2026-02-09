@@ -1,5 +1,5 @@
 import { google } from 'googleapis'
-import { getAuthFromEnv } from './sheets-utils.js'
+import { getAuthFromEnv, ensureProductSheet } from './sheets-utils.js'
 import pino from 'pino'
 
 const logger = pino()
@@ -122,6 +122,18 @@ export async function saveCategoriesToSheet(
     valueInputOption: 'USER_ENTERED',
     requestBody: { values }
   })
+
+  // создаём листы товаров для категорий, если их ещё нет
+  for (const c of categories) {
+    const key = c.key.trim()
+    if (key) {
+      try {
+        await ensureProductSheet(auth, sheetId, key)
+      } catch (e: any) {
+        logger.warn({ key, error: e?.message }, 'не удалось создать лист категории')
+      }
+    }
+  }
 
   logger.info({ count: categories.length }, 'категории сохранены в Google Sheets')
 }
