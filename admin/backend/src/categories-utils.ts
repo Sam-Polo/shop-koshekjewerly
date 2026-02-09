@@ -123,7 +123,20 @@ export async function saveCategoriesToSheet(
     requestBody: { values }
   })
 
-  // создаём листы товаров для категорий, если их ещё нет
+  // очищаем лишние строки (чтобы при удалении категории старые данные не оставались)
+  if (values.length < 500) {
+    try {
+      await sheets.spreadsheets.values.clear({
+        spreadsheetId: sheetId,
+        range: `${SHEET_NAME}!A${values.length + 1}:F500`
+      })
+    } catch (e: any) {
+      // если диапазон пуст — clear может вернуть ошибку, игнорируем
+      logger.debug({ error: e?.message }, 'очистка лишних строк categories')
+    }
+  }
+
+  // создаём листы товаров для категорий, если их ещё нет (листы с товарами никогда не удаляем)
   for (const c of categories) {
     const key = c.key.trim()
     if (key) {
