@@ -1699,11 +1699,61 @@
     flex-wrap: wrap;
   }
 
-  /* категории */
+  /* категории (сетка товаров) */
   .category-section h2 {
     font-size: 1.25rem;
     padding: 0.75rem 1rem;
     margin-bottom: 0.75rem;
+  }
+
+  /* вкладка категорий */
+  .categories-content {
+    padding: 1rem;
+  }
+
+  .categories-hint {
+    font-size: 0.9rem;
+    margin-bottom: 1rem;
+    line-height: 1.4;
+  }
+
+  .categories-table th,
+  .categories-table td {
+    padding: 0.6rem 0.5rem;
+    font-size: 0.9rem;
+  }
+
+  .category-row-preview {
+    width: 48px;
+    height: 36px;
+  }
+
+  .categories-table .btn-icon {
+    width: 32px;
+    height: 32px;
+  }
+
+  .modal-form .form-group {
+    margin-bottom: 1rem;
+  }
+
+  .modal-form .form-group label {
+    font-size: 0.9rem;
+  }
+
+  .modal-form .form-group input {
+    font-size: 1rem;
+    padding: 0.6rem;
+  }
+
+  .category-form-preview {
+    max-width: 100%;
+    margin-top: 0.5rem;
+  }
+
+  .admin-header .btn-add {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.85rem;
   }
 
   /* модальные окна */
@@ -2095,6 +2145,75 @@
     padding: 0.5rem;
   }
 
+  /* вкладка категорий — компактный вид */
+  .categories-content {
+    padding: 0.75rem;
+  }
+
+  .categories-hint {
+    font-size: 0.85rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .categories-table th,
+  .categories-table td {
+    padding: 0.5rem 0.35rem;
+    font-size: 0.8rem;
+  }
+
+  .categories-table th:nth-child(5),
+  .categories-table td:nth-child(5) {
+    max-width: 60px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .category-row-preview {
+    width: 40px;
+    height: 30px;
+  }
+
+  .categories-table .drag-handle {
+    padding: 2px 4px;
+    font-size: 0.9rem;
+  }
+
+  .categories-table .btn-icon {
+    width: 28px;
+    height: 28px;
+  }
+
+  .empty-state .btn-add {
+    width: 100%;
+    padding: 0.75rem;
+  }
+
+  .categories-table {
+    min-width: 320px;
+  }
+
+  .modal-form .image-upload-area {
+    padding: 0.5rem 0;
+  }
+
+  .modal-form .image-upload-button {
+    padding: 0.6rem 1rem;
+    font-size: 0.9rem;
+  }
+
+  .modal-form .category-form-preview {
+    max-width: 100%;
+  }
+
+  .confirm-modal h3 {
+    font-size: 1.1rem;
+  }
+
+  .confirm-modal p {
+    font-size: 0.9rem;
+  }
+
   .modal-content {
     width: 100%;
     max-width: 100%;
@@ -2251,6 +2370,7 @@
 
 .categories-table-wrapper {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .categories-table {
