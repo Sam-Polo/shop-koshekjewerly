@@ -139,8 +139,11 @@ function LoginForm({ onLogin }: { onLogin: () => void }) {
   )
 }
 
+type CategoryOption = { key: string; title: string }
+
 function ProductsList({ onNavigate }: { onNavigate?: (page: 'products' | 'promocodes' | 'categories') => void }) {
   const [products, setProducts] = useState<Product[]>([])
+  const [categories, setCategories] = useState<CategoryOption[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
@@ -165,7 +168,18 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: 'products' | 'promoc
   useEffect(() => {
     loadProducts()
     loadOrdersSettings()
+    loadCategories()
   }, [])
+
+  const loadCategories = async () => {
+    try {
+      const data = await api.getCategories()
+      const list = (data.categories || []).map((c: { key: string; title: string }) => ({ key: c.key, title: c.title || c.key }))
+      setCategories(list)
+    } catch (err: any) {
+      console.error('Ошибка загрузки категорий:', err)
+    }
+  }
 
   const loadOrdersSettings = async () => {
     try {
@@ -332,9 +346,11 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: 'products' | 'promoc
     window.location.reload()
   }
 
-  // получаем уникальные категории
-  const categories = Array.from(new Set(products.map(p => p.category))).sort()
-  
+  // категории для фильтра: из API; если пусто — из товаров (fallback)
+  const categoriesForFilter = categories.length > 0
+    ? categories.map((c) => c.key)
+    : Array.from(new Set(products.map((p) => p.category))).sort()
+
   // фильтруем товары по категории и артикулу
   const filteredProducts = products.filter(p => {
     // фильтр по категории
@@ -538,9 +554,14 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: 'products' | 'promoc
                 onChange={(e) => setSelectedCategory(e.target.value)}
               >
                 <option value="all">Все категории</option>
-                {categories.map(cat => (
-                  <option key={cat} value={cat}>{cat}</option>
-                ))}
+                {categoriesForFilter.map((cat) => {
+                  const catOption = categories.find((c) => c.key === cat)
+                  return (
+                    <option key={cat} value={cat}>
+                      {catOption ? catOption.title : cat}
+                    </option>
+                  )
+                })}
               </select>
             </label>
             <label className="search-label">
@@ -632,7 +653,13 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: 'products' | 'promoc
                 <button onClick={handleStartReorderProducts} className="btn-reorder-products">
                   Порядок товаров
                 </button>
-                <button onClick={() => setIsAddModalOpen(true)} className="btn-add">
+                <button
+                  onClick={() => {
+                    loadCategories() // обновляем список категорий (могли добавить новую)
+                    setIsAddModalOpen(true)
+                  }}
+                  className="btn-add"
+                >
                   Добавить товар
                 </button>
               </>
@@ -799,6 +826,7 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: 'products' | 'promoc
           product={selectedProduct}
           onClose={() => setSelectedProduct(null)}
           onEdit={() => {
+            loadCategories()
             setIsEditModalOpen(true)
           }}
           onDelete={() => handleDeleteClick(selectedProduct)}
@@ -817,6 +845,7 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: 'products' | 'promoc
         <ProductFormModal
           product={selectedProduct}
           products={products}
+          categories={categories}
           onClose={() => {
             setIsEditModalOpen(false)
           }}
@@ -841,6 +870,7 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: 'products' | 'promoc
       {isAddModalOpen && (
         <ProductFormModal
           products={products}
+          categories={categories}
           onClose={() => setIsAddModalOpen(false)}
           onSave={async (newProduct) => {
             try {
@@ -1516,12 +1546,14 @@ function ImageFullscreen({
 function ProductFormModal({
   product,
   products,
+  categories,
   onClose,
   onSave,
   showToast
 }: {
   product?: Product
   products: Product[]
+  categories: CategoryOption[]
   onClose: () => void
   onSave: (product: Partial<Product>) => void | Promise<void>
   showToast: (message: string, type: 'success' | 'error') => void
@@ -1597,16 +1629,14 @@ function ProductFormModal({
     })
   )
 
-  // список категорий с отображением и значением
-  const categories = [
-    { label: 'Ягоды', value: 'ягоды' },
-    { label: 'Выпечка', value: 'выпечка' },
-    { label: 'FOR PETS', value: 'pets' },
-    { label: 'Шея', value: 'шея' },
-    { label: 'Руки', value: 'руки' },
-    { label: 'Уши', value: 'уши' },
-    { label: 'Сертификаты', value: 'сертификаты' }
-  ]
+  // список категорий: из API (key для value, title для отображения); fallback — из товаров
+  const categoryOptions =
+    categories.length > 0
+      ? categories.map((c) => ({ label: c.title, value: c.key }))
+      : Array.from(new Set(products.map((p) => p.category)))
+          .filter(Boolean)
+          .sort()
+          .map((key) => ({ label: key, value: key }))
 
   // валидация формы
   const validate = (): boolean => {
@@ -1818,8 +1848,8 @@ function ProductFormModal({
                 required
               >
                 <option value="">Выберите категорию</option>
-                {categories.map(cat => (
-                  <option key={cat.value} value={cat.value}>{cat.label}</option>
+                {categoryOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
               </select>
             </div>
