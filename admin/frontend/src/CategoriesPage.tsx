@@ -46,13 +46,15 @@ function areaToPosition(area: Area): string {
   return `${Math.round(cx * 10) / 10}% ${Math.round(cy * 10) / 10}%`
 }
 
-// соотношение сторон категории: 2 колонки, min-height 350px → примерно 0.5 (портрет)
-const CATEGORY_ASPECT = 0.5 // width/height, как у карточки категории
+// Соотношение сторон карточки категории в миниапке:
+// .page max-width 1180px, 2 колонки, gap 28px → ~556px ширина, min-height 350px
+// aspect = width/height = 556/350 ≈ 1.59 (landscape)
+const CATEGORY_ASPECT = 1.59
 
 // позиция "X% Y%" -> initialCroppedAreaPercentages для react-easy-crop
 function positionToInitialArea(pos: string): Area {
   const { x, y } = parseImagePosition(pos)
-  const w = 50 * CATEGORY_ASPECT // пропорционально соотношению
+  const w = 50 * CATEGORY_ASPECT
   const h = 50
   const ax = Math.max(0, Math.min(100 - w, x - w / 2))
   const ay = Math.max(0, Math.min(100 - h, y - h / 2))
