@@ -2286,16 +2286,59 @@
   border-radius: 4px;
 }
 
-.btn-edit, .btn-delete {
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 4px 8px;
-  font-size: 1.1rem;
-}
+/* btn-edit, btn-delete now use .btn-icon */
 
 .image-position-picker {
   margin-top: 1rem;
+}
+
+.image-position-picker label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+}
+
+.crop-container {
+  position: relative;
+  width: 100%;
+  height: 300px;
+  margin-top: 0.5rem;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.image-position-placeholder {
+  padding: 2rem;
+  text-align: center;
+  color: #999;
+  background: #f5f5f5;
+  border-radius: 8px;
+}
+
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  color: #666;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.btn-icon:hover {
+  color: #333;
+}
+
+.btn-icon.btn-edit:hover {
+  color: #667eea;
+}
+
+.btn-icon.btn-delete:hover {
+  color: #dc3545;
 }
 
 .image-position-preview {

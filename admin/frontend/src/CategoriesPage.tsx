@@ -1,4 +1,6 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import Cropper, { getInitialCropFromCroppedAreaPercentages } from 'react-easy-crop'
+import type { Area } from 'react-easy-crop'
 import { api, removeToken } from './api'
 import {
   DndContext,
@@ -28,17 +30,31 @@ type Category = {
   order: number
 }
 
-const POSITION_PRESETS: { label: string; value: string }[] = [
-  { label: 'Центр', value: '50% 50%' },
-  { label: 'Верх', value: '50% 0%' },
-  { label: 'Низ', value: '50% 100%' },
-  { label: 'Слева', value: '0% 50%' },
-  { label: 'Справа', value: '100% 50%' },
-  { label: 'Верх-слева', value: '0% 0%' },
-  { label: 'Верх-справа', value: '100% 0%' },
-  { label: 'Низ-слева', value: '0% 100%' },
-  { label: 'Низ-справа', value: '100% 100%' }
-]
+// парсим "50% 50%" в { x, y }
+function parseImagePosition(value: string): { x: number; y: number } {
+  const match = value.match(/(\d+(?:\.\d+)?)\s*%\s+(\d+(?:\.\d+)?)\s*%/)
+  if (match) {
+    return { x: parseFloat(match[1]), y: parseFloat(match[2]) }
+  }
+  return { x: 50, y: 50 }
+}
+
+// конвертируем центр crop area в "X% Y%"
+function areaToPosition(area: Area): string {
+  const cx = area.x + area.width / 2
+  const cy = area.y + area.height / 2
+  return `${Math.round(cx * 10) / 10}% ${Math.round(cy * 10) / 10}%`
+}
+
+// позиция "X% Y%" -> initialCroppedAreaPercentages для react-easy-crop
+function positionToInitialArea(pos: string): Area {
+  const { x, y } = parseImagePosition(pos)
+  const w = 50
+  const h = 50
+  const ax = Math.max(0, Math.min(100 - w, x - w / 2))
+  const ay = Math.max(0, Math.min(100 - h, y - h / 2))
+  return { x: ax, y: ay, width: w, height: h }
+}
 
 function ImagePositionPicker({
   imageUrl,
@@ -49,41 +65,103 @@ function ImagePositionPicker({
   value: string
   onChange: (v: string) => void
 }) {
+  const [crop, setCrop] = useState({ x: 0, y: 0 })
+  const [zoom, setZoom] = useState(1)
+  const cropSizeRef = useRef<{ width: number; height: number } | null>(null)
+
+  const onCropComplete = useCallback(
+    (_: Area, croppedArea: Area) => {
+      onChange(areaToPosition(croppedArea))
+    },
+    [onChange]
+  )
+
+  const mediaSizeRef = useRef<{ width: number; height: number; naturalWidth: number; naturalHeight: number } | null>(null)
+
+  const applyInitialPosition = useCallback(() => {
+    if (value && cropSizeRef.current && mediaSizeRef.current) {
+      try {
+        const area = positionToInitialArea(value)
+        const { crop: initCrop, zoom: initZoom } = getInitialCropFromCroppedAreaPercentages(
+          area,
+          mediaSizeRef.current,
+          0,
+          cropSizeRef.current,
+          1,
+          3
+        )
+        setCrop(initCrop)
+        setZoom(initZoom)
+      } catch {
+        // fallback to center
+      }
+    }
+  }, [value])
+
+  const onMediaLoaded = useCallback(
+    (mediaSize: { width: number; height: number; naturalWidth: number; naturalHeight: number }) => {
+      mediaSizeRef.current = mediaSize
+      applyInitialPosition()
+    },
+    [applyInitialPosition]
+  )
+
+  const setCropSize = useCallback(
+    (size: { width: number; height: number }) => {
+      cropSizeRef.current = size
+      applyInitialPosition()
+    },
+    [applyInitialPosition]
+  )
+
+  if (!imageUrl) {
+    return (
+      <div className="image-position-picker">
+        <div className="image-position-placeholder">Загрузите фото</div>
+      </div>
+    )
+  }
+
   return (
     <div className="image-position-picker">
-      <div className="image-position-preview">
-        {imageUrl ? (
-          <div
-            className="image-position-preview-inner"
-            style={{
-              backgroundImage: `url(${imageUrl})`,
-              backgroundSize: 'cover',
-              backgroundPosition: value || 'center'
-            }}
-          />
-        ) : (
-          <div className="image-position-placeholder">Загрузите фото</div>
-        )}
-      </div>
-      <div className="image-position-presets">
-        <label>Положение фото (область отображения):</label>
-        <div className="position-grid">
-          {POSITION_PRESETS.map((p) => (
-            <button
-              key={p.value}
-              type="button"
-              className={`position-btn ${value === p.value ? 'active' : ''}`}
-              onClick={() => onChange(p.value)}
-              title={p.label}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
+      <label>Перетащите фото для выбора области отображения (сохраняется формат категории):</label>
+      <div className="crop-container">
+        <Cropper
+          image={imageUrl}
+          crop={crop}
+          zoom={zoom}
+          aspect={1}
+          objectFit="cover"
+          showGrid={false}
+          onCropChange={setCrop}
+          onZoomChange={setZoom}
+          onCropComplete={onCropComplete}
+          onMediaLoaded={onMediaLoaded}
+          setCropSize={setCropSize}
+          style={{
+            containerStyle: { background: '#333' }
+          }}
+        />
       </div>
     </div>
   )
 }
+
+const EditIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+  </svg>
+)
+
+const TrashIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="3 6 5 6 21 6" />
+    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+    <line x1="10" y1="11" x2="10" y2="17" />
+    <line x1="14" y1="11" x2="14" y2="17" />
+  </svg>
+)
 
 function SortableCategoryRow({
   category,
@@ -127,8 +205,8 @@ function SortableCategoryRow({
       <td>{category.title}</td>
       <td>{category.description || '—'}</td>
       <td>
-        <button type="button" className="btn-edit" onClick={onEdit} title="Редактировать">✏️</button>
-        <button type="button" className="btn-delete" onClick={onDelete} title="Убрать из мини-приложения">🗑️</button>
+        <button type="button" className="btn-icon btn-edit" onClick={onEdit} title="Редактировать"><EditIcon /></button>
+        <button type="button" className="btn-icon btn-delete" onClick={onDelete} title="Убрать из мини-приложения"><TrashIcon /></button>
       </td>
     </tr>
   )
