@@ -85,41 +85,6 @@ function ImagePositionPicker({
 
   const mediaSizeRef = useRef<{ width: number; height: number; naturalWidth: number; naturalHeight: number } | null>(null)
 
-  // Workaround для бага restrictPosition при zoom < 1: вручную ограничиваем позицию
-  const handleCropChange = useCallback(
-    (newCrop: { x: number; y: number }) => {
-      if (zoom >= 1 || !mediaSizeRef.current || !cropSizeRef.current) {
-        setCrop(newCrop)
-        return
-      }
-      const { width: mw, height: mh } = mediaSizeRef.current
-      const { width: cw, height: ch } = cropSizeRef.current
-      const maxX = Math.max(0, (mw * zoom) / 2 - cw / 2)
-      const maxY = Math.max(0, (mh * zoom) / 2 - ch / 2)
-      setCrop({
-        x: Math.max(-maxX, Math.min(maxX, newCrop.x)),
-        y: Math.max(-maxY, Math.min(maxY, newCrop.y))
-      })
-    },
-    [zoom]
-  )
-
-  // При изменении zoom через ползунок — пересчитываем ограничения
-  useEffect(() => {
-    if (zoom < 1 && mediaSizeRef.current && cropSizeRef.current) {
-      setCrop((prev) => {
-        const { width: mw, height: mh } = mediaSizeRef.current!
-        const { width: cw, height: ch } = cropSizeRef.current!
-        const maxX = Math.max(0, (mw * zoom) / 2 - cw / 2)
-        const maxY = Math.max(0, (mh * zoom) / 2 - ch / 2)
-        return {
-          x: Math.max(-maxX, Math.min(maxX, prev.x)),
-          y: Math.max(-maxY, Math.min(maxY, prev.y))
-        }
-      })
-    }
-  }, [zoom])
-
   const applyInitialPosition = useCallback(() => {
     if (value && cropSizeRef.current && mediaSizeRef.current) {
       try {
@@ -179,7 +144,7 @@ function ImagePositionPicker({
           maxZoom={5}
           zoomSpeed={0.2}
           restrictPosition={true}
-          onCropChange={handleCropChange}
+          onCropChange={setCrop}
           onZoomChange={setZoom}
           onCropComplete={onCropComplete}
           onMediaLoaded={onMediaLoaded}
