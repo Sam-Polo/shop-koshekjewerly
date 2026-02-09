@@ -140,6 +140,8 @@ function ImagePositionPicker({
           showGrid={false}
           minZoom={0.5}
           maxZoom={5}
+          zoomSpeed={0.2}
+          restrictPosition={true}
           onCropChange={setCrop}
           onZoomChange={setZoom}
           onCropComplete={onCropComplete}
@@ -148,6 +150,17 @@ function ImagePositionPicker({
           style={{
             containerStyle: { background: '#333' }
           }}
+        />
+      </div>
+      <div className="crop-zoom-control">
+        <label>Масштаб:</label>
+        <input
+          type="range"
+          min={0.5}
+          max={5}
+          step={0.05}
+          value={zoom}
+          onChange={(e) => setZoom(parseFloat(e.target.value))}
         />
       </div>
     </div>
@@ -553,16 +566,14 @@ function CategoriesPage({
                   {uploading ? 'Загрузка...' : 'Загрузить фото'}
                 </label>
                 {formData.image && (
-                  <div className="category-form-preview">
-                    <div
-                      className="category-form-preview-inner"
-                      style={{
-                        backgroundImage: `url(${formData.image})`,
-                        backgroundSize: 'cover',
-                        backgroundPosition: formData.image_position || 'center'
-                      }}
-                    />
-                  </div>
+                  <div
+                    className="category-form-preview"
+                    style={{
+                      backgroundImage: `url(${formData.image})`,
+                      backgroundSize: 'cover',
+                      backgroundPosition: formData.image_position || 'center'
+                    }}
+                  />
                 )}
               </div>
             </div>
