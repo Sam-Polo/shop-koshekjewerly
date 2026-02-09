@@ -200,6 +200,19 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settings)
     })
+  },
+
+  // категории
+  async getCategories() {
+    return fetchWithAuth('/api/categories')
+  },
+
+  async saveCategories(categories: Array<{ key: string; title: string; description?: string; image: string; image_position?: string }>) {
+    return fetchWithAuth('/api/categories', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categories })
+    })
   }
 }
 

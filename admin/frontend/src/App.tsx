@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { api, getToken, saveToken, removeToken } from './api'
 import { generateSlug, formatArticle, parseArticle } from './utils'
 import PromocodesPage from './PromocodesPage'
+import CategoriesPage from './CategoriesPage'
 import {
   DndContext,
   closestCenter,
@@ -138,7 +139,7 @@ function LoginForm({ onLogin }: { onLogin: () => void }) {
   )
 }
 
-function ProductsList({ onNavigate }: { onNavigate?: (page: 'products' | 'promocodes') => void }) {
+function ProductsList({ onNavigate }: { onNavigate?: (page: 'products' | 'promocodes' | 'categories') => void }) {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -514,6 +515,12 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: 'products' | 'promoc
             onClick={() => onNavigate?.('promocodes')}
           >
             Промокоды
+          </button>
+          <button 
+            className="nav-btn"
+            onClick={() => onNavigate?.('categories')}
+          >
+            Категории
           </button>
         </div>
         <button onClick={handleLogout} className="logout-btn">
@@ -2014,7 +2021,7 @@ function ProductFormModal({
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [checking, setChecking] = useState(true)
-  const [currentPage, setCurrentPage] = useState<'products' | 'promocodes'>('products')
+  const [currentPage, setCurrentPage] = useState<'products' | 'promocodes' | 'categories'>('products')
   const [isPageLoading, setIsPageLoading] = useState(false)
 
   useEffect(() => {
@@ -2026,7 +2033,7 @@ export default function App() {
     setChecking(false)
   }, [])
 
-  const handlePageChange = (page: 'products' | 'promocodes') => {
+  const handlePageChange = (page: 'products' | 'promocodes' | 'categories') => {
     if (page !== currentPage) {
       setIsPageLoading(true)
       // небольшая задержка для плавной анимации
@@ -2055,6 +2062,8 @@ export default function App() {
       <div className={`admin-content-wrapper ${isPageLoading ? 'fade-out' : 'fade-in'}`}>
         {currentPage === 'promocodes' ? (
           <PromocodesPage onNavigate={handlePageChange} />
+        ) : currentPage === 'categories' ? (
+          <CategoriesPage onNavigate={handlePageChange} />
         ) : (
           <ProductsList onNavigate={handlePageChange} />
         )}

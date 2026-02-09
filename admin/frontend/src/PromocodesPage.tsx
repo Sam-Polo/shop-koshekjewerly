@@ -18,7 +18,7 @@ type Product = {
   article?: string
 }
 
-function PromocodesPage({ onNavigate }: { onNavigate?: (page: 'products' | 'promocodes') => void }) {
+function PromocodesPage({ onNavigate }: { onNavigate?: (page: 'products' | 'promocodes' | 'categories') => void }) {
   const handleLogout = () => {
     removeToken()
     window.location.href = '/'
@@ -104,6 +104,12 @@ function PromocodesPage({ onNavigate }: { onNavigate?: (page: 'products' | 'prom
             onClick={() => onNavigate?.('promocodes')}
           >
             Промокоды
+          </button>
+          <button 
+            className="nav-btn"
+            onClick={() => onNavigate?.('categories')}
+          >
+            Категории
           </button>
         </div>
         <div className="header-actions">

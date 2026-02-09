@@ -9,6 +9,7 @@ import { createOrder, getOrder, updateOrderStatus, type OrderStatus } from './or
 import { generatePaymentUrl, verifyResultSignature } from './robokassa.js';
 import { fetchPromocodesFromSheet, loadPromocodes, findPromocode, validatePromocode, listPromocodes } from './promocodes.js';
 import { fetchOrdersSettingsFromSheet } from './settings.js';
+import { fetchCategoriesFromSheet } from './categories.js';
 
 const logger = pino();
 const app = express();
@@ -133,6 +134,21 @@ app.get('/health', (_req, res) => {
 app.get('/api/products', (_req, res) => {
   const items = listProducts().filter(p => p.active)
   res.json({ items, total: items.length });
+});
+
+// получение категорий (для мини-приложения)
+app.get('/api/categories', async (_req, res) => {
+  try {
+    const sheetId = process.env.IMPORT_SHEET_ID;
+    if (!sheetId) {
+      return res.json({ categories: [] });
+    }
+    const categories = await fetchCategoriesFromSheet(sheetId);
+    return res.json({ categories });
+  } catch (e: any) {
+    logger.error({ error: e?.message }, 'ошибка получения категорий');
+    return res.json({ categories: [] });
+  }
 });
 
 // получение статуса заказов

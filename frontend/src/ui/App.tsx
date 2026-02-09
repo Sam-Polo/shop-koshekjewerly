@@ -40,6 +40,7 @@ type Category = {
   title: string
   description?: string
   image: string
+  image_position?: string // для background-position (например "50% 50%", "center")
   disabled?: boolean // если true, категория некликабельна
 }
 
@@ -69,7 +70,8 @@ function getProductPrice(product: Product): number {
     : product.price_rub
 }
 
-const categories: Category[] = [
+// fallback категории (если API не отдаёт)
+const defaultCategories: Category[] = [
   { key: 'ягоды', title: 'Ягоды (special)', description: 'Эксклюзивная коллекция KOSHEK, украшения в виде реалистичных ягод из полимерной глины', image: berriesImage },
   { key: 'выпечка', title: 'Выпечка', description: 'Эксклюзивная коллекция КОШЕК, украшения в виде реалистичной выпечки из полимерной глины', image: bakeryImage },
   { key: 'pets', title: 'FOR PETS', description: 'Украшения для ваших питомцев.', image: petsImage },
@@ -1185,16 +1187,18 @@ function useImageLoader(src: string) {
 
 // компонент категории с предзагрузкой изображения
 const CategoryCard = ({ card, onSelect }: { card: Category, onSelect: () => void }) => {
-  const { loaded } = useImagePreload(card.image)
+  const { loaded } = useImagePreload(card.image || '')
+  const bgPosition = card.image_position || 'center'
+  const hasImage = !!card.image
   
   return (
     <button
       key={card.key}
-      className={`category-card ${loaded ? 'image-loaded' : ''} ${card.disabled ? 'category-card--disabled' : ''}`}
+      className={`category-card ${hasImage && loaded ? 'image-loaded' : ''} ${card.disabled ? 'category-card--disabled' : ''}`}
       onClick={card.disabled ? undefined : onSelect}
       disabled={card.disabled}
     >
-      <div className="category-card__media" style={{ backgroundImage: `url(${card.image})` }} />
+      <div className="category-card__media" style={{ backgroundImage: hasImage ? `url(${card.image})` : undefined, backgroundPosition: bgPosition }} />
       <div className="category-card__overlay" />
       <div className="category-card__content">
         <h2 className="category-card__title">{card.title}</h2>
@@ -1235,6 +1239,7 @@ export default function App() {
   const [deliveryRegion, setDeliveryRegion] = useState<DeliveryRegion | null>(null)
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
+  const [categories, setCategories] = useState<Category[]>(defaultCategories)
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [cart, setCart] = useState<CartItem[]>([])
@@ -1278,6 +1283,33 @@ export default function App() {
       // очищаем URL
       window.history.replaceState({}, '', window.location.pathname)
     }
+  }, [])
+
+  // загрузка категорий из API
+  useEffect(() => {
+    const loadCategories = async () => {
+      try {
+        const apiUrl = import.meta.env.VITE_API_URL || '/api'
+        const url = apiUrl.endsWith('/api') ? `${apiUrl}/categories` : `${apiUrl}/api/categories`
+        const response = await fetch(url)
+        if (response.ok) {
+          const data = await response.json()
+          const list = data.categories || []
+          if (list.length > 0) {
+            setCategories(list.map((c: { key: string; title: string; description?: string; image: string; image_position?: string }) => ({
+              key: c.key,
+              title: c.title,
+              description: c.description,
+              image: c.image,
+              image_position: c.image_position || 'center'
+            })))
+          }
+        }
+      } catch {
+        // оставляем defaultCategories
+      }
+    }
+    loadCategories()
   }, [])
 
   // загрузка статуса заказов

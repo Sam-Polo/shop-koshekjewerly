@@ -81,12 +81,18 @@ async function fetchSheetRange(auth: any, sheetId: string, range: string, catego
   return out
 }
 
-// читаем все листы с товарами (по категориям)
-export async function fetchProductsFromSheet(sheetId: string): Promise<SheetProduct[]> {
-  const auth = getAuthFromEnv()
-  
-  // названия листов по категориям (можно настроить через env)
-  const sheetNames = process.env.SHEET_NAMES?.split(',') || [
+// получаем список имён листов: из categories или из env SHEET_NAMES
+async function getSheetNames(sheetId: string): Promise<string[]> {
+  try {
+    const { fetchCategoriesFromSheet } = await import('./categories.js')
+    const categories = await fetchCategoriesFromSheet(sheetId)
+    if (categories.length > 0) {
+      return categories.map((c) => c.key)
+    }
+  } catch (_) {
+    // игнорируем
+  }
+  return process.env.SHEET_NAMES?.split(',').map((s) => s.trim()) || [
     'ягоды',
     'выпечка',
     'pets',
@@ -95,9 +101,14 @@ export async function fetchProductsFromSheet(sheetId: string): Promise<SheetProd
     'уши',
     'сертификаты'
   ]
-  
+}
+
+// читаем все листы с товарами (по категориям)
+export async function fetchProductsFromSheet(sheetId: string): Promise<SheetProduct[]> {
+  const auth = getAuthFromEnv()
+  const sheetNames = await getSheetNames(sheetId)
   const allProducts: SheetProduct[] = []
-  
+
   for (const sheetName of sheetNames) {
     try {
       // читаем диапазон A1:J1000 из каждого листа (добавлена колонка article в конце)

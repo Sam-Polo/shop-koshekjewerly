@@ -43,12 +43,14 @@ import productRoutes from './routes/products.js'
 import uploadRoutes from './routes/upload.js'
 import promocodeRoutes from './routes/promocodes.js'
 import settingsRoutes from './routes/settings.js'
+import categoriesRoutes from './routes/categories.js'
 
 app.use('/api/auth', authRoutes)
 app.use('/api/products', productRoutes)
 app.use('/api/upload', uploadRoutes)
 app.use('/api/promocodes', promocodeRoutes)
 app.use('/api/settings', settingsRoutes)
+app.use('/api/categories', categoriesRoutes)
 
 app.listen(PORT, () => {
   logger.info(`Админ-панель бэкенд запущен на порту ${PORT}`)
