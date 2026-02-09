@@ -1185,10 +1185,21 @@ function useImageLoader(src: string) {
   return { loading, error }
 }
 
+// нормализуем background-position: старые некорректные значения (623.5% и т.п.) → center
+function normalizeBgPosition(pos: string | undefined): string {
+  if (!pos || pos === 'center') return 'center'
+  const m = pos.match(/(\d+(?:\.\d+)?)\s*%\s+(\d+(?:\.\d+)?)\s*%/)
+  if (!m) return 'center'
+  const x = parseFloat(m[1])
+  const y = parseFloat(m[2])
+  if (x < 0 || x > 100 || y < 0 || y > 100) return 'center'
+  return `${x}% ${y}%`
+}
+
 // компонент категории с предзагрузкой изображения
 const CategoryCard = ({ card, onSelect }: { card: Category, onSelect: () => void }) => {
   const { loaded } = useImagePreload(card.image || '')
-  const bgPosition = card.image_position || 'center'
+  const bgPosition = normalizeBgPosition(card.image_position)
   const hasImage = !!card.image
   
   return (

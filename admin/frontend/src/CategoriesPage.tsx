@@ -94,7 +94,7 @@ function ImagePositionPicker({
           mediaSizeRef.current,
           0,
           cropSizeRef.current,
-          0.5,
+          1,
           5
         )
         setCrop(initCrop)
@@ -140,7 +140,7 @@ function ImagePositionPicker({
           aspect={CATEGORY_ASPECT}
           objectFit="cover"
           showGrid={false}
-          minZoom={0.5}
+          minZoom={1}
           maxZoom={5}
           zoomSpeed={0.2}
           restrictPosition={true}
