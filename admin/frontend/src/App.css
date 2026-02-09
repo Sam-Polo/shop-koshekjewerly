@@ -2397,15 +2397,6 @@
   border-color: #667eea;
 }
 
-.category-form-preview {
-  width: 120px;
-  height: 90px;
-  margin-top: 0.5rem;
-  background: #f0f0f0;
-  border-radius: 6px;
-  overflow: hidden;
-}
-
 .crop-zoom-control {
   display: flex;
   align-items: center;

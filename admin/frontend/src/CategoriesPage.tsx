@@ -39,11 +39,13 @@ function parseImagePosition(value: string): { x: number; y: number } {
   return { x: 50, y: 50 }
 }
 
-// конвертируем центр crop area в "X% Y%"
+// конвертируем центр crop area в "X% Y%" (area должна быть в процентах 0–100)
 function areaToPosition(area: Area): string {
   const cx = area.x + area.width / 2
   const cy = area.y + area.height / 2
-  return `${Math.round(cx * 10) / 10}% ${Math.round(cy * 10) / 10}%`
+  const clampedX = Math.max(0, Math.min(100, cx))
+  const clampedY = Math.max(0, Math.min(100, cy))
+  return `${Math.round(clampedX * 10) / 10}% ${Math.round(clampedY * 10) / 10}%`
 }
 
 // Соотношение сторон карточки категории в миниапке:
@@ -75,13 +77,48 @@ function ImagePositionPicker({
   const cropSizeRef = useRef<{ width: number; height: number } | null>(null)
 
   const onCropComplete = useCallback(
-    (_: Area, croppedArea: Area) => {
-      onChange(areaToPosition(croppedArea))
+    (croppedAreaPercentages: Area, _croppedAreaPixels: Area) => {
+      onChange(areaToPosition(croppedAreaPercentages))
     },
     [onChange]
   )
 
   const mediaSizeRef = useRef<{ width: number; height: number; naturalWidth: number; naturalHeight: number } | null>(null)
+
+  // Workaround для бага restrictPosition при zoom < 1: вручную ограничиваем позицию
+  const handleCropChange = useCallback(
+    (newCrop: { x: number; y: number }) => {
+      if (zoom >= 1 || !mediaSizeRef.current || !cropSizeRef.current) {
+        setCrop(newCrop)
+        return
+      }
+      const { width: mw, height: mh } = mediaSizeRef.current
+      const { width: cw, height: ch } = cropSizeRef.current
+      const maxX = Math.max(0, (mw * zoom) / 2 - cw / 2)
+      const maxY = Math.max(0, (mh * zoom) / 2 - ch / 2)
+      setCrop({
+        x: Math.max(-maxX, Math.min(maxX, newCrop.x)),
+        y: Math.max(-maxY, Math.min(maxY, newCrop.y))
+      })
+    },
+    [zoom]
+  )
+
+  // При изменении zoom через ползунок — пересчитываем ограничения
+  useEffect(() => {
+    if (zoom < 1 && mediaSizeRef.current && cropSizeRef.current) {
+      setCrop((prev) => {
+        const { width: mw, height: mh } = mediaSizeRef.current!
+        const { width: cw, height: ch } = cropSizeRef.current!
+        const maxX = Math.max(0, (mw * zoom) / 2 - cw / 2)
+        const maxY = Math.max(0, (mh * zoom) / 2 - ch / 2)
+        return {
+          x: Math.max(-maxX, Math.min(maxX, prev.x)),
+          y: Math.max(-maxY, Math.min(maxY, prev.y))
+        }
+      })
+    }
+  }, [zoom])
 
   const applyInitialPosition = useCallback(() => {
     if (value && cropSizeRef.current && mediaSizeRef.current) {
@@ -142,7 +179,7 @@ function ImagePositionPicker({
           maxZoom={5}
           zoomSpeed={0.2}
           restrictPosition={true}
-          onCropChange={setCrop}
+          onCropChange={handleCropChange}
           onZoomChange={setZoom}
           onCropComplete={onCropComplete}
           onMediaLoaded={onMediaLoaded}
@@ -565,16 +602,6 @@ function CategoriesPage({
                 <label htmlFor="category-image-input" className="image-upload-button">
                   {uploading ? 'Загрузка...' : 'Загрузить фото'}
                 </label>
-                {formData.image && (
-                  <div
-                    className="category-form-preview"
-                    style={{
-                      backgroundImage: `url(${formData.image})`,
-                      backgroundSize: 'cover',
-                      backgroundPosition: formData.image_position || 'center'
-                    }}
-                  />
-                )}
               </div>
             </div>
             <div className="form-group">
