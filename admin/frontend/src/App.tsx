@@ -1633,7 +1633,10 @@ function CategoryMultiSelect({
       {open && (
         <div className="category-multiselect-dropdown" role="listbox">
           {options.map((opt) => (
-            <label key={opt.value} className="category-multiselect-option">
+            <label
+              key={opt.value}
+              className={`category-multiselect-option ${selected.includes(opt.value) ? 'selected' : ''}`}
+            >
               <input
                 type="checkbox"
                 checked={selected.includes(opt.value)}
