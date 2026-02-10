@@ -9,7 +9,8 @@ export type SheetProduct = {
   slug: string
   title: string
   description?: string
-  category: string
+  category: string // первая категория (для совместимости)
+  categories: string[] // все категории товара
   price_rub: number
   discount_price_rub?: number // цена со скидкой (если заполнена - используется вместо price_rub)
   badge_text?: string // текст плашки (например, "СКИДКА", "НОВИНКА", "ПЕРСОНАЛИЗАЦИЯ")
@@ -84,6 +85,7 @@ async function fetchSheetRange(
       title: String(get('title')).trim(),
       description: String(get('description') || '').trim() || undefined,
       category: categoryName,
+      categories: [categoryName],
       price_rub: Number.isFinite(price) ? price : 0,
       discount_price_rub: discountPrice && Number.isFinite(discountPrice) ? discountPrice : undefined,
       badge_text: badgeText,
@@ -110,18 +112,27 @@ export async function fetchProductsFromSheet(sheetId: string): Promise<SheetProd
     ? categories.map((c) => c.key)
     : (process.env.SHEET_NAMES?.split(',') || ['ягоды', 'выпечка', 'pets', 'шея', 'руки', 'уши', 'сертификаты']).map((s) => s.trim())
   
-  const allProducts: SheetProduct[] = []
+  const bySlug = new Map<string, SheetProduct>()
   
   for (const sheetName of sheetNames) {
     try {
       const range = `${sheetName.trim()}!A1:K1000`
       const products = await fetchSheetRange(auth, sheetId, range, sheetName.trim())
-      allProducts.push(...products)
+      for (const p of products) {
+        const existing = bySlug.get(p.slug)
+        if (existing) {
+          if (!existing.categories.includes(sheetName.trim())) {
+            existing.categories.push(sheetName.trim())
+          }
+        } else {
+          bySlug.set(p.slug, { ...p, categories: [sheetName.trim()] })
+        }
+      }
     } catch (e: any) {
       logger.warn({ sheetName, error: e?.message }, 'не удалось прочитать лист')
     }
   }
   
-  return allProducts
+  return Array.from(bySlug.values())
 }
 

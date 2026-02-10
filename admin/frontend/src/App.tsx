@@ -72,7 +72,8 @@ type Product = {
   slug: string
   title: string
   description?: string
-  category: string
+  category: string // первая категория (для совместимости)
+  categories?: string[] // все категории товара
   price_rub: number
   discount_price_rub?: number // цена со скидкой (если заполнена - используется вместо price_rub)
   badge_text?: string // текст плашки (например, "СКИДКА", "НОВИНКА", "ПЕРСОНАЛИЗАЦИЯ")
@@ -349,26 +350,24 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: 'products' | 'promoc
   // категории для фильтра: из API; если пусто — из товаров (fallback)
   const categoriesForFilter = categories.length > 0
     ? categories.map((c) => c.key)
-    : Array.from(new Set(products.map((p) => p.category))).sort()
+    : Array.from(new Set(products.flatMap((p) => p.categories || [p.category]))).sort()
 
   // фильтруем товары по категории и артикулу
   const filteredProducts = products.filter(p => {
-    // фильтр по категории
-    const matchesCategory = selectedCategory === 'all' || p.category === selectedCategory
-    
-    // фильтр по артикулу (если поиск не пустой)
-    const matchesArticle = !searchArticle.trim() || 
+    const productCats = p.categories || [p.category]
+    const matchesCategory = selectedCategory === 'all' || productCats.includes(selectedCategory)
+    const matchesArticle = !searchArticle.trim() ||
       (p.article && p.article.toLowerCase().includes(searchArticle.trim().toLowerCase()))
-    
     return matchesCategory && matchesArticle
   })
 
-  // группируем по категориям
+  // группируем по категориям (товар может быть в нескольких секциях)
   const groupedProducts = filteredProducts.reduce((acc, product) => {
-    if (!acc[product.category]) {
-      acc[product.category] = []
+    const productCats = product.categories || [product.category]
+    for (const cat of productCats) {
+      if (!acc[cat]) acc[cat] = []
+      acc[cat].push(product)
     }
-    acc[product.category].push(product)
     return acc
   }, {} as Record<string, Product[]>)
 
@@ -1543,6 +1542,77 @@ function ImageFullscreen({
   )
 }
 
+function CategoryMultiSelect({
+  options,
+  selected,
+  onChange,
+  placeholder,
+  error
+}: {
+  options: { label: string; value: string }[]
+  selected: string[]
+  onChange: (values: string[]) => void
+  placeholder: string
+  error?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    if (open) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [open])
+
+  const toggle = (value: string) => {
+    if (selected.includes(value)) {
+      onChange(selected.filter((v) => v !== value))
+    } else {
+      onChange([...selected, value])
+    }
+  }
+
+  const label = selected.length === 0
+    ? placeholder
+    : selected.length === 1
+      ? options.find((o) => o.value === selected[0])?.label ?? selected[0]
+      : `Выбрано: ${selected.length}`
+
+  return (
+    <div className="category-multiselect" ref={ref}>
+      <button
+        type="button"
+        className={`category-multiselect-trigger ${error ? 'has-error' : ''}`}
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+      >
+        <span>{label}</span>
+        <span className="category-multiselect-arrow">{open ? '▲' : '▼'}</span>
+      </button>
+      {error && <span className="form-error">{error}</span>}
+      {open && (
+        <div className="category-multiselect-dropdown" role="listbox">
+          {options.map((opt) => (
+            <label key={opt.value} className="category-multiselect-option">
+              <input
+                type="checkbox"
+                checked={selected.includes(opt.value)}
+                onChange={() => toggle(opt.value)}
+              />
+              <span>{opt.label}</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ProductFormModal({
   product,
   products,
@@ -1579,16 +1649,17 @@ function ProductFormModal({
   const defaultDescription = '• материал...\n• длина...'
   const nextArticle = !isEdit ? getNextArticle() : ''
   
-  const [formData, setFormData] = useState<Partial<Product>>(() => {
+  const [formData, setFormData] = useState<Partial<Product> & { categories?: string[] }>(() => {
     const initialArticle = product?.article || nextArticle
     const initialTitle = product?.title || ''
     const initialSlug = product?.slug || (initialTitle && initialArticle ? generateSlug(initialTitle, initialArticle) : '')
-    
+    const initialCategories = product?.categories ?? (product?.category ? [product.category] : [])
     return {
       title: initialTitle,
       slug: initialSlug,
       description: product?.description || (isEdit ? '' : defaultDescription),
       category: product?.category || '',
+      categories: initialCategories,
       price_rub: product?.price_rub || 0,
       discount_price_rub: product?.discount_price_rub || undefined,
       badge_text: product?.badge_text || undefined,
@@ -1633,7 +1704,7 @@ function ProductFormModal({
   const categoryOptions =
     categories.length > 0
       ? categories.map((c) => ({ label: c.title, value: c.key }))
-      : Array.from(new Set(products.map((p) => p.category)))
+      : Array.from(new Set(products.flatMap((p) => p.categories || [p.category])))
           .filter(Boolean)
           .sort()
           .map((key) => ({ label: key, value: key }))
@@ -1646,8 +1717,8 @@ function ProductFormModal({
       newErrors.title = 'Название обязательно'
     }
 
-    if (!formData.category) {
-      newErrors.category = 'Категория обязательна'
+    if (!formData.categories?.length) {
+      newErrors.categories = 'Выберите хотя бы одну категорию'
     }
 
     if (!formData.price_rub || formData.price_rub <= 0) {
@@ -1841,17 +1912,17 @@ function ProductFormModal({
             </div>
             
             <div className="form-group">
-              <label>Категория *</label>
-              <select
-                value={formData.category || ''}
-                onChange={(e) => handleChange('category', e.target.value)}
-                required
-              >
-                <option value="">Выберите категорию</option>
-                {categoryOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
+              <label>Категории *</label>
+              <CategoryMultiSelect
+                options={categoryOptions}
+                selected={formData.categories || []}
+                onChange={(values) => {
+                  setFormData(prev => ({ ...prev, categories: values, category: values[0] || '' }))
+                  if (errors.categories) setErrors(prev => ({ ...prev, categories: '' }))
+                }}
+                placeholder="Выберите категории"
+                error={errors.categories}
+              />
             </div>
           </div>
 

@@ -10,6 +10,7 @@ export type SheetProduct = {
   title: string
   description?: string
   category: string
+  categories?: string[] // все категории (для админки)
   price_rub: number
   discount_price_rub?: number // цена со скидкой (если заполнена - используется вместо price_rub)
   badge_text?: string // текст плашки (например, "СКИДКА", "НОВИНКА", "ПЕРСОНАЛИЗАЦИЯ")

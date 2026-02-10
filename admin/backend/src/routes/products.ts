@@ -70,8 +70,12 @@ router.post('/', async (req, res) => {
 
     const productData = req.body
 
-    // валидация обязательных полей
-    if (!productData.title || !productData.slug || !productData.category) {
+    // категории: массив или одно значение
+    const categoriesRaw = productData.categories != null
+      ? (Array.isArray(productData.categories) ? productData.categories : [productData.category])
+      : (productData.category != null ? [productData.category] : [])
+    const categoryList = categoriesRaw.filter((c: any) => c != null && String(c).trim())
+    if (!productData.title || !productData.slug || categoryList.length === 0) {
       return res.status(400).json({ error: 'missing_required_fields' })
     }
 
@@ -152,13 +156,17 @@ router.post('/', async (req, res) => {
 
     const auth = getAuthFromEnv()
     
-    // проверяем что категория есть в листе categories
-    const categories = await fetchCategoriesFromSheet(sheetId)
-    const sheetNames = categories.map((c) => c.key)
-    const normalizedCategory = sheetNames.find(name => name.trim().toLowerCase() === productData.category.trim().toLowerCase())
-    if (!normalizedCategory) {
-      logger.warn({ category: productData.category }, 'категория не найдена')
-      return res.status(400).json({ error: 'invalid_category' })
+    // проверяем что все категории есть в листе categories
+    const categoriesFromSheet = await fetchCategoriesFromSheet(sheetId)
+    const sheetNames = categoriesFromSheet.map((c) => c.key)
+    const normalizedCategories: string[] = []
+    for (const cat of categoryList) {
+      const norm = sheetNames.find((name: string) => name.trim().toLowerCase() === String(cat).trim().toLowerCase())
+      if (!norm) {
+        logger.warn({ category: cat }, 'категория не найдена')
+        return res.status(400).json({ error: 'invalid_category' })
+      }
+      if (!normalizedCategories.includes(norm)) normalizedCategories.push(norm)
     }
 
     // формируем товар для сохранения
@@ -166,7 +174,8 @@ router.post('/', async (req, res) => {
       slug: productData.slug.trim(),
       title: productData.title.trim(),
       description: productData.description?.trim() || undefined,
-      category: normalizedCategory,
+      category: normalizedCategories[0],
+      categories: normalizedCategories,
       price_rub: Number(productData.price_rub),
       discount_price_rub: productData.discount_price_rub !== undefined && productData.discount_price_rub !== null
         ? Number(productData.discount_price_rub)
@@ -180,14 +189,15 @@ router.post('/', async (req, res) => {
       article: productData.article?.trim() || undefined
     }
 
-    await appendProductToSheet(auth, sheetId, normalizedCategory, product)
+    for (const cat of normalizedCategories) {
+      await appendProductToSheet(auth, sheetId, cat, { ...product, category: cat })
+    }
 
-    logger.info({ slug: product.slug, article: product.article }, 'товар добавлен')
+    logger.info({ slug: product.slug, categories: normalizedCategories }, 'товар добавлен')
     
-    // вызываем импорт в основном бэкенде для обновления мини-апки
     await triggerBackendImport()
     
-    res.json({ success: true, product })
+    res.json({ success: true, product: { ...product, categories: normalizedCategories } })
   } catch (error: any) {
     logger.error({ error: error?.message }, 'ошибка добавления товара')
     res.status(500).json({ error: error?.message || 'failed_to_create_product' })
@@ -205,8 +215,12 @@ router.put('/:slug', async (req, res) => {
     const oldSlug = req.params.slug
     const productData = req.body
 
-    // валидация обязательных полей
-    if (!productData.title || !productData.slug || !productData.category) {
+    // категории: массив или одно значение
+    const categoriesRawEdit = productData.categories != null
+      ? (Array.isArray(productData.categories) ? productData.categories : [productData.category])
+      : (productData.category != null ? [productData.category] : [])
+    const categoryListEdit = categoriesRawEdit.filter((c: any) => c != null && String(c).trim())
+    if (!productData.title || !productData.slug || categoryListEdit.length === 0) {
       return res.status(400).json({ error: 'missing_required_fields' })
     }
 
@@ -287,21 +301,23 @@ router.put('/:slug', async (req, res) => {
 
     const auth = getAuthFromEnv()
     
-    // проверяем что категория есть в листе categories
-    const categories = await fetchCategoriesFromSheet(sheetId)
-    const sheetNames = categories.map((c) => c.key)
-    const normalizedCategory = sheetNames.find(name => name.trim().toLowerCase() === productData.category.trim().toLowerCase())
-    if (!normalizedCategory) {
-      logger.warn({ category: productData.category }, 'категория не найдена')
-      return res.status(400).json({ error: 'invalid_category' })
+    const categoriesFromSheetEdit = await fetchCategoriesFromSheet(sheetId)
+    const sheetNamesEdit = categoriesFromSheetEdit.map((c) => c.key)
+    const normalizedCategoriesEdit: string[] = []
+    for (const cat of categoryListEdit) {
+      const norm = sheetNamesEdit.find((name: string) => name.trim().toLowerCase() === String(cat).trim().toLowerCase())
+      if (!norm) {
+        return res.status(400).json({ error: 'invalid_category' })
+      }
+      if (!normalizedCategoriesEdit.includes(norm)) normalizedCategoriesEdit.push(norm)
     }
 
-    // формируем товар для сохранения
     const product = {
       slug: productData.slug.trim(),
       title: productData.title.trim(),
       description: productData.description?.trim() || undefined,
-      category: normalizedCategory,
+      category: normalizedCategoriesEdit[0],
+      categories: normalizedCategoriesEdit,
       price_rub: Number(productData.price_rub),
       discount_price_rub: productData.discount_price_rub !== undefined && productData.discount_price_rub !== null
         ? Number(productData.discount_price_rub)
@@ -312,25 +328,29 @@ router.put('/:slug', async (req, res) => {
         : [],
       active: productData.active !== undefined ? Boolean(productData.active) : true,
       stock: productData.stock !== undefined ? Number(productData.stock) : undefined,
-      article: oldProduct.article // артикул не меняется
+      article: oldProduct.article
     }
 
-    // если категория изменилась, нужно удалить из старого листа и добавить в новый
-    if (oldProduct.category.toLowerCase() !== normalizedCategory.toLowerCase()) {
-      // нормализуем имя старой категории для удаления
-      const normalizedOldCategory = normalizeSheetName(oldProduct.category)
-      await deleteProductFromSheet(auth, sheetId, normalizedOldCategory, oldSlug)
-      await appendProductToSheet(auth, sheetId, normalizedCategory, product)
-    } else {
-      await updateProductInSheet(auth, sheetId, normalizedCategory, oldSlug, product)
+    const oldCategories = oldProduct.categories || [oldProduct.category]
+    const toRemove = oldCategories.filter((c: string) => !normalizedCategoriesEdit.includes(c))
+    const toAdd = normalizedCategoriesEdit.filter((c: string) => !oldCategories.includes(c))
+    const toUpdate = normalizedCategoriesEdit.filter((c: string) => oldCategories.includes(c))
+
+    for (const cat of toRemove) {
+      await deleteProductFromSheet(auth, sheetId, normalizeSheetName(cat), oldSlug)
+    }
+    for (const cat of toUpdate) {
+      await updateProductInSheet(auth, sheetId, normalizeSheetName(cat), oldSlug, { ...product, category: cat })
+    }
+    for (const cat of toAdd) {
+      await appendProductToSheet(auth, sheetId, cat, { ...product, category: cat })
     }
 
-    logger.info({ oldSlug, newSlug: product.slug }, 'товар обновлен')
+    logger.info({ oldSlug, newSlug: product.slug, categories: normalizedCategoriesEdit }, 'товар обновлен')
     
-    // вызываем импорт в основном бэкенде для обновления мини-апки
     await triggerBackendImport()
     
-    res.json({ success: true, product })
+    res.json({ success: true, product: { ...product, categories: normalizedCategoriesEdit } })
   } catch (error: any) {
     logger.error({ error: error?.message }, 'ошибка обновления товара')
     res.status(500).json({ error: error?.message || 'failed_to_update_product' })
@@ -378,7 +398,6 @@ router.delete('/:slug', async (req, res) => {
 
     const slug = req.params.slug
 
-    // находим товар
     const allProducts = await fetchProductsFromSheet(sheetId)
     const product = allProducts.find(p => p.slug === slug)
     if (!product) {
@@ -386,11 +405,12 @@ router.delete('/:slug', async (req, res) => {
     }
 
     const auth = getAuthFromEnv()
-    // нормализуем имя категории для удаления
-    const normalizedCategory = normalizeSheetName(product.category)
-    await deleteProductFromSheet(auth, sheetId, normalizedCategory, slug)
+    const categoriesToDelete = product.categories || [product.category]
+    for (const cat of categoriesToDelete) {
+      await deleteProductFromSheet(auth, sheetId, normalizeSheetName(cat), slug)
+    }
 
-    logger.info({ slug }, 'товар удален')
+    logger.info({ slug, categories: categoriesToDelete }, 'товар удален')
     
     // вызываем импорт в основном бэкенде для обновления мини-апки
     await triggerBackendImport()
