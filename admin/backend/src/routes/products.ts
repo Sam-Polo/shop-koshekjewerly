@@ -388,7 +388,8 @@ router.post('/reorder', async (req, res) => {
   }
 })
 
-// удаление товара
+// удаление товара (из всех категорий или только из одной)
+// query: ?category=key — удалить только из этой категории; без параметра — из всех
 router.delete('/:slug', async (req, res) => {
   try {
     const sheetId = process.env.GOOGLE_SHEET_ID
@@ -397,6 +398,7 @@ router.delete('/:slug', async (req, res) => {
     }
 
     const slug = req.params.slug
+    const onlyCategory = typeof req.query.category === 'string' ? req.query.category.trim() : null
 
     const allProducts = await fetchProductsFromSheet(sheetId)
     const product = allProducts.find(p => p.slug === slug)
@@ -404,15 +406,24 @@ router.delete('/:slug', async (req, res) => {
       return res.status(404).json({ error: 'product_not_found' })
     }
 
+    const productCategories = product.categories || [product.category]
+    const categoriesToDelete = onlyCategory
+      ? (productCategories.includes(onlyCategory) ? [onlyCategory] : [])
+      : productCategories
+
+    if (categoriesToDelete.length === 0) {
+      return res.status(400).json({
+        error: onlyCategory ? 'product_not_in_category' : 'product_has_no_categories'
+      })
+    }
+
     const auth = getAuthFromEnv()
-    const categoriesToDelete = product.categories || [product.category]
     for (const cat of categoriesToDelete) {
       await deleteProductFromSheet(auth, sheetId, normalizeSheetName(cat), slug)
     }
 
-    logger.info({ slug, categories: categoriesToDelete }, 'товар удален')
+    logger.info({ slug, categories: categoriesToDelete, onlyCategory: !!onlyCategory }, 'товар удален')
     
-    // вызываем импорт в основном бэкенде для обновления мини-апки
     await triggerBackendImport()
     
     res.json({ success: true })

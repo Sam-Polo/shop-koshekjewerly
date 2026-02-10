@@ -61,6 +61,7 @@ async function fetchWithAuth(url: string, options: RequestInit = {}) {
       'slug_already_exists': 'Slug уже существует',
       'invalid_category': 'Некорректная категория',
       'product_not_found': 'Товар не найден',
+      'product_not_in_category': 'Товар не найден в указанной категории',
       'failed_to_create_product': 'Ошибка создания товара',
       'failed_to_update_product': 'Ошибка обновления товара',
       'failed_to_delete_product': 'Ошибка удаления товара',
@@ -117,9 +118,12 @@ export const api = {
     })
   },
 
-  // удаление товара
-  async deleteProduct(slug: string) {
-    return fetchWithAuth(`/api/products/${slug}`, {
+  // удаление товара (category — только из этой категории; без — из всех)
+  async deleteProduct(slug: string, category?: string) {
+    const url = category
+      ? `/api/products/${encodeURIComponent(slug)}?category=${encodeURIComponent(category)}`
+      : `/api/products/${slug}`
+    return fetchWithAuth(url, {
       method: 'DELETE'
     })
   },

@@ -432,6 +432,21 @@
   justify-content: flex-end;
 }
 
+.confirm-actions-column {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.confirm-actions-column .btn-confirm-secondary {
+  background: #f0f0f0;
+  color: #333;
+  border: 1px solid #ccc;
+}
+
+.confirm-actions-column .btn-confirm-secondary:hover {
+  background: #e8e8e8;
+}
+
 .btn-confirm {
   background: #dc3545;
   color: white;

@@ -39,27 +39,61 @@ function Toast({ message, type, onClose }: { message: string; type: 'success' | 
   )
 }
 
-// компонент подтверждения удаления
-function ConfirmModal({ 
-  message, 
-  onConfirm, 
-  onCancel 
-}: { 
-  message: string
-  onConfirm: () => void
+// компонент подтверждения удаления (при нескольких категориях — выбор: из одной или везде)
+function ConfirmModal({
+  product,
+  categories,
+  onConfirm,
+  onCancel
+}: {
+  product: Product
+  categories: { key: string; title: string }[]
+  onConfirm: (category?: string) => void
   onCancel: () => void
 }) {
+  const productCats = product.categories || [product.category]
+  const multi = productCats.length > 1
+  const getCategoryTitle = (key: string) => categories.find((c) => c.key === key)?.title || key
+
   return (
     <div className="modal-overlay" onClick={onCancel}>
       <div className="modal-content confirm-modal" onClick={(e) => e.stopPropagation()}>
         <h3>Подтверждение</h3>
-        <p>{message}</p>
-        <div className="confirm-actions">
-          <button onClick={onCancel} className="btn btn-cancel">
+        <p>
+          {multi
+            ? `Товар «${product.title}» в нескольких категориях. Удалить только из одной или везде?`
+            : `Вы уверены, что хотите удалить товар «${product.title}`}
+          {multi ? '' : '»?'}
+        </p>
+        <div className="confirm-actions confirm-actions-column">
+          {multi && (
+            <>
+              {productCats.map((cat) => (
+                <button
+                  key={cat}
+                  type="button"
+                  className="btn btn-confirm-secondary"
+                  onClick={() => onConfirm(cat)}
+                >
+                  Удалить только из «{getCategoryTitle(cat)}»
+                </button>
+              ))}
+              <button
+                type="button"
+                className="btn btn-confirm"
+                onClick={() => onConfirm()}
+              >
+                Удалить из всех категорий
+              </button>
+            </>
+          )}
+          {!multi && (
+            <button type="button" className="btn btn-confirm" onClick={() => onConfirm()}>
+              Удалить
+            </button>
+          )}
+          <button type="button" onClick={onCancel} className="btn btn-cancel">
             Отмена
-          </button>
-          <button onClick={onConfirm} className="btn btn-confirm">
-            Удалить
           </button>
         </div>
       </div>
@@ -264,15 +298,15 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: 'products' | 'promoc
     setSelectedProduct(null) // закрываем карточку товара сразу
   }
 
-  const handleDeleteConfirm = async () => {
+  const handleDeleteConfirm = async (category?: string) => {
     if (!deleteConfirm) return
-    
+
     const product = deleteConfirm.product
     setDeleteConfirm(null)
 
     try {
-      await api.deleteProduct(product.slug)
-      showToast('Товар успешно удален', 'success')
+      await api.deleteProduct(product.slug, category)
+      showToast(category ? 'Товар удалён из категории' : 'Товар успешно удален', 'success')
       await loadProducts()
     } catch (err: any) {
       showToast(err.message || 'Ошибка удаления товара', 'error')
@@ -798,8 +832,9 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: 'products' | 'promoc
 
         {deleteConfirm && (
           <ConfirmModal
-            message={`Вы уверены, что хотите удалить товар "${deleteConfirm.product.title}"?`}
-            onConfirm={handleDeleteConfirm}
+            product={deleteConfirm.product}
+            categories={categories}
+            onConfirm={(category) => handleDeleteConfirm(category)}
             onCancel={() => setDeleteConfirm(null)}
           />
         )}
