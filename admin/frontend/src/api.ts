@@ -62,6 +62,7 @@ async function fetchWithAuth(url: string, options: RequestInit = {}) {
       'invalid_category': 'Некорректная категория',
       'product_not_found': 'Товар не найден',
       'product_not_in_category': 'Товар не найден в указанной категории',
+      'file_too_large': 'Файл слишком большой (максимум 50 МБ)',
       'failed_to_create_product': 'Ошибка создания товара',
       'failed_to_update_product': 'Ошибка обновления товара',
       'failed_to_delete_product': 'Ошибка удаления товара',

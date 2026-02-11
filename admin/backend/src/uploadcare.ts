@@ -1,8 +1,6 @@
 import FormData from 'form-data'
 import axios from 'axios'
-import pino from 'pino'
-
-const logger = pino()
+import { logger } from './logger.js'
 
 // загрузка файла в Uploadcare через Direct Upload API
 export async function uploadToUploadcare(fileBuffer: Buffer, fileName: string, mimeType: string): Promise<string> {

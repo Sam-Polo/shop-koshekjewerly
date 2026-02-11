@@ -1,23 +1,7 @@
 import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
-import pino from 'pino'
-
-// настройка логгера с поддержкой русских символов в Windows
-const logger = pino({
-  level: process.env.LOG_LEVEL || 'info',
-  transport: process.env.NODE_ENV === 'production' ? undefined : {
-    target: 'pino-pretty',
-    options: {
-      colorize: true,
-      translateTime: 'HH:MM:ss',
-      ignore: 'pid,hostname',
-      // отключаем форматирование сообщений для корректной работы с кириллицей
-      singleLine: false,
-      hideObject: false
-    }
-  }
-})
+import { logger } from './logger.js'
 
 const app = express()
 const PORT = process.env.PORT || 4001
