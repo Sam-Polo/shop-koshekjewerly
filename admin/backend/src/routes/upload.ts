@@ -10,7 +10,7 @@ const router = express.Router()
 router.use(requireAuth)
 
 // 50MB — достаточно для 4K и тяжёлых фото
-const MAX_FILE_SIZE = 50 * 1024 * 1024
+const MAX_FILE_SIZE = 30 * 1024 * 1024
 
 const upload = multer({
   storage: multer.memoryStorage(),
