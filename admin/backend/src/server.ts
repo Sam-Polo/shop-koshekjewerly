@@ -6,6 +6,13 @@ import { logger } from './logger.js'
 const app = express()
 const PORT = process.env.PORT || 4001
 
+// лог каждого входящего запроса (до разбора body) — чтобы видеть, доходят ли большие запросы до Node
+app.use((req: express.Request, _res: express.Response, next: express.NextFunction) => {
+  const len = req.headers['content-length']
+  logger.info({ method: req.method, url: req.url, contentLength: len ?? '—' }, 'входящий запрос')
+  next()
+})
+
 // CORS настройка
 const frontendUrl = process.env.ADMIN_FRONTEND_URL || 'http://localhost:5174'
 app.use(cors({
