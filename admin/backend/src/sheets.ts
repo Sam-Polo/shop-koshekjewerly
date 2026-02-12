@@ -122,7 +122,7 @@ export async function fetchProductsFromSheet(sheetId: string): Promise<SheetProd
     ? categories.map((c) => c.key)
     : (process.env.SHEET_NAMES?.split(',') || ['ягоды', 'выпечка', 'pets', 'шея', 'руки', 'уши', 'сертификаты']).map((s) => s.trim())
   
-  const bySlug = new Map<string, SheetProduct>()
+  const bySlug = new Map<string, SheetProduct & { __minOrder?: number }>()
   
   for (const sheetName of sheetNames) {
     try {
@@ -130,21 +130,36 @@ export async function fetchProductsFromSheet(sheetId: string): Promise<SheetProd
       const products = await fetchSheetRange(auth, sheetId, range, sheetName.trim())
       const sheetKey = sheetName.trim()
       for (const p of products) {
+        const orderHere = p.orderInCategory?.[sheetKey] ?? 999999
         const existing = bySlug.get(p.slug)
         if (existing) {
           if (!existing.categories.includes(sheetKey)) {
             existing.categories.push(sheetKey)
           }
-          if (p.orderInCategory?.[sheetKey] != null) {
-            if (!existing.orderInCategory) existing.orderInCategory = {}
-            existing.orderInCategory[sheetKey] = p.orderInCategory[sheetKey]
+          if (!existing.orderInCategory) existing.orderInCategory = {}
+          existing.orderInCategory[sheetKey] = orderHere
+          // каноническая строка — та, где товар идёт раньше всего (минимальный индекс по всем листам)
+          if (orderHere < (existing.__minOrder ?? 999999)) {
+            existing.__minOrder = orderHere
+            existing.title = p.title
+            existing.description = p.description
+            existing.price_rub = p.price_rub
+            existing.discount_price_rub = p.discount_price_rub
+            existing.badge_text = p.badge_text
+            existing.images = p.images
+            existing.active = p.active
+            existing.stock = p.stock
+            existing.article = p.article
+            existing.id = p.id
           }
         } else {
-          bySlug.set(p.slug, {
+          const merged: SheetProduct & { __minOrder?: number } = {
             ...p,
             categories: [sheetKey],
-            orderInCategory: { ...(p.orderInCategory || {}) }
-          })
+            orderInCategory: { [sheetKey]: orderHere },
+            __minOrder: orderHere
+          }
+          bySlug.set(p.slug, merged)
         }
       }
     } catch (e: any) {
@@ -152,6 +167,10 @@ export async function fetchProductsFromSheet(sheetId: string): Promise<SheetProd
     }
   }
   
-  return Array.from(bySlug.values())
+  const result = Array.from(bySlug.values()).map((prod) => {
+    const { __minOrder, ...rest } = prod
+    return rest as SheetProduct
+  })
+  return result
 }
 
