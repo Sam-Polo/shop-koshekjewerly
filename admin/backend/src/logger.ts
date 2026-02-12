@@ -17,8 +17,6 @@ function mskTime(): string {
 const pinoOptions: pino.LoggerOptions = {
   level: process.env.LOG_LEVEL || 'info',
   timestamp: () => `,"time":"${mskTime()}"`,
-  // в production — сразу писать в stdout без буфера, чтобы логи не терялись
-  sync: process.env.NODE_ENV === 'production',
   transport:
     process.env.NODE_ENV === 'production'
       ? undefined
