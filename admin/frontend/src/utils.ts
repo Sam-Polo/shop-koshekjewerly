@@ -30,15 +30,23 @@ export function generateSlug(title: string, article: string): string {
   return `${transliterated}-${article}`
 }
 
-// парсинг артикула из строки (4 цифры)
+// парсинг артикула: 1–4 цифры (в таблице Google хранят как число без ведущих нулей: 100, 1 и т.д.)
 export function parseArticle(article: string): number | null {
-  const match = article.match(/^\d{4}$/)
-  if (!match) return null
-  return parseInt(article, 10)
+  const s = String(article).trim()
+  if (!/^\d{1,4}$/.test(s)) return null
+  const num = parseInt(s, 10)
+  return num >= 0 && num <= 9999 ? num : null
 }
 
 // форматирование артикула в 4 цифры с ведущими нулями
 export function formatArticle(num: number): string {
   return String(num).padStart(4, '0')
+}
+
+// нормализация артикула к виду "0100" для сравнения и отображения
+export function normalizeArticle(article: string | undefined): string | undefined {
+  if (article == null || article === '') return undefined
+  const num = parseArticle(String(article).trim())
+  return num != null ? formatArticle(num) : undefined
 }
 

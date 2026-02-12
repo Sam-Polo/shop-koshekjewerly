@@ -62,7 +62,7 @@ async function fetchWithAuth(url: string, options: RequestInit = {}) {
       'invalid_category': 'Некорректная категория',
       'product_not_found': 'Товар не найден',
       'product_not_in_category': 'Товар не найден в указанной категории',
-      'file_too_large': 'Файл слишком большой (максимум 50 МБ)',
+      'file_too_large': 'Файл слишком большой (максимум 10 МБ)',
       'failed_to_create_product': 'Ошибка создания товара',
       'failed_to_update_product': 'Ошибка обновления товара',
       'failed_to_delete_product': 'Ошибка удаления товара',
@@ -138,19 +138,24 @@ export const api = {
     })
   },
 
-  // загрузка фото в Uploadcare
+  // загрузка фото в Uploadcare (таймаут 2 мин — большие фото по медленной сети)
   async uploadImage(file: File): Promise<string> {
     const formData = new FormData()
     formData.append('file', file)
 
     const token = getToken()
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 120000)
+
     const response = await fetch(`${API_URL}/api/upload`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`
       },
-      body: formData
+      body: formData,
+      signal: controller.signal
     })
+    clearTimeout(timeoutId)
 
     if (response.status === 401) {
       removeToken()

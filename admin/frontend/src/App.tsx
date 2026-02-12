@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { api, getToken, saveToken, removeToken } from './api'
-import { generateSlug, formatArticle, parseArticle } from './utils'
+import { generateSlug, formatArticle, parseArticle, normalizeArticle } from './utils'
 import PromocodesPage from './PromocodesPage'
 import CategoriesPage from './CategoriesPage'
 import {
@@ -115,6 +115,8 @@ type Product = {
   active: boolean
   stock?: number
   article?: string
+  /** порядок в каждой категории (ключ — категория, значение — индекс строки в листе) */
+  orderInCategory?: Record<string, number>
 }
 
 function LoginForm({ onLogin }: { onLogin: () => void }) {
@@ -395,7 +397,7 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: 'products' | 'promoc
     return matchesCategory && matchesArticle
   })
 
-  // группируем по категориям (товар может быть в нескольких секциях)
+  // группируем по категориям и сортируем по порядку в листе (orderInCategory), чтобы порядок не «улетал»
   const groupedProducts = filteredProducts.reduce((acc, product) => {
     const productCats = product.categories || [product.category]
     for (const cat of productCats) {
@@ -404,6 +406,14 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: 'products' | 'promoc
     }
     return acc
   }, {} as Record<string, Product[]>)
+  // в каждой категории сортируем по orderInCategory[cat] (порядок строк в таблице)
+  for (const cat of Object.keys(groupedProducts)) {
+    groupedProducts[cat].sort((a, b) => {
+      const orderA = a.orderInCategory?.[cat] ?? 9999
+      const orderB = b.orderInCategory?.[cat] ?? 9999
+      return orderA - orderB
+    })
+  }
 
   // отслеживание прокрутки для кнопки "вверх"
   useEffect(() => {
@@ -1783,7 +1793,8 @@ function ProductFormModal({
         newErrors.article = 'Артикул должен быть 4-значным числом'
       } else {
         // проверка уникальности
-        const exists = products.some(p => p.article === formData.article)
+        const normalized = normalizeArticle(formData.article)
+        const exists = normalized && products.some(p => normalizeArticle(p.article) === normalized)
         if (exists) {
           newErrors.article = 'Артикул уже существует'
         }
