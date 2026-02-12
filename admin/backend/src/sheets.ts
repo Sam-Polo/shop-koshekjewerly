@@ -18,6 +18,8 @@ export type SheetProduct = {
   active: boolean
   stock?: number
   article?: string
+  /** порядок товара в каждом листе (ключ — имя категории, значение — индекс строки) */
+  orderInCategory?: Record<string, number>
 }
 
 // получение авторизации для Google Sheets (с правами на чтение и запись)
@@ -77,8 +79,15 @@ async function fetchSheetRange(
     const activeVal = String(get('active')).toLowerCase()
     const active = activeVal === 'true' || activeVal === '1' || activeVal === 'yes'
     const stock = Number(get('stock'))
-    const article = String(get('article') || '').trim() || undefined
-    
+    // артикул: в таблице хранится как число без ведущих нулей (100, 1) — нормализуем к "0100", "0001"
+    const articleRaw = get('article')
+    const articleStr = String(articleRaw ?? '').trim()
+    const articleNum = articleStr ? parseInt(articleStr, 10) : NaN
+    const article =
+      articleStr && Number.isFinite(articleNum) && articleNum >= 0 && articleNum <= 9999
+        ? String(articleNum).padStart(4, '0')
+        : (articleStr || undefined)
+
     const item: SheetProduct = {
       id: String(get('id') || '').trim() || undefined,
       slug: String(get('slug')).trim(),
@@ -96,9 +105,10 @@ async function fetchSheetRange(
     }
     
     if (!item.title || !item.slug) continue
+    item.orderInCategory = { [categoryName]: i }
     out.push(item)
   }
-  
+
   return out
 }
 
@@ -118,14 +128,23 @@ export async function fetchProductsFromSheet(sheetId: string): Promise<SheetProd
     try {
       const range = `${sheetName.trim()}!A1:K1000`
       const products = await fetchSheetRange(auth, sheetId, range, sheetName.trim())
+      const sheetKey = sheetName.trim()
       for (const p of products) {
         const existing = bySlug.get(p.slug)
         if (existing) {
-          if (!existing.categories.includes(sheetName.trim())) {
-            existing.categories.push(sheetName.trim())
+          if (!existing.categories.includes(sheetKey)) {
+            existing.categories.push(sheetKey)
+          }
+          if (p.orderInCategory?.[sheetKey] != null) {
+            if (!existing.orderInCategory) existing.orderInCategory = {}
+            existing.orderInCategory[sheetKey] = p.orderInCategory[sheetKey]
           }
         } else {
-          bySlug.set(p.slug, { ...p, categories: [sheetName.trim()] })
+          bySlug.set(p.slug, {
+            ...p,
+            categories: [sheetKey],
+            orderInCategory: { ...(p.orderInCategory || {}) }
+          })
         }
       }
     } catch (e: any) {

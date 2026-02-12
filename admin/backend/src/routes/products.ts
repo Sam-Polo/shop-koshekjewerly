@@ -16,6 +16,15 @@ import axios from 'axios'
 const logger = pino()
 const router = express.Router()
 
+// артикул в таблице хранится как число (100, 1) — нормализуем к "0100", "0001" для сравнения и записи
+function normalizeArticle(article: string | undefined): string | undefined {
+  if (article == null || String(article).trim() === '') return undefined
+  const s = String(article).trim()
+  const n = parseInt(s, 10)
+  if (!Number.isFinite(n) || n < 0 || n > 9999) return undefined
+  return String(n).padStart(4, '0')
+}
+
 // функция для вызова импорта в основном бэкенде
 async function triggerBackendImport() {
   try {
@@ -139,10 +148,11 @@ router.post('/', async (req, res) => {
       }
     }
 
-    // проверка уникальности артикула
+    // проверка уникальности артикула (сравниваем в нормализованном виде: 100 и 0100 — один артикул)
     const allProducts = await fetchProductsFromSheet(sheetId)
-    if (productData.article) {
-      const articleExists = allProducts.some(p => p.article === productData.article)
+    const newArticleNorm = normalizeArticle(productData.article)
+    if (newArticleNorm) {
+      const articleExists = allProducts.some(p => normalizeArticle(p.article) === newArticleNorm)
       if (articleExists) {
         return res.status(400).json({ error: 'article_already_exists' })
       }
@@ -186,7 +196,7 @@ router.post('/', async (req, res) => {
         : [],
       active: productData.active !== undefined ? Boolean(productData.active) : true,
       stock: productData.stock !== undefined ? Number(productData.stock) : undefined,
-      article: productData.article?.trim() || undefined
+      article: newArticleNorm || productData.article?.trim() || undefined
     }
 
     for (const cat of normalizedCategories) {
