@@ -480,10 +480,16 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 .checkout-form__promocode-message--error { color: #d32f2f; }
 
 /* приоритетный заказ: тогл (матча выкл / розовый вкл) */
-.checkout-form__priority {
+.checkout-form__priority-wrap {
+  position: relative;
   margin-top: 8px;
   padding-top: 16px;
   border-top: 1px solid #eee;
+}
+.checkout-form__priority {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
 }
 .checkout-form__priority-row {
   display: flex;
@@ -530,34 +536,32 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
   transform: translateX(24px);
 }
 
-/* тост приоритетного заказа (поверх формы, закрытие по касанию экрана) */
-.priority-toast-overlay {
+/* тост приоритетного заказа: лёгкий фон, плашка под подписью «Приоритетный заказ» */
+.priority-toast-backdrop {
   position: fixed;
   inset: 0;
   z-index: 5000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(0, 0, 0, 0.06);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.priority-toast {
-  max-width: 320px;
+.priority-toast-anchor {
+  position: fixed;
+  z-index: 5001;
+  max-width: 240px;
   width: 100%;
   background: #ffffff;
   border-radius: 4px;
-  padding: 20px 18px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+  padding: 12px 14px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
   border: 1px solid rgba(0, 0, 0, 0.06);
   pointer-events: auto;
 }
 .priority-toast__text {
   margin: 0;
-  font-size: 15px;
-  line-height: 1.55;
-  color: #222;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #333;
   text-align: left;
 }
 

@@ -695,6 +695,34 @@ const CheckoutForm = ({
   const [promocodeInfo, setPromocodeInfo] = useState<{ type: 'amount' | 'percent'; value: number } | null>(null)
   const [priorityOrder, setPriorityOrder] = useState(false)
   const [priorityToastOpen, setPriorityToastOpen] = useState(false)
+  const priorityAnchorRef = useRef<HTMLDivElement>(null)
+  const [priorityToastPos, setPriorityToastPos] = useState<{ top: number; left: number } | null>(null)
+
+  useEffect(() => {
+    if (!priorityToastOpen) {
+      setPriorityToastPos(null)
+      return
+    }
+    const measure = () => {
+      const el = priorityAnchorRef.current
+      if (!el) return
+      const r = el.getBoundingClientRect()
+      const maxW = 260
+      let left = r.left
+      if (left + maxW > window.innerWidth - 12) {
+        left = Math.max(8, window.innerWidth - maxW - 12)
+      }
+      setPriorityToastPos({ top: r.bottom + 8, left })
+    }
+    const id = requestAnimationFrame(() => requestAnimationFrame(measure))
+    window.addEventListener('resize', measure)
+    window.addEventListener('scroll', measure, true)
+    return () => {
+      cancelAnimationFrame(id)
+      window.removeEventListener('resize', measure)
+      window.removeEventListener('scroll', measure, true)
+    }
+  }, [priorityToastOpen])
 
   // получаем username из Telegram
   useEffect(() => {
@@ -991,29 +1019,57 @@ const CheckoutForm = ({
           {errors.comments && <span className="checkout-form__error">{errors.comments}</span>}
         </label>
 
-        <div className="checkout-form__priority">
-          <div className="checkout-form__priority-row">
-            <span className="checkout-form__priority-label">Приоритетный заказ</span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={priorityOrder}
-              className={`checkout-form__switch ${priorityOrder ? 'checkout-form__switch--on' : ''}`}
-              onClick={() => {
-                setPriorityOrder((prev) => {
-                  const next = !prev
-                  if (next) {
-                    queueMicrotask(() => setPriorityToastOpen(true))
-                  } else {
-                    setPriorityToastOpen(false)
-                  }
-                  return next
-                })
-              }}
-            >
-              <span className="checkout-form__switch-thumb" />
-            </button>
+        <div className="checkout-form__priority-wrap" ref={priorityAnchorRef}>
+          <div className="checkout-form__priority">
+            <div className="checkout-form__priority-row">
+              <span className="checkout-form__priority-label">Приоритетный заказ</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={priorityOrder}
+                className={`checkout-form__switch ${priorityOrder ? 'checkout-form__switch--on' : ''}`}
+                onClick={() => {
+                  setPriorityOrder((prev) => {
+                    const next = !prev
+                    if (next) {
+                      queueMicrotask(() => setPriorityToastOpen(true))
+                    } else {
+                      setPriorityToastOpen(false)
+                    }
+                    return next
+                  })
+                }}
+              >
+                <span className="checkout-form__switch-thumb" />
+              </button>
+            </div>
           </div>
+
+          {priorityToastOpen && priorityToastPos && (
+            <>
+              <div
+                className="priority-toast-backdrop"
+                role="presentation"
+                aria-hidden="true"
+                onClick={() => setPriorityToastOpen(false)}
+                onTouchEnd={() => setPriorityToastOpen(false)}
+              />
+              <div
+                className="priority-toast-anchor"
+                role="dialog"
+                aria-live="polite"
+                style={{ top: priorityToastPos.top, left: priorityToastPos.left }}
+                onClick={() => setPriorityToastOpen(false)}
+                onTouchEnd={() => setPriorityToastOpen(false)}
+              >
+                <p className="priority-toast__text">
+                  Приоритетный заказ оформляется вне очереди и отправляется в течение 24 часов.
+                  <br />
+                  Стоимость услуги +30% к общей сумме заказа.
+                </p>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -1037,7 +1093,7 @@ const CheckoutForm = ({
         {priorityOrder && priorityFee > 0 && (
           <div className="checkout-form__summary-row checkout-form__summary-row--priority">
             <span>Приоритетный заказ (+30%):</span>
-            <span>+{priorityFee} ₽</span>
+            <span>{priorityFee} ₽</span>
           </div>
         )}
         <div className="checkout-form__summary-row checkout-form__summary-row--total">
@@ -1050,22 +1106,6 @@ const CheckoutForm = ({
         Оформить заказ
             </button>
 
-      {priorityToastOpen && (
-        <div
-          className="priority-toast-overlay"
-          role="presentation"
-          onClick={() => setPriorityToastOpen(false)}
-          onTouchEnd={() => setPriorityToastOpen(false)}
-        >
-          <div className="priority-toast" role="dialog" aria-live="polite">
-            <p className="priority-toast__text">
-              Приоритетный заказ оформляется вне очереди и отправляется в течение 24 часов.
-              <br />
-              Стоимость услуги +30% к общей сумме заказа.
-            </p>
-          </div>
-        </div>
-      )}
     </form>
   )
 }
