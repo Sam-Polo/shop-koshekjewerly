@@ -694,6 +694,7 @@ const CheckoutForm = ({
   const [promocodeDiscount, setPromocodeDiscount] = useState(0)
   const [promocodeInfo, setPromocodeInfo] = useState<{ type: 'amount' | 'percent'; value: number } | null>(null)
   const [priorityOrder, setPriorityOrder] = useState(false)
+  const [priorityToastOpen, setPriorityToastOpen] = useState(false)
 
   // получаем username из Telegram
   useEffect(() => {
@@ -998,20 +999,21 @@ const CheckoutForm = ({
               role="switch"
               aria-checked={priorityOrder}
               className={`checkout-form__switch ${priorityOrder ? 'checkout-form__switch--on' : ''}`}
-              onClick={() => setPriorityOrder((v) => !v)}
+              onClick={() => {
+                setPriorityOrder((prev) => {
+                  const next = !prev
+                  if (next) {
+                    queueMicrotask(() => setPriorityToastOpen(true))
+                  } else {
+                    setPriorityToastOpen(false)
+                  }
+                  return next
+                })
+              }}
             >
               <span className="checkout-form__switch-thumb" />
             </button>
           </div>
-          {priorityOrder && (
-            <div className="checkout-form__priority-info">
-              <p>
-                Приоритетный заказ оформляется вне очереди и отправляется в течение 24 часов.
-                <br />
-                Стоимость услуги +30% к общей сумме заказа.
-              </p>
-            </div>
-          )}
         </div>
       </div>
 
@@ -1047,6 +1049,23 @@ const CheckoutForm = ({
       <button type="submit" className="btn btn--primary checkout-form__submit">
         Оформить заказ
             </button>
+
+      {priorityToastOpen && (
+        <div
+          className="priority-toast-overlay"
+          role="presentation"
+          onClick={() => setPriorityToastOpen(false)}
+          onTouchEnd={() => setPriorityToastOpen(false)}
+        >
+          <div className="priority-toast" role="dialog" aria-live="polite">
+            <p className="priority-toast__text">
+              Приоритетный заказ оформляется вне очереди и отправляется в течение 24 часов.
+              <br />
+              Стоимость услуги +30% к общей сумме заказа.
+            </p>
+          </div>
+        </div>
+      )}
     </form>
   )
 }

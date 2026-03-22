@@ -529,19 +529,38 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 .checkout-form__switch--on .checkout-form__switch-thumb {
   transform: translateX(24px);
 }
-.checkout-form__priority-info {
-  margin-top: 12px;
-  padding: 12px 14px;
-  background: rgba(236, 72, 153, 0.08);
-  border: 1px solid rgba(236, 72, 153, 0.25);
-  border-radius: 8px;
-  font-size: 14px;
-  line-height: 1.5;
-  color: #333;
+
+/* тост приоритетного заказа (поверх формы, закрытие по касанию экрана) */
+.priority-toast-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
-.checkout-form__priority-info p {
+.priority-toast {
+  max-width: 320px;
+  width: 100%;
+  background: #ffffff;
+  border-radius: 4px;
+  padding: 20px 18px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  pointer-events: auto;
+}
+.priority-toast__text {
   margin: 0;
+  font-size: 15px;
+  line-height: 1.55;
+  color: #222;
+  text-align: left;
 }
+
 .checkout-form__summary-row--priority {
   color: #c2185b;
   font-weight: 500;
