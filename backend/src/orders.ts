@@ -26,6 +26,9 @@ export type Order = {
     deliveryCost: number
     total: number
     comments?: string
+    /** приоритетный заказ: +30% к сумме после скидки */
+    priorityOrder?: boolean
+    priorityFee?: number
     promocode?: {
       code: string
       type: 'amount' | 'percent'

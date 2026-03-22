@@ -693,6 +693,7 @@ const CheckoutForm = ({
   const [promocodeStatus, setPromocodeStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid' | 'not_found'>('idle')
   const [promocodeDiscount, setPromocodeDiscount] = useState(0)
   const [promocodeInfo, setPromocodeInfo] = useState<{ type: 'amount' | 'percent'; value: number } | null>(null)
+  const [priorityOrder, setPriorityOrder] = useState(false)
 
   // получаем username из Telegram
   useEffect(() => {
@@ -720,7 +721,12 @@ const CheckoutForm = ({
   const isOnlyTestProducts = isCartOnlyTestProducts(cart, products)
   const deliveryCost = isOnlyTestProducts ? 0 : DELIVERY_COSTS[deliveryRegion]
   const subtotal = cartTotal + deliveryCost
-  const total = Math.max(0, subtotal - promocodeDiscount)
+  const subtotalAfterDiscount = Math.max(0, subtotal - promocodeDiscount)
+  const priorityFee =
+    priorityOrder && subtotalAfterDiscount > 0
+      ? Math.round(subtotalAfterDiscount * 0.3)
+      : 0
+  const total = subtotalAfterDiscount + priorityFee
   
   console.log('[CheckoutForm] расчет доставки:', {
     cartLength: cart.length,
@@ -783,6 +789,7 @@ const CheckoutForm = ({
         deliveryRegion,
         deliveryCost,
         total,
+        priorityOrder,
         promocode: promocodeStatus === 'valid' ? promocode.trim().toUpperCase() : undefined
       })
     }
@@ -982,6 +989,30 @@ const CheckoutForm = ({
           <span className="checkout-form__char-count">{formData.comments.length}/500</span>
           {errors.comments && <span className="checkout-form__error">{errors.comments}</span>}
         </label>
+
+        <div className="checkout-form__priority">
+          <div className="checkout-form__priority-row">
+            <span className="checkout-form__priority-label">Приоритетный заказ</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={priorityOrder}
+              className={`checkout-form__switch ${priorityOrder ? 'checkout-form__switch--on' : ''}`}
+              onClick={() => setPriorityOrder((v) => !v)}
+            >
+              <span className="checkout-form__switch-thumb" />
+            </button>
+          </div>
+          {priorityOrder && (
+            <div className="checkout-form__priority-info">
+              <p>
+                Приоритетный заказ оформляется вне очереди и отправляется в течение 24 часов.
+                <br />
+                Стоимость услуги +30% к общей сумме заказа.
+              </p>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="checkout-form__summary">
@@ -999,6 +1030,12 @@ const CheckoutForm = ({
               Скидка {promocodeInfo?.type === 'percent' ? `(${promocodeInfo.value}%)` : ''}:
             </span>
             <span>-{promocodeDiscount} ₽</span>
+          </div>
+        )}
+        {priorityOrder && priorityFee > 0 && (
+          <div className="checkout-form__summary-row checkout-form__summary-row--priority">
+            <span>Приоритетный заказ (+30%):</span>
+            <span>+{priorityFee} ₽</span>
           </div>
         )}
         <div className="checkout-form__summary-row checkout-form__summary-row--total">

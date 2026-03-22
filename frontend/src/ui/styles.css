@@ -479,6 +479,74 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 .checkout-form__promocode-message--success { color: #2e7d32; }
 .checkout-form__promocode-message--error { color: #d32f2f; }
 
+/* приоритетный заказ: тогл (матча выкл / розовый вкл) */
+.checkout-form__priority {
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px solid #eee;
+}
+.checkout-form__priority-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.checkout-form__priority-label {
+  font-size: 16px;
+  font-weight: 500;
+}
+.checkout-form__switch {
+  position: relative;
+  width: 52px;
+  height: 28px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 14px;
+  background: #b5c4a8;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.2s ease;
+}
+.checkout-form__switch:focus-visible {
+  outline: 2px solid #d480e0;
+  outline-offset: 2px;
+}
+.checkout-form__switch--on {
+  background: #ec4899;
+}
+.checkout-form__switch-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s ease;
+  pointer-events: none;
+}
+.checkout-form__switch--on .checkout-form__switch-thumb {
+  transform: translateX(24px);
+}
+.checkout-form__priority-info {
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: rgba(236, 72, 153, 0.08);
+  border: 1px solid rgba(236, 72, 153, 0.25);
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #333;
+}
+.checkout-form__priority-info p {
+  margin: 0;
+}
+.checkout-form__summary-row--priority {
+  color: #c2185b;
+  font-weight: 500;
+}
+
 /* информационное окно успешного заказа */
 .modal-content--success { max-width: 500px; text-align: center; }
 .order-success { padding: 40px 24px; }

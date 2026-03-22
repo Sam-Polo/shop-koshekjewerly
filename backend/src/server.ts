@@ -277,6 +277,11 @@ async function sendOrderNotifications(order: any) {
     return `• ${escapeHtml(item.title)}${articleText} × ${item.quantity} — ${item.price * item.quantity} ₽`
   }).join('\n')
   
+  const priorityCustomerLine =
+    order.orderData.priorityOrder && order.orderData.priorityFee
+      ? `\nПриоритетный заказ (+30%): ${order.orderData.priorityFee} ₽`
+      : ''
+
   const customerMessage = `
 🎉 <b>Ваш заказ оформлен!</b>
 
@@ -285,7 +290,7 @@ async function sendOrderNotifications(order: any) {
 Товары:
 ${itemsTextForCustomer}
 
-Доставка: ${order.orderData.deliveryCost} ₽
+Доставка: ${order.orderData.deliveryCost} ₽${priorityCustomerLine}
 Итого: ${order.orderData.total} ₽
 
 ${order.orderData.deliveryRegion === 'europe' ? '📍 Адрес доставки:' : '📍 Пункт СДЭК:'}
@@ -296,8 +301,18 @@ ${escapeHtml(order.orderData.address)}
 💬 Для связи: @${(process.env.SUPPORT_USERNAME || 'semyonp88').replace('@', '')}
   `.trim()
   
+  const priorityManagerHeader =
+    order.orderData.priorityOrder && order.orderData.priorityFee
+      ? `🚨 <b>ПРИОРИТЕТНЫЙ ЗАКАЗ</b> 🚨\n\n`
+      : ''
+
+  const priorityManagerLine =
+    order.orderData.priorityOrder && order.orderData.priorityFee
+      ? `Приоритет (+30%): ${order.orderData.priorityFee} ₽\n`
+      : ''
+
   const managerMessage = `
-🛒 <b>Новый заказ!</b>
+${priorityManagerHeader}🛒 <b>Новый заказ!</b>
 
 Номер: <code>${escapeHtml(order.orderId)}</code>
 Покупатель: ${escapeHtml(order.orderData.fullName)}
@@ -312,7 +327,7 @@ ${escapeHtml(order.orderData.address)}
 ${itemsTextForManager}
 
 Доставка: ${order.orderData.deliveryCost} ₽ (${order.orderData.deliveryRegion})
-Итого: ${order.orderData.total} ₽
+${priorityManagerLine}Итого: ${order.orderData.total} ₽
 
 ${order.orderData.comments ? `Комментарии: ${escapeHtml(order.orderData.comments)}` : ''}
   `.trim()
@@ -450,8 +465,14 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
       }
     }
     
-    // пересчитываем итоговую сумму на бэкенде (с учетом промокода)
-    const total = Math.max(0, itemsTotal + deliveryCost - promocodeDiscount)
+    // сумма после товаров, доставки и промокода (база для +30% приоритета)
+    const subtotalAfterDiscount = Math.max(0, itemsTotal + deliveryCost - promocodeDiscount)
+    const priorityOrder = Boolean(orderData.priorityOrder)
+    const priorityFee =
+      priorityOrder && subtotalAfterDiscount > 0
+        ? Math.round(subtotalAfterDiscount * 0.3)
+        : 0
+    const total = subtotalAfterDiscount + priorityFee
     
     // Робокасса требует числовой InvId, используем timestamp
     // но сохраняем префикс для внутреннего использования
@@ -473,8 +494,10 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
       address: orderData.address || '',
       deliveryRegion: orderData.deliveryRegion || '',
       deliveryCost: deliveryCost,
-      total: total, // пересчитанная сумма на бэкенде (с учетом промокода)
+      total: total, // пересчитанная сумма на бэкенде (промокод + приоритет)
       comments: orderData.comments,
+      priorityOrder: priorityOrder && priorityFee > 0,
+      priorityFee: priorityFee > 0 ? priorityFee : undefined,
       promocode: promocodeInfo
     }, customerChatId)
     
