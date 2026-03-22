@@ -78,7 +78,10 @@ async function fetchSheetRange(
     
     const activeVal = String(get('active')).toLowerCase()
     const active = activeVal === 'true' || activeVal === '1' || activeVal === 'yes'
-    const stock = Number(get('stock'))
+    const stockIdx = idx('stock')
+    const stockRaw = stockIdx !== -1 ? String(get('stock')).trim() : ''
+    const stockParsed = stockRaw === '' ? NaN : Number(String(stockRaw).replace(',', '.'))
+    const stock = Number.isFinite(stockParsed) ? stockParsed : undefined
     // артикул: в таблице хранится как число без ведущих нулей (100, 1) — нормализуем к "0100", "0001"
     const articleRaw = get('article')
     const articleStr = String(articleRaw ?? '').trim()

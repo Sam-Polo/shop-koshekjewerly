@@ -1712,7 +1712,7 @@ function ProductFormModal({
       discount_price_rub: product?.discount_price_rub || undefined,
       badge_text: product?.badge_text || undefined,
       active: product?.active !== undefined ? product.active : true,
-      stock: product?.stock || undefined,
+      stock: isEdit ? (product!.stock ?? undefined) : 1000,
       article: initialArticle,
       images: product?.images || []
     }

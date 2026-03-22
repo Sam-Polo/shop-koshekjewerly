@@ -58,7 +58,11 @@ async function fetchSheetRange(auth: any, sheetId: string, range: string, catego
       .filter(Boolean)
     const activeVal = String(get('active')).toLowerCase()
     const active = activeVal === 'true' || activeVal === '1' || activeVal === 'yes'
-    const stock = Number(get('stock'))
+    // пустая ячейка не должна давать stock=0 (Number('') === 0) — иначе «товар закончился»
+    const stockIdx = idx('stock')
+    const stockRaw = stockIdx !== -1 ? String(get('stock')).trim() : ''
+    const stockParsed = stockRaw === '' ? NaN : Number(stockRaw.replace(',', '.'))
+    const stock = Number.isFinite(stockParsed) ? stockParsed : undefined
     const article = String(get('article') || '').trim() || undefined
     const item: SheetProduct = {
       id: String(get('id') || '').trim() || undefined,
