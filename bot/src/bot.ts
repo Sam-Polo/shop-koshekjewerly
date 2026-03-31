@@ -496,16 +496,8 @@ bot.command('support', async (ctx) => {
   await ctx.reply(`написать менеджеру: https://t.me/${SUPPORT_USERNAME}`);
 });
 
-bot.command('help', async (ctx) => {
-  const chatId = ctx.from?.id
-  const username = ctx.from?.username
-
-  if (!isManager(chatId, username)) {
-    await ctx.reply('❌ У вас нет доступа к этой команде.')
-    return
-  }
-
-  await ctx.reply(
+function getHelpMessage(): string {
+  return (
     '📚 Доступные команды бота:\n\n' +
     '/start — открыть каталог\n' +
     '/support — ссылка на менеджера\n' +
@@ -516,6 +508,18 @@ bot.command('help', async (ctx) => {
     '/users — показать количество пользователей\n' +
     '/cancel — отменить текущую операцию'
   )
+}
+
+bot.command('help', async (ctx) => {
+  const chatId = ctx.from?.id
+  const username = ctx.from?.username
+
+  if (!isManager(chatId, username)) {
+    await ctx.reply('❌ У вас нет доступа к этой команде.')
+    return
+  }
+
+  await ctx.reply(getHelpMessage())
 });
 
 // обработка callback_query (кнопки)
@@ -569,6 +573,18 @@ bot.on('message', async (ctx) => {
   // сохраняем chat_id пользователя
   if (chatId) {
     addUserChatId(chatId)
+  }
+
+  // fallback для /help, если middleware команд не сработал
+  const rawText = ctx.message.text?.trim() || ''
+  const isHelpCommand = /^\/help(@[a-zA-Z0-9_]+)?$/i.test(rawText)
+  if (isHelpCommand) {
+    if (!isManager(chatId, username)) {
+      await ctx.reply('❌ У вас нет доступа к этой команде.')
+      return
+    }
+    await ctx.reply(getHelpMessage())
+    return
   }
 
   // ожидание username канала для поста
