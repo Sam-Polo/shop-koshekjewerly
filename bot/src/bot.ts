@@ -496,6 +496,28 @@ bot.command('support', async (ctx) => {
   await ctx.reply(`написать менеджеру: https://t.me/${SUPPORT_USERNAME}`);
 });
 
+bot.command('help', async (ctx) => {
+  const chatId = ctx.from?.id
+  const username = ctx.from?.username
+
+  if (!isManager(chatId, username)) {
+    await ctx.reply('❌ У вас нет доступа к этой команде.')
+    return
+  }
+
+  await ctx.reply(
+    '📚 Доступные команды бота:\n\n' +
+    '/start — открыть каталог\n' +
+    '/support — ссылка на менеджера\n' +
+    '/help — показать список команд\n\n' +
+    '🔐 Команды только для админа:\n' +
+    '/broadcast — запустить рассылку\n' +
+    '/channel_post — отправить пост в канал\n' +
+    '/users — показать количество пользователей\n' +
+    '/cancel — отменить текущую операцию'
+  )
+});
+
 // обработка callback_query (кнопки)
 bot.callbackQuery(['broadcast_button_yes', 'broadcast_button_no', 'broadcast_cancel'], async (ctx) => {
   const chatId = ctx.from?.id
@@ -803,7 +825,8 @@ console.log(`[keep-alive] URL бэкенда: ${BACKEND_URL}/health`);
 
 // настраиваем команды бота (появятся в меню)
 bot.api.setMyCommands([
-  { command: 'start', description: 'Открыть каталог' }
+  { command: 'start', description: 'Открыть каталог' },
+  { command: 'help', description: 'Список команд (админ)' }
 ]);
 
 // настраиваем кнопку меню "Open" для открытия мини-приложения
