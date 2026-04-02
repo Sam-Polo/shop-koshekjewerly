@@ -3,6 +3,8 @@
 
 export type OrderStatus = 'pending' | 'paid' | 'cancelled' | 'failed'
 
+export type Platform = 'telegram' | 'max'
+
 export type Order = {
   orderId: string
   status: OrderStatus
@@ -37,19 +39,22 @@ export type Order = {
     }
   }
   customerChatId?: string | null
+  /** платформа, с которой создан заказ (telegram или max) */
+  platform?: Platform
 }
 
 const orders = new Map<string, Order>()
 
 // создаем заказ
-export function createOrder(orderId: string, orderData: Order['orderData'], customerChatId?: string | null): Order {
+export function createOrder(orderId: string, orderData: Order['orderData'], customerChatId?: string | null, platform?: Platform): Order {
   const order: Order = {
     orderId,
     status: 'pending',
     createdAt: Date.now(),
     updatedAt: Date.now(),
     orderData,
-    customerChatId
+    customerChatId,
+    platform: platform ?? 'telegram'
   }
   orders.set(orderId, order)
   return order

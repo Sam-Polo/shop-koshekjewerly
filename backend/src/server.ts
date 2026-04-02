@@ -5,7 +5,7 @@ import pino from 'pino';
 import rateLimit from 'express-rate-limit';
 import { fetchProductsFromSheet } from './sheets.js';
 import { listProducts, upsertProducts, decreaseProductStock } from './store.js';
-import { createOrder, getOrder, updateOrderStatus, type OrderStatus } from './orders.js';
+import { createOrder, getOrder, updateOrderStatus, type OrderStatus, type Platform } from './orders.js';
 import { generatePaymentUrl, verifyResultSignature } from './robokassa.js';
 import { fetchPromocodesFromSheet, loadPromocodes, findPromocode, validatePromocode, listPromocodes } from './promocodes.js';
 import { fetchOrdersSettingsFromSheet } from './settings.js';
@@ -79,13 +79,25 @@ async function importOrdersSettings() {
 
 app.use(express.json({ limit: '1mb' }));
 
-// настройка CORS - проверяем что TG_WEBAPP_URL задан
-const webappOrigin = process.env.TG_WEBAPP_URL
-if (!webappOrigin) {
-  logger.warn('⚠️  TG_WEBAPP_URL не задан! CORS может не работать корректно.')
+// настройка CORS - разрешаем запросы от TG и MAX мини-аппов
+const allowedOrigins = [
+  process.env.TG_WEBAPP_URL,
+  process.env.MAX_WEBAPP_URL,
+].filter(Boolean) as string[]
+
+if (allowedOrigins.length === 0) {
+  logger.warn('⚠️  TG_WEBAPP_URL и MAX_WEBAPP_URL не заданы! CORS запрещён для всех источников.')
 }
-app.use(cors({ 
-  origin: webappOrigin || false, // если не задан, запрещаем все источники
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // разрешаем запросы без origin (curl, Postman, server-to-server)
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true)
+    } else {
+      callback(new Error('CORS not allowed'))
+    }
+  },
   credentials: true
 }));
 
@@ -243,6 +255,57 @@ async function sendTelegramMessage(chatId: string | number, text: string) {
   }
 }
 
+// отправка сообщения через MAX Bot API
+async function sendMaxMessage(chatId: string | number, text: string) {
+  const token = process.env.MAX_BOT_TOKEN
+  if (!token) {
+    logger.warn('MAX_BOT_TOKEN не задан, сообщение не отправлено')
+    return false
+  }
+
+  try {
+    const response = await fetch(`https://platform-api.max.ru/messages?user_id=${chatId}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': token
+      },
+      body: JSON.stringify({ text, format: 'html' })
+    })
+
+    if (!response.ok) {
+      const error = await response.text()
+      logger.error({ error }, 'ошибка отправки сообщения в MAX')
+      return false
+    }
+
+    return true
+  } catch (e: any) {
+    logger.error({ error: e?.message }, 'ошибка отправки сообщения в MAX')
+    return false
+  }
+}
+
+// строим deep link для возврата после оплаты (зависит от платформы)
+function buildPaymentReturnLink(platform: Platform | undefined, invoiceId: string | number, status: 'success' | 'fail'): string | null {
+  if (platform === 'max') {
+    const botUsername = process.env.MAX_BOT_USERNAME
+    if (botUsername) {
+      return `https://max.ru/${botUsername.replace('@', '')}?start=order_${invoiceId}_${status}`
+    }
+    const webappUrl = process.env.MAX_WEBAPP_URL
+    return webappUrl ? `${webappUrl}/payment/${status}?orderId=${invoiceId}` : null
+  }
+
+  // telegram (default)
+  const botUsername = process.env.TG_BOT_USERNAME
+  if (botUsername) {
+    const clean = botUsername.replace('@', '').replace('https://t.me/', '')
+    return `https://t.me/${clean}?start=order_${invoiceId}_${status}`
+  }
+  return null
+}
+
 // извлекаем chat_id из initData (упрощенная версия без проверки подписи для MVP)
 function extractChatIdFromInitData(initData: string): string | null {
   if (!initData) return null
@@ -332,24 +395,28 @@ ${priorityManagerLine}Итого: ${order.orderData.total} ₽
 ${order.orderData.comments ? `Комментарии: ${escapeHtml(order.orderData.comments)}` : ''}
   `.trim()
   
+  // выбираем транспорт и chat_id менеджера в зависимости от платформы
+  const isMax = order.platform === 'max'
+  const sendPlatformMessage = isMax ? sendMaxMessage : sendTelegramMessage
+  const managerChatId = isMax ? process.env.MAX_MANAGER_CHAT_ID : process.env.TG_MANAGER_CHAT_ID
+
   // отправляем покупателю если есть chat_id
   if (order.customerChatId) {
-    await sendTelegramMessage(order.customerChatId, customerMessage)
+    await sendPlatformMessage(order.customerChatId, customerMessage)
   } else {
-    logger.warn('chat_id покупателя не найден, сообщение покупателю не отправлено')
+    logger.warn({ platform: order.platform }, 'chat_id покупателя не найден, сообщение покупателю не отправлено')
   }
-  
+
   // отправляем менеджеру
-  const managerChatId = process.env.TG_MANAGER_CHAT_ID
   if (managerChatId) {
     if (order.customerChatId !== managerChatId) {
-      await sendTelegramMessage(managerChatId, managerMessage)
+      await sendPlatformMessage(managerChatId, managerMessage)
     } else {
-      await sendTelegramMessage(managerChatId, managerMessage)
+      await sendPlatformMessage(managerChatId, managerMessage)
       logger.info('покупатель является менеджером, отправлено второе сообщение')
     }
   } else {
-    logger.warn(`TG_MANAGER_CHAT_ID не задан, сообщение менеджеру не отправлено`)
+    logger.warn({ platform: order.platform }, `MANAGER_CHAT_ID не задан, сообщение менеджеру не отправлено`)
   }
 }
 
@@ -482,7 +549,10 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
     
     // получаем chat_id покупателя из initData
     const customerChatId = orderData.initData ? extractChatIdFromInitData(orderData.initData) : null
-    
+
+    // определяем платформу заказа (telegram по умолчанию для обратной совместимости)
+    const orderPlatform: Platform = orderData.platform === 'max' ? 'max' : 'telegram'
+
     // создаем заказ со статусом pending (используем пересчитанные данные)
     const order = createOrder(orderId, {
       items: validatedItems, // используем валидированные товары с актуальными ценами
@@ -499,10 +569,10 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
       priorityOrder: priorityOrder && priorityFee > 0,
       priorityFee: priorityFee > 0 ? priorityFee : undefined,
       promocode: promocodeInfo
-    }, customerChatId)
-    
-    logger.info({ 
-      orderId, 
+    }, customerChatId, orderPlatform)
+
+    logger.info({
+      orderId,
       itemsCount: validatedItems.length,
       itemsTotal,
       deliveryCost,
@@ -680,17 +750,21 @@ app.post('/api/robokassa/result', express.urlencoded({ extended: true }), async 
 const handleSuccessUrl = (req: express.Request, res: express.Response) => {
   // получаем InvId из query (GET) или body (POST)
   const InvId = req.query.InvId || req.body?.InvId
-  const botUsername = process.env.TG_BOT_USERNAME
-  
-  // если указан username бота, редиректим на бота с deep link
-  if (botUsername) {
-    const botUsernameClean = botUsername.replace('@', '').replace('https://t.me/', '')
-    const deepLink = `https://t.me/${botUsernameClean}?start=order_${InvId}_success`
+
+  // определяем платформу заказа для правильного deep link
+  const orderId = `ORD-${InvId}`
+  const order = getOrder(orderId)
+  const platform = order?.platform ?? 'telegram'
+
+  const deepLink = buildPaymentReturnLink(platform, InvId, 'success')
+  if (deepLink) {
     return res.redirect(deepLink)
   }
-  
-  // fallback: редирект на фронтенд (если username бота не указан)
-  const webappUrl = process.env.TG_WEBAPP_URL || 'https://sam-polo.github.io/shop-koshekjewerly'
+
+  // fallback: редирект на фронтенд соответствующей платформы
+  const webappUrl = platform === 'max'
+    ? (process.env.MAX_WEBAPP_URL || process.env.TG_WEBAPP_URL || 'https://sam-polo.github.io/shop-koshekjewerly')
+    : (process.env.TG_WEBAPP_URL || 'https://sam-polo.github.io/shop-koshekjewerly')
   res.redirect(`${webappUrl}/payment/success?orderId=${InvId}`)
 }
 
@@ -704,24 +778,26 @@ app.post('/api/robokassa/success', express.urlencoded({ extended: true }), handl
 const handleFailUrl = (req: express.Request, res: express.Response) => {
   // получаем InvId из query (GET) или body (POST)
   const InvId = req.query.InvId || req.body?.InvId
-  const botUsername = process.env.TG_BOT_USERNAME
-  
-  // обновляем статус заказа на failed (преобразуем invoiceId в orderId)
+
+  // обновляем статус заказа на failed и определяем платформу
+  let platform: Platform = 'telegram'
   if (InvId) {
     const orderId = `ORD-${InvId}`
+    const order = getOrder(orderId)
+    platform = order?.platform ?? 'telegram'
     updateOrderStatus(orderId, 'failed')
-    logger.info({ InvId, orderId }, 'статус заказа обновлен на failed')
+    logger.info({ InvId, orderId, platform }, 'статус заказа обновлен на failed')
   }
-  
-  // если указан username бота, редиректим на бота с deep link
-  if (botUsername) {
-    const botUsernameClean = botUsername.replace('@', '').replace('https://t.me/', '')
-    const deepLink = `https://t.me/${botUsernameClean}?start=order_${InvId}_fail`
+
+  const deepLink = buildPaymentReturnLink(platform, InvId, 'fail')
+  if (deepLink) {
     return res.redirect(deepLink)
   }
-  
-  // fallback: редирект на фронтенд (если username бота не указан)
-  const webappUrl = process.env.TG_WEBAPP_URL || 'https://sam-polo.github.io/shop-koshekjewerly'
+
+  // fallback: редирект на фронтенд соответствующей платформы
+  const webappUrl = platform === 'max'
+    ? (process.env.MAX_WEBAPP_URL || process.env.TG_WEBAPP_URL || 'https://sam-polo.github.io/shop-koshekjewerly')
+    : (process.env.TG_WEBAPP_URL || 'https://sam-polo.github.io/shop-koshekjewerly')
   res.redirect(`${webappUrl}/payment/fail?orderId=${InvId}`)
 }
 
