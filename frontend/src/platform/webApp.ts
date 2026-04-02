@@ -22,10 +22,15 @@ declare global {
 
 function detectPlatform(): 'telegram' | 'max' {
   if (typeof window === 'undefined') return 'telegram'
-  // Telegram инжектирует window.Telegram.WebApp
+  // MAX Bridge CDN (загружен синхронно из index.html) устанавливает window.WebApp
+  // с реальными данными пользователя ТОЛЬКО внутри MAX WebView.
+  // Проверяем MAX ПЕРВЫМ, потому что @twa-dev/sdk при импорте создаёт
+  // window.Telegram.WebApp даже внутри MAX — и старая проверка Telegram-first
+  // всегда возвращала 'telegram'.
+  const maxApp = window.WebApp
+  if (maxApp && maxApp.initDataUnsafe?.user?.id) return 'max'
+  // Telegram: @twa-dev/sdk или встроенный window.Telegram.WebApp
   if ((window as any).Telegram?.WebApp) return 'telegram'
-  // MAX Bridge устанавливает window.WebApp
-  if (window.WebApp) return 'max'
   // fallback — считаем Telegram (initData будет пустым, но код не сломается)
   return 'telegram'
 }
