@@ -272,8 +272,8 @@ bot.action('broadcast_photo_yes', async (ctx) => {
     return
   }
   waitingForBroadcastPhoto.add(chatId!)
-  await ctx.answerOnCallback({ notification: '✅ Пришли фото' })
-  await ctx.editMessage({ text: '📷 Пришли фото для рассылки.\nИспользуй /cancel для отмены.' })
+  await ctx.answerOnCallback({ notification: '✅' })
+  await ctx.reply('📷 Пришли фото для рассылки.\nИспользуй /cancel для отмены.')
 })
 
 bot.action('broadcast_photo_no', async (ctx) => {
@@ -287,8 +287,8 @@ bot.action('broadcast_photo_no', async (ctx) => {
     await ctx.answerOnCallback({ notification: '❌ Данные рассылки не найдены' })
     return
   }
-  await ctx.answerOnCallback({ notification: '✅ Начинаю рассылку без фото' })
-  await ctx.editMessage({ text: '✅ Начинаю рассылку без фото...' })
+  await ctx.answerOnCallback({ notification: '✅' })
+  await ctx.reply('✅ Начинаю рассылку без фото...')
   await startBroadcast(ctx, chatId!, data)
 })
 
@@ -298,7 +298,7 @@ bot.action('broadcast_cancel', async (ctx) => {
   waitingForBroadcastPhoto.delete(chatId!)
   broadcastData.delete(chatId!)
   await ctx.answerOnCallback({ notification: '❌ Рассылка отменена' })
-  await ctx.editMessage({ text: '❌ Рассылка отменена.' })
+  await ctx.reply('❌ Рассылка отменена.')
 })
 
 // ─────────────────────────── Message handler ─────────────────────────────
