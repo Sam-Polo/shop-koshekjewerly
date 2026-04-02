@@ -910,6 +910,7 @@ const CheckoutForm = ({
           {errors.phone && <span className="checkout-form__error">{errors.phone}</span>}
         </label>
 
+        {appPlatform !== 'max' && (
         <label className="checkout-form__label">
           Telegram username
           <input
@@ -920,6 +921,7 @@ const CheckoutForm = ({
             placeholder="@username"
           />
         </label>
+        )}
 
         <label className="checkout-form__label">
           Страна <span className="checkout-form__required">*</span>
