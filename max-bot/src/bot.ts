@@ -79,19 +79,12 @@ function getSenderUsername(ctx: any): string | undefined {
     ?? ctx.update?.message?.sender?.username
 }
 
-function isManager(chatId: string | number | undefined, username?: string): boolean {
+function isManager(chatId: string | number | undefined): boolean {
   if (!chatId) return false
-
+  // В MAX (на момент запуска) нет юзернеймов — идентификация только по chat_id
   if (MANAGER_CHAT_ID && String(chatId) === String(MANAGER_CHAT_ID)) {
     return true
   }
-
-  if (SUPPORT_USERNAME && username) {
-    const supportClean = SUPPORT_USERNAME.replace('@', '').toLowerCase()
-    const userClean = username.replace('@', '').toLowerCase()
-    if (userClean === supportClean) return true
-  }
-
   return false
 }
 
@@ -230,10 +223,15 @@ bot.on('bot_started', async (ctx) => {
 })
 
 bot.command('support', async (ctx) => {
-  const supportUrl = SUPPORT_USERNAME
+  // В MAX пока нет пользовательских юзернеймов — даём ссылку на профиль менеджера если известна,
+  // иначе сообщаем как связаться другим способом
+  const managerLink = SUPPORT_USERNAME
     ? `https://max.ru/${SUPPORT_USERNAME.replace('@', '')}`
-    : 'написать менеджеру'
-  await ctx.reply(`написать менеджеру: ${supportUrl}`)
+    : null
+  const text = managerLink
+    ? `Написать менеджеру: ${managerLink}`
+    : 'Для связи с менеджером — ответьте в этом чате, мы свяжемся с вами.'
+  await ctx.reply(text)
 })
 
 function getHelpMessage(): string {
@@ -252,7 +250,7 @@ function getHelpMessage(): string {
 bot.command('help', async (ctx) => {
   const chatId = getSenderId(ctx)
   const username = getSenderUsername(ctx)
-  if (!isManager(chatId, username)) {
+  if (!isManager(chatId)) {
     await ctx.reply('❌ У вас нет доступа к этой команде.')
     return
   }
@@ -262,7 +260,7 @@ bot.command('help', async (ctx) => {
 bot.command('users', async (ctx) => {
   const chatId = getSenderId(ctx)
   const username = getSenderUsername(ctx)
-  if (!isManager(chatId, username)) {
+  if (!isManager(chatId)) {
     await ctx.reply('❌ У вас нет доступа к этой команде.')
     return
   }
@@ -272,12 +270,19 @@ bot.command('users', async (ctx) => {
 bot.command('broadcast', async (ctx) => {
   const chatId = getSenderId(ctx)
   const username = getSenderUsername(ctx)
-  if (!isManager(chatId, username)) {
+  if (!isManager(chatId)) {
     await ctx.reply('❌ У вас нет доступа к этой команде.')
     return
   }
   waitingForBroadcast.add(chatId!)
   await ctx.reply('📢 Режим рассылки активирован. Жду текстовое сообщение...\n\nПримечание: рассылка поддерживает только текст.\nИспользуй /cancel для отмены.')
+})
+
+// Служебная команда для получения своего chat_id (не выводится в меню)
+// Используй один раз чтобы узнать MAX_MANAGER_CHAT_ID и внести в .env
+bot.command('myid', async (ctx) => {
+  const chatId = getSenderId(ctx)
+  await ctx.reply(`Твой chat_id в MAX: <code>${chatId}</code>`, { format: 'html' })
 })
 
 bot.command('cancel', async (ctx) => {
@@ -304,7 +309,7 @@ bot.command('cancel', async (ctx) => {
 bot.action('broadcast_button_yes', async (ctx) => {
   const chatId = getSenderId(ctx)
   const username = getSenderUsername(ctx)
-  if (!isManager(chatId, username)) {
+  if (!isManager(chatId)) {
     await ctx.answerCallbackQuery('⛔ У вас нет доступа')
     return
   }
@@ -324,7 +329,7 @@ bot.action('broadcast_button_yes', async (ctx) => {
 bot.action('broadcast_button_no', async (ctx) => {
   const chatId = getSenderId(ctx)
   const username = getSenderUsername(ctx)
-  if (!isManager(chatId, username)) {
+  if (!isManager(chatId)) {
     await ctx.answerCallbackQuery('⛔ У вас нет доступа')
     return
   }
@@ -365,7 +370,7 @@ bot.on('message_created', async (ctx) => {
     ''
 
   // Ожидание текста кнопки для рассылки
-  if (chatId && waitingForButtonText.has(chatId) && isManager(chatId, username)) {
+  if (chatId && waitingForButtonText.has(chatId) && isManager(chatId)) {
     const buttonText = text.trim()
     if (!buttonText) {
       await ctx.reply('❌ Текст кнопки не может быть пустым.')
@@ -389,7 +394,7 @@ bot.on('message_created', async (ctx) => {
   }
 
   // Ожидание текста сообщения для рассылки
-  if (chatId && waitingForBroadcast.has(chatId) && isManager(chatId, username)) {
+  if (chatId && waitingForBroadcast.has(chatId) && isManager(chatId)) {
     if (!text.trim()) {
       await ctx.reply('❌ Сообщение пустое. В MAX-боте поддерживается только текстовая рассылка.\nПопробуй еще раз или используй /cancel.')
       return
