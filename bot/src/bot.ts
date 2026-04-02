@@ -4,6 +4,10 @@ import { InputFile } from 'grammy';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'node:fs';
+import { setDefaultResultOrder } from 'node:dns';
+
+// предпочитаем ipv4: помогает избежать зависаний на ipv6 у некоторых хостингов
+setDefaultResultOrder('ipv4first');
 
 const token = process.env.TG_BOT_TOKEN;
 if (!token) {
