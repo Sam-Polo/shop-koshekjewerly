@@ -843,7 +843,12 @@ console.log(`[keep-alive] URL бэкенда: ${BACKEND_URL}/health`);
 bot.api.setMyCommands([
   { command: 'start', description: 'Открыть каталог' },
   { command: 'help', description: 'Список команд (админ)' }
-]);
+]).then(() => {
+  console.log('[bot] команды меню установлены')
+}).catch((error: any) => {
+  // ошибка установки команд не должна ронять бота
+  console.warn('[bot] не удалось установить команды меню:', error?.message || error)
+});
 
 // настраиваем кнопку меню "Open" для открытия мини-приложения
 // эта кнопка будет отображаться в списке чатов и внутри диалога с ботом
