@@ -145,7 +145,7 @@ async function startBroadcast(ctx: any, chatId: string | number, data: Broadcast
       }
 
       const success = await sendMaxMessageDirect(userId, messageText)
-      if (success) sent++ else failed++
+      if (success) { sent++ } else { failed++ }
 
       // Небольшая задержка, чтобы не превысить rate limit MAX (30 RPS)
       await new Promise(resolve => setTimeout(resolve, 50))
