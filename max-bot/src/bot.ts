@@ -15,7 +15,6 @@ const bot = new Bot(token)
 
 const WEBAPP_URL = process.env.MAX_WEBAPP_URL ?? 'http://localhost:5173'
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:4000'
-const SUPPORT_USERNAME = process.env.SUPPORT_USERNAME
 const MANAGER_CHAT_ID = process.env.MAX_MANAGER_CHAT_ID
 const MAX_API_BASE = 'https://platform-api.max.ru'
 
@@ -94,8 +93,14 @@ const waitingForBroadcast = new Set<string | number>()
 const waitingForButtonQuestion = new Set<string | number>()
 const waitingForButtonText = new Set<string | number>()
 
+type MediaAttachment = {
+  type: 'image' | 'video'
+  token: string
+}
+
 type BroadcastData = {
   messageText: string
+  media?: MediaAttachment
   needButton?: boolean
   buttonText?: string
 }
@@ -103,17 +108,41 @@ const broadcastData = new Map<string | number, BroadcastData>()
 
 // ──────────────────────── Sending via MAX REST API ────────────────────────
 
-// Прямая отправка сообщения через MAX API (используется для рассылки,
-// когда ctx недоступен или когда нужно обойти ограничения SDK на media)
-async function sendMaxMessageDirect(userId: string | number, text: string): Promise<boolean> {
+// Прямая отправка через MAX REST API.
+// media.token берётся из входящего сообщения менеджера и переиспользуется при рассылке.
+async function sendMaxMessageDirect(
+  userId: string | number,
+  text: string,
+  media?: MediaAttachment,
+  buttonText?: string
+): Promise<boolean> {
   try {
+    const attachments: any[] = []
+
+    if (media) {
+      attachments.push({ type: media.type, payload: { token: media.token } })
+    }
+
+    if (buttonText) {
+      attachments.push({
+        type: 'inline_keyboard',
+        payload: {
+          buttons: [[{ type: 'link', text: buttonText, url: WEBAPP_URL }]]
+        }
+      })
+    }
+
+    const body: any = { format: 'html' }
+    if (text) body.text = text
+    if (attachments.length > 0) body.attachments = attachments
+
     const response = await fetch(`${MAX_API_BASE}/messages?user_id=${userId}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': token!
       },
-      body: JSON.stringify({ text, format: 'html' })
+      body: JSON.stringify(body)
     })
     if (!response.ok) {
       const err = await response.text()
@@ -139,12 +168,8 @@ async function startBroadcast(ctx: any, chatId: string | number, data: Broadcast
     for (const userId of userChatIds) {
       if (String(userId) === String(chatId)) continue
 
-      let messageText = data.messageText
-      if (data.needButton && data.buttonText) {
-        messageText += `\n\n<a href="${WEBAPP_URL}">${data.buttonText}</a>`
-      }
-
-      const success = await sendMaxMessageDirect(userId, messageText)
+      const buttonText = data.needButton && data.buttonText ? data.buttonText : undefined
+      const success = await sendMaxMessageDirect(userId, data.messageText, data.media, buttonText)
       if (success) { sent++ } else { failed++ }
 
       // Небольшая задержка, чтобы не превысить rate limit MAX (30 RPS)
@@ -222,26 +247,13 @@ bot.on('bot_started', async (ctx) => {
   await handleStart(ctx, startParam)
 })
 
-bot.command('support', async (ctx) => {
-  // В MAX пока нет пользовательских юзернеймов — даём ссылку на профиль менеджера если известна,
-  // иначе сообщаем как связаться другим способом
-  const managerLink = SUPPORT_USERNAME
-    ? `https://max.ru/${SUPPORT_USERNAME.replace('@', '')}`
-    : null
-  const text = managerLink
-    ? `Написать менеджеру: ${managerLink}`
-    : 'Для связи с менеджером — ответьте в этом чате, мы свяжемся с вами.'
-  await ctx.reply(text)
-})
-
 function getHelpMessage(): string {
   return (
     '📚 Доступные команды бота:\n\n' +
     '/start — открыть каталог\n' +
-    '/support — ссылка на менеджера\n' +
     '/help — показать список команд\n\n' +
     '🔐 Команды только для админа:\n' +
-    '/broadcast — запустить рассылку (только текст)\n' +
+    '/broadcast — рассылка (текст + фото/видео)\n' +
     '/users — показать количество пользователей\n' +
     '/cancel — отменить текущую операцию'
   )
@@ -249,7 +261,6 @@ function getHelpMessage(): string {
 
 bot.command('help', async (ctx) => {
   const chatId = getSenderId(ctx)
-  const username = getSenderUsername(ctx)
   if (!isManager(chatId)) {
     await ctx.reply('❌ У вас нет доступа к этой команде.')
     return
@@ -259,7 +270,6 @@ bot.command('help', async (ctx) => {
 
 bot.command('users', async (ctx) => {
   const chatId = getSenderId(ctx)
-  const username = getSenderUsername(ctx)
   if (!isManager(chatId)) {
     await ctx.reply('❌ У вас нет доступа к этой команде.')
     return
@@ -269,13 +279,12 @@ bot.command('users', async (ctx) => {
 
 bot.command('broadcast', async (ctx) => {
   const chatId = getSenderId(ctx)
-  const username = getSenderUsername(ctx)
   if (!isManager(chatId)) {
     await ctx.reply('❌ У вас нет доступа к этой команде.')
     return
   }
   waitingForBroadcast.add(chatId!)
-  await ctx.reply('📢 Режим рассылки активирован. Жду текстовое сообщение...\n\nПримечание: рассылка поддерживает только текст.\nИспользуй /cancel для отмены.')
+  await ctx.reply('📢 Режим рассылки активирован.\n\nПришли текст, фото или видео (по одному).\nИспользуй /cancel для отмены.')
 })
 
 // Служебная команда для получения своего chat_id (не выводится в меню)
@@ -391,14 +400,24 @@ bot.on('message_created', async (ctx) => {
     return
   }
 
-  // Ожидание текста сообщения для рассылки
+  // Ожидание сообщения для рассылки (текст, фото или видео)
   if (chatId && waitingForBroadcast.has(chatId) && isManager(chatId)) {
-    if (!text.trim()) {
-      await ctx.reply('❌ Сообщение пустое. В MAX-боте поддерживается только текстовая рассылка.\nПопробуй еще раз или используй /cancel.')
+    // Ищем медиа-вложение: MAX API кладёт attachments в message.body.attachments
+    const attachments: any[] = (ctx as any).message?.body?.attachments ?? []
+    const photoAtt = attachments.find((a: any) => a.type === 'image' && a.payload?.token)
+    const videoAtt = attachments.find((a: any) => a.type === 'video' && a.payload?.token)
+    const media: MediaAttachment | undefined = videoAtt
+      ? { type: 'video', token: videoAtt.payload.token }
+      : photoAtt
+        ? { type: 'image', token: photoAtt.payload.token }
+        : undefined
+
+    if (!text.trim() && !media) {
+      await ctx.reply('❌ Сообщение пустое. Пришли текст, фото или видео.')
       return
     }
     waitingForBroadcast.delete(chatId)
-    const data: BroadcastData = { messageText: text }
+    const data: BroadcastData = { messageText: text.trim(), media }
     broadcastData.set(chatId, data)
 
     const keyboard = Keyboard.inlineKeyboard([
