@@ -13,7 +13,6 @@ if (!token) {
 
 const bot = new Bot(token)
 
-const WEBAPP_URL = process.env.MAX_WEBAPP_URL ?? 'http://localhost:5173'
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:4000'
 const MANAGER_CHAT_ID = process.env.MAX_MANAGER_CHAT_ID
 const MAX_API_BASE = 'https://platform-api.max.ru'
@@ -64,23 +63,14 @@ const loadedIds = loadUserChatIds()
 loadedIds.forEach(id => userChatIds.add(id))
 
 // Извлекаем числовой ID отправителя из контекста MAX SDK.
-// MAX API передаёт user_id в update.sender или update.message.sender,
-// SDK может маппить его на ctx.from.id (grammy-совместимый) — проверяем оба пути.
 function getSenderId(ctx: any): string | number | undefined {
   return ctx.from?.id
     ?? ctx.update?.sender?.user_id
     ?? ctx.update?.message?.sender?.user_id
 }
 
-function getSenderUsername(ctx: any): string | undefined {
-  return ctx.from?.username
-    ?? ctx.update?.sender?.username
-    ?? ctx.update?.message?.sender?.username
-}
-
 function isManager(chatId: string | number | undefined): boolean {
   if (!chatId) return false
-  // В MAX (на момент запуска) нет юзернеймов — идентификация только по chat_id
   if (MANAGER_CHAT_ID && String(chatId) === String(MANAGER_CHAT_ID)) {
     return true
   }
@@ -89,52 +79,30 @@ function isManager(chatId: string | number | undefined): boolean {
 
 // ───────────────────────────── Broadcast state ─────────────────────────────
 
-const waitingForBroadcast = new Set<string | number>()
-const waitingForButtonQuestion = new Set<string | number>()
-const waitingForButtonText = new Set<string | number>()
-
-type MediaAttachment = {
-  type: 'image' | 'video'
-  token: string
-}
+// Шаг 1: ждём текст рассылки
+const waitingForBroadcastText = new Set<string | number>()
+// Шаг 2: ждём фото (после того как текст принят)
+const waitingForBroadcastPhoto = new Set<string | number>()
 
 type BroadcastData = {
   messageText: string
-  media?: MediaAttachment
-  needButton?: boolean
-  buttonText?: string
+  photoToken?: string // токен фото из входящего сообщения, переиспользуется при рассылке
 }
 const broadcastData = new Map<string | number, BroadcastData>()
 
 // ──────────────────────── Sending via MAX REST API ────────────────────────
 
-// Прямая отправка через MAX REST API.
-// media.token берётся из входящего сообщения менеджера и переиспользуется при рассылке.
 async function sendMaxMessageDirect(
   userId: string | number,
   text: string,
-  media?: MediaAttachment,
-  buttonText?: string
+  photoToken?: string
 ): Promise<boolean> {
   try {
-    const attachments: any[] = []
-
-    if (media) {
-      attachments.push({ type: media.type, payload: { token: media.token } })
-    }
-
-    if (buttonText) {
-      attachments.push({
-        type: 'inline_keyboard',
-        payload: {
-          buttons: [[{ type: 'link', text: buttonText, url: WEBAPP_URL }]]
-        }
-      })
-    }
-
     const body: any = { format: 'html' }
     if (text) body.text = text
-    if (attachments.length > 0) body.attachments = attachments
+    if (photoToken) {
+      body.attachments = [{ type: 'image', payload: { token: photoToken } }]
+    }
 
     const response = await fetch(`${MAX_API_BASE}/messages?user_id=${userId}`, {
       method: 'POST',
@@ -167,12 +135,9 @@ async function startBroadcast(ctx: any, chatId: string | number, data: Broadcast
 
     for (const userId of userChatIds) {
       if (String(userId) === String(chatId)) continue
-
-      const buttonText = data.needButton && data.buttonText ? data.buttonText : undefined
-      const success = await sendMaxMessageDirect(userId, data.messageText, data.media, buttonText)
+      const success = await sendMaxMessageDirect(userId, data.messageText, data.photoToken)
       if (success) { sent++ } else { failed++ }
-
-      // Небольшая задержка, чтобы не превысить rate limit MAX (30 RPS)
+      // Задержка, чтобы не превысить rate limit MAX (30 RPS)
       await new Promise(resolve => setTimeout(resolve, 50))
     }
 
@@ -193,52 +158,39 @@ async function handleStart(ctx: any, startParam: string = '') {
 
   if (startParam.includes('order_') && startParam.includes('_success')) {
     const orderId = startParam.replace('order_', '').replace('_success', '')
-    const keyboard = Keyboard.inlineKeyboard([[
-      Keyboard.button.link('Открыть магазин 🛍️', WEBAPP_URL)
-    ]])
     await ctx.reply(
       `✅ <b>Оплата успешна!</b>\n\n` +
       `Ваш заказ <code>${orderId}</code> успешно оплачен.\n` +
       `Информация о заказе отправлена вам и менеджеру.\n\n` +
       `Спасибо за покупку! 💖`,
-      { attachments: [keyboard], format: 'html' }
+      { format: 'html' }
     )
     return
   }
 
   if (startParam.includes('order_') && startParam.includes('_fail')) {
     const orderId = startParam.replace('order_', '').replace('_fail', '')
-    const keyboard = Keyboard.inlineKeyboard([[
-      Keyboard.button.link('Попробовать снова 🔄', WEBAPP_URL)
-    ]])
     await ctx.reply(
       `❌ <b>Оплата не завершена</b>\n\n` +
       `К сожалению, произошла ошибка при оплате заказа <code>${orderId}</code>.\n\n` +
       `Попробуйте оформить заказ еще раз.`,
-      { attachments: [keyboard], format: 'html' }
+      { format: 'html' }
     )
     return
   }
 
   // Обычное приветствие
-  const keyboard = Keyboard.inlineKeyboard([[
-    Keyboard.button.link('KOSHEK JEWERLY🐾', WEBAPP_URL)
-  ]])
-  await ctx.reply('Нажми на кнопку, чтоб перейти в каталог 👇🏽', {
-    attachments: [keyboard]
-  })
+  await ctx.reply('Добро пожаловать в KOSHEK JEWERLY 🐾\n\nОткрой мини-приложение через кнопку меню внизу.')
 }
 
 // ─────────────────────────────── Commands ────────────────────────────────
 
 bot.command('start', async (ctx) => {
-  // ctx.match — текст после команды (аналог grammy)
   const startParam: string = (ctx as any).match || ''
   await handleStart(ctx, startParam)
 })
 
 // bot_started — событие первого открытия бота или перехода по deep link
-// MAX API: update.payload содержит start-параметр из URL ?start=<payload>
 bot.on('bot_started', async (ctx) => {
   const startParam: string =
     (ctx as any).update?.payload ??
@@ -250,10 +202,10 @@ bot.on('bot_started', async (ctx) => {
 function getHelpMessage(): string {
   return (
     '📚 Доступные команды бота:\n\n' +
-    '/start — открыть каталог\n' +
+    '/start — приветствие\n' +
     '/help — показать список команд\n\n' +
     '🔐 Команды только для админа:\n' +
-    '/broadcast — рассылка (текст + фото/видео)\n' +
+    '/broadcast — рассылка (текст + фото)\n' +
     '/users — показать количество пользователей\n' +
     '/cancel — отменить текущую операцию'
   )
@@ -283,12 +235,11 @@ bot.command('broadcast', async (ctx) => {
     await ctx.reply('❌ У вас нет доступа к этой команде.')
     return
   }
-  waitingForBroadcast.add(chatId!)
-  await ctx.reply('📢 Режим рассылки активирован.\n\nПришли текст, фото или видео (по одному).\nИспользуй /cancel для отмены.')
+  waitingForBroadcastText.add(chatId!)
+  await ctx.reply('📢 Режим рассылки активирован.\n\nШаг 1: пришли текст рассылки.\nИспользуй /cancel для отмены.')
 })
 
-// Служебная команда для получения своего chat_id (не выводится в меню)
-// Используй один раз чтобы узнать MAX_MANAGER_CHAT_ID и внести в .env
+// Служебная команда для получения своего chat_id
 bot.command('myid', async (ctx) => {
   const chatId = getSenderId(ctx)
   await ctx.reply(`Твой chat_id в MAX: <code>${chatId}</code>`, { format: 'html' })
@@ -296,26 +247,20 @@ bot.command('myid', async (ctx) => {
 
 bot.command('cancel', async (ctx) => {
   const chatId = getSenderId(ctx)
-  let wasCancelled = false
-  if (
-    waitingForBroadcast.has(chatId!) ||
-    waitingForButtonQuestion.has(chatId!) ||
-    waitingForButtonText.has(chatId!)
-  ) {
-    waitingForBroadcast.delete(chatId!)
-    waitingForButtonQuestion.delete(chatId!)
-    waitingForButtonText.delete(chatId!)
-    broadcastData.delete(chatId!)
-    wasCancelled = true
-  }
+  const wasCancelled =
+    waitingForBroadcastText.has(chatId!) ||
+    waitingForBroadcastPhoto.has(chatId!)
   if (wasCancelled) {
+    waitingForBroadcastText.delete(chatId!)
+    waitingForBroadcastPhoto.delete(chatId!)
+    broadcastData.delete(chatId!)
     await ctx.reply('❌ Действие отменено.')
   }
 })
 
 // ──────────────────────── Callback query handlers ─────────────────────────
 
-bot.action('broadcast_button_yes', async (ctx) => {
+bot.action('broadcast_photo_yes', async (ctx) => {
   const chatId = getSenderId(ctx)
   if (!isManager(chatId)) {
     await ctx.answerOnCallback({ notification: '⛔ У вас нет доступа' })
@@ -326,15 +271,12 @@ bot.action('broadcast_button_yes', async (ctx) => {
     await ctx.answerOnCallback({ notification: '❌ Данные рассылки не найдены' })
     return
   }
-  data.needButton = true
-  broadcastData.set(chatId!, data)
-  waitingForButtonQuestion.delete(chatId!)
-  waitingForButtonText.add(chatId!)
-  await ctx.answerOnCallback({ notification: '✅ Кнопка будет добавлена' })
-  await ctx.editMessage({ text: '✅ Кнопка будет добавлена.\n\n📝 Введи текст для кнопки (например: "Открыть каталог").\nИспользуй /cancel для отмены.' })
+  waitingForBroadcastPhoto.add(chatId!)
+  await ctx.answerOnCallback({ notification: '✅ Пришли фото' })
+  await ctx.editMessage({ text: '📷 Пришли фото для рассылки.\nИспользуй /cancel для отмены.' })
 })
 
-bot.action('broadcast_button_no', async (ctx) => {
+bot.action('broadcast_photo_no', async (ctx) => {
   const chatId = getSenderId(ctx)
   if (!isManager(chatId)) {
     await ctx.answerOnCallback({ notification: '⛔ У вас нет доступа' })
@@ -345,18 +287,15 @@ bot.action('broadcast_button_no', async (ctx) => {
     await ctx.answerOnCallback({ notification: '❌ Данные рассылки не найдены' })
     return
   }
-  data.needButton = false
-  broadcastData.set(chatId!, data)
-  waitingForButtonQuestion.delete(chatId!)
-  await ctx.answerOnCallback({ notification: '✅ Рассылка без кнопки' })
-  await ctx.editMessage({ text: '✅ Начинаю рассылку без кнопки...' })
+  await ctx.answerOnCallback({ notification: '✅ Начинаю рассылку без фото' })
+  await ctx.editMessage({ text: '✅ Начинаю рассылку без фото...' })
   await startBroadcast(ctx, chatId!, data)
 })
 
 bot.action('broadcast_cancel', async (ctx) => {
   const chatId = getSenderId(ctx)
-  waitingForButtonQuestion.delete(chatId!)
-  waitingForButtonText.delete(chatId!)
+  waitingForBroadcastText.delete(chatId!)
+  waitingForBroadcastPhoto.delete(chatId!)
   broadcastData.delete(chatId!)
   await ctx.answerOnCallback({ notification: '❌ Рассылка отменена' })
   await ctx.editMessage({ text: '❌ Рассылка отменена.' })
@@ -366,7 +305,6 @@ bot.action('broadcast_cancel', async (ctx) => {
 
 bot.on('message_created', async (ctx) => {
   const chatId = getSenderId(ctx)
-  const username = getSenderUsername(ctx)
 
   if (chatId) addUserChatId(chatId)
 
@@ -376,59 +314,48 @@ bot.on('message_created', async (ctx) => {
     (ctx as any).message?.text ||
     ''
 
-  // Ожидание текста кнопки для рассылки
-  if (chatId && waitingForButtonText.has(chatId) && isManager(chatId)) {
-    const buttonText = text.trim()
-    if (!buttonText) {
-      await ctx.reply('❌ Текст кнопки не может быть пустым.')
+  // Шаг 2: ждём фото для рассылки
+  if (chatId && waitingForBroadcastPhoto.has(chatId) && isManager(chatId)) {
+    const attachments: any[] = (ctx as any).message?.body?.attachments ?? []
+    const photoAtt = attachments.find((a: any) => a.type === 'image' && a.payload?.token)
+
+    if (!photoAtt) {
+      await ctx.reply('❌ Нужно прислать фото. Попробуй ещё раз или используй /cancel.')
       return
     }
-    if (buttonText.length > 64) {
-      await ctx.reply('❌ Текст кнопки слишком длинный (максимум 64 символа).')
-      return
-    }
+
     const data = broadcastData.get(chatId)
     if (!data) {
       await ctx.reply('❌ Ошибка: данные рассылки не найдены. Используй /cancel и начни заново.')
-      waitingForButtonText.delete(chatId)
+      waitingForBroadcastPhoto.delete(chatId)
       return
     }
-    data.buttonText = buttonText
+
+    data.photoToken = photoAtt.payload.token
     broadcastData.set(chatId, data)
-    waitingForButtonText.delete(chatId)
+    waitingForBroadcastPhoto.delete(chatId)
     await startBroadcast(ctx, chatId, data)
     return
   }
 
-  // Ожидание сообщения для рассылки (текст, фото или видео)
-  if (chatId && waitingForBroadcast.has(chatId) && isManager(chatId)) {
-    // Ищем медиа-вложение: MAX API кладёт attachments в message.body.attachments
-    const attachments: any[] = (ctx as any).message?.body?.attachments ?? []
-    const photoAtt = attachments.find((a: any) => a.type === 'image' && a.payload?.token)
-    const videoAtt = attachments.find((a: any) => a.type === 'video' && a.payload?.token)
-    const media: MediaAttachment | undefined = videoAtt
-      ? { type: 'video', token: videoAtt.payload.token }
-      : photoAtt
-        ? { type: 'image', token: photoAtt.payload.token }
-        : undefined
-
-    if (!text.trim() && !media) {
-      await ctx.reply('❌ Сообщение пустое. Пришли текст, фото или видео.')
+  // Шаг 1: ждём текст рассылки
+  if (chatId && waitingForBroadcastText.has(chatId) && isManager(chatId)) {
+    if (!text.trim()) {
+      await ctx.reply('❌ Текст рассылки не может быть пустым.')
       return
     }
-    waitingForBroadcast.delete(chatId)
-    const data: BroadcastData = { messageText: text.trim(), media }
+    waitingForBroadcastText.delete(chatId)
+    const data: BroadcastData = { messageText: text.trim() }
     broadcastData.set(chatId, data)
 
     const keyboard = Keyboard.inlineKeyboard([
       [
-        Keyboard.button.callback('✅ Да, добавить', 'broadcast_button_yes'),
-        Keyboard.button.callback('❌ Нет, без кнопки', 'broadcast_button_no'),
+        Keyboard.button.callback('📷 Да, добавить фото', 'broadcast_photo_yes'),
+        Keyboard.button.callback('❌ Нет, без фото', 'broadcast_photo_no'),
       ],
       [Keyboard.button.callback('⛔ Отменить рассылку', 'broadcast_cancel')]
     ])
-    await ctx.reply('❓ Добавить кнопку с ссылкой на миниапку?', { attachments: [keyboard] })
-    waitingForButtonQuestion.add(chatId)
+    await ctx.reply('❓ Добавить фото к рассылке?', { attachments: [keyboard] })
     return
   }
 
@@ -488,7 +415,6 @@ if (useWebhook) {
       res.status(200).json({ ok: true })
     } catch (error: any) {
       console.error('[webhook] ошибка обработки:', error?.message)
-      // всегда возвращаем 200, чтобы MAX не делал повторные попытки при ошибке бота
       res.status(200).json({ ok: true })
     }
   })
@@ -497,7 +423,6 @@ if (useWebhook) {
   app.listen(port, async () => {
     console.log(`[max-bot] webhook сервер запущен на порту ${port}`)
 
-    // Регистрируем webhook в MAX API
     try {
       const response = await fetch(`${MAX_API_BASE}/subscriptions`, {
         method: 'POST',
