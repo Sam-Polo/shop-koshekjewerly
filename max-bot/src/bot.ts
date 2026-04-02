@@ -169,7 +169,7 @@ async function handleStart(ctx: any, startParam: string = '') {
   if (startParam.includes('order_') && startParam.includes('_success')) {
     const orderId = startParam.replace('order_', '').replace('_success', '')
     const keyboard = Keyboard.inlineKeyboard([[
-      Keyboard.button.openApp('Открыть магазин 🛍️', WEBAPP_URL)
+      Keyboard.button.link('Открыть магазин 🛍️', WEBAPP_URL)
     ]])
     await ctx.reply(
       `✅ <b>Оплата успешна!</b>\n\n` +
@@ -184,7 +184,7 @@ async function handleStart(ctx: any, startParam: string = '') {
   if (startParam.includes('order_') && startParam.includes('_fail')) {
     const orderId = startParam.replace('order_', '').replace('_fail', '')
     const keyboard = Keyboard.inlineKeyboard([[
-      Keyboard.button.openApp('Попробовать снова 🔄', WEBAPP_URL)
+      Keyboard.button.link('Попробовать снова 🔄', WEBAPP_URL)
     ]])
     await ctx.reply(
       `❌ <b>Оплата не завершена</b>\n\n` +
@@ -197,7 +197,7 @@ async function handleStart(ctx: any, startParam: string = '') {
 
   // Обычное приветствие
   const keyboard = Keyboard.inlineKeyboard([[
-    Keyboard.button.openApp('KOSHEK JEWERLY🐾', WEBAPP_URL)
+    Keyboard.button.link('KOSHEK JEWERLY🐾', WEBAPP_URL)
   ]])
   await ctx.reply('Нажми на кнопку, чтоб перейти в каталог 👇🏽', {
     attachments: [keyboard]
@@ -308,41 +308,39 @@ bot.command('cancel', async (ctx) => {
 
 bot.action('broadcast_button_yes', async (ctx) => {
   const chatId = getSenderId(ctx)
-  const username = getSenderUsername(ctx)
   if (!isManager(chatId)) {
-    await ctx.answerCallbackQuery('⛔ У вас нет доступа')
+    await ctx.answerOnCallback({ notification: '⛔ У вас нет доступа' })
     return
   }
   const data = chatId ? broadcastData.get(chatId) : undefined
   if (!data) {
-    await ctx.answerCallbackQuery('❌ Данные рассылки не найдены')
+    await ctx.answerOnCallback({ notification: '❌ Данные рассылки не найдены' })
     return
   }
   data.needButton = true
   broadcastData.set(chatId!, data)
   waitingForButtonQuestion.delete(chatId!)
   waitingForButtonText.add(chatId!)
-  await ctx.answerCallbackQuery('✅ Кнопка будет добавлена')
-  await ctx.editMessage('✅ Кнопка будет добавлена.\n\n📝 Введи текст для кнопки (например: "Открыть каталог").\nИспользуй /cancel для отмены.')
+  await ctx.answerOnCallback({ notification: '✅ Кнопка будет добавлена' })
+  await ctx.editMessage({ text: '✅ Кнопка будет добавлена.\n\n📝 Введи текст для кнопки (например: "Открыть каталог").\nИспользуй /cancel для отмены.' })
 })
 
 bot.action('broadcast_button_no', async (ctx) => {
   const chatId = getSenderId(ctx)
-  const username = getSenderUsername(ctx)
   if (!isManager(chatId)) {
-    await ctx.answerCallbackQuery('⛔ У вас нет доступа')
+    await ctx.answerOnCallback({ notification: '⛔ У вас нет доступа' })
     return
   }
   const data = chatId ? broadcastData.get(chatId) : undefined
   if (!data) {
-    await ctx.answerCallbackQuery('❌ Данные рассылки не найдены')
+    await ctx.answerOnCallback({ notification: '❌ Данные рассылки не найдены' })
     return
   }
   data.needButton = false
   broadcastData.set(chatId!, data)
   waitingForButtonQuestion.delete(chatId!)
-  await ctx.answerCallbackQuery('✅ Рассылка без кнопки')
-  await ctx.editMessage('✅ Начинаю рассылку без кнопки...')
+  await ctx.answerOnCallback({ notification: '✅ Рассылка без кнопки' })
+  await ctx.editMessage({ text: '✅ Начинаю рассылку без кнопки...' })
   await startBroadcast(ctx, chatId!, data)
 })
 
@@ -351,8 +349,8 @@ bot.action('broadcast_cancel', async (ctx) => {
   waitingForButtonQuestion.delete(chatId!)
   waitingForButtonText.delete(chatId!)
   broadcastData.delete(chatId!)
-  await ctx.answerCallbackQuery('❌ Рассылка отменена')
-  await ctx.editMessage('❌ Рассылка отменена.')
+  await ctx.answerOnCallback({ notification: '❌ Рассылка отменена' })
+  await ctx.editMessage({ text: '❌ Рассылка отменена.' })
 })
 
 // ─────────────────────────── Message handler ─────────────────────────────
@@ -467,7 +465,7 @@ if (useWebhook) {
 
   app.post('/webhook', async (req, res) => {
     try {
-      await bot.handleUpdate(req.body)
+      await (bot as any).handleUpdate(req.body)
       res.status(200).json({ ok: true })
     } catch (error: any) {
       console.error('[webhook] ошибка обработки:', error?.message)
