@@ -1580,32 +1580,27 @@ export default function App() {
     }
   }, [selectedProduct, cartOpen, aboutModalOpen, selectedCategory, checkoutOpen, checkoutStep, paymentRedirectOpen, telegramRequiredOpen])
 
-  // проверяем наличие валидного initData от Telegram
+  // проверяем наличие валидного initData от платформы (Telegram или MAX)
   const hasValidInitData = (): boolean => {
     try {
-      const initData = WebApp.initData || ''
-      if (!initData) {
-        return false
+      // MAX Bridge: проверяем initDataUnsafe напрямую (user.id доступен без URL-декодинга)
+      if (appPlatform === 'max') {
+        const user = WebApp.initDataUnsafe?.user
+        return !!(user?.id)
       }
-      
-      // проверяем что initData содержит хотя бы user параметр
+
+      // Telegram: стандартная проверка через URL-encoded initData
+      const initData = WebApp.initData || ''
+      if (!initData) return false
       const params = new URLSearchParams(initData)
       const userParam = params.get('user')
-      if (!userParam) {
-        return false
-      }
-      
-      // проверяем что user содержит id
+      if (!userParam) return false
       try {
         const user = JSON.parse(userParam)
-        if (!user.id) {
-          return false
-        }
+        return !!(user?.id)
       } catch {
         return false
       }
-      
-      return true
     } catch {
       return false
     }
