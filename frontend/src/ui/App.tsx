@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import WebApp from '@twa-dev/sdk'
+import WebApp, { platform as appPlatform } from '../platform/webApp'
 import React from 'react'
 import { Swiper, SwiperSlide, type SwiperClass } from 'swiper/react'
 import { Pagination, Zoom, Navigation } from 'swiper/modules'
@@ -1670,7 +1670,8 @@ export default function App() {
       const orderData = {
         ...data,
         items: orderItems,
-        initData // передаем initData для проверки подписи и получения chat_id
+        initData, // передаем initData для проверки подписи и получения chat_id
+        platform: appPlatform // telegram или max — для выбора транспорта уведомлений
       }
 
       const apiUrl = import.meta.env.VITE_API_URL || '/api'

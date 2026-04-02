@@ -6,6 +6,9 @@
     <title>KOSHEK JEWERLY</title>
     <link rel="icon" type="image/png" href="/logo.PNG" />
     <link rel="preload" href="/fonts/Forum-Regular.ttf" as="font" type="font/ttf" crossorigin>
+    <!-- MAX Bridge: загружается синхронно ДО модулей React, устанавливает window.WebApp.
+         В Telegram-окружении этот скрипт безопасен: он не затрагивает window.Telegram.WebApp. -->
+    <script src="https://st.max.ru/js/max-web-app.js"></script>
   </head>
   <body>
     <div id="root"></div>
