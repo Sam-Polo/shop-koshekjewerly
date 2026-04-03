@@ -667,12 +667,13 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
     }
 
     const paymentUrl = generatePaymentUrl({
-      orderId, // внутренний ID для логирования
-      invoiceId, // числовой ID для Робокассы
-      amount: total, // используем пересчитанную сумму, а не от клиента
+      orderId,
+      invoiceId,
+      amount: total,
       description: `Заказ ${orderId}`,
       successUrl,
-      failUrl
+      failUrl,
+      platform: orderPlatform // передаётся как Shp_platform, вернётся в success/fail URL
     })
     
     // логируем сгенерированный URL для отладки (без паролей)
@@ -744,12 +745,18 @@ app.post('/api/robokassa/result', express.urlencoded({ extended: true }), async 
     const orderId = `ORD-${InvId}`
     const order = getOrder(orderId)
     if (!order) {
-      logger.error({ 
-        InvId, 
-        orderId,
-        searchedOrderId: orderId 
-      }, 'заказ не найден по InvId от Робокассы')
-      return res.status(404).send('ERROR')
+      // Заказ не найден — бэкенд мог перезапуститься (Render sleep) и потерять in-memory данные.
+      // Возвращаем OK чтобы Робокасса не ретраила, отправляем упрощённое уведомление менеджеру.
+      logger.error({ InvId, orderId }, 'заказ не найден (бэкенд перезапускался?), отправляем упрощённое уведомление')
+      const shpPlatform = additionalParams['Shp_platform'] as string | undefined
+      const platform: Platform = shpPlatform === 'max' ? 'max' : 'telegram'
+      const managerChatId = platform === 'max' ? process.env.MAX_MANAGER_CHAT_ID : process.env.TG_MANAGER_CHAT_ID
+      if (managerChatId) {
+        const msg = `⚠️ <b>Оплата получена, но заказ не найден в памяти!</b>\n\nInvId: <code>${InvId}</code>\nСумма: ${OutSum} ₽\nПлатформа: ${platform}\n\nВозможно сервер перезапустился во время оплаты. Свяжитесь с покупателем.`
+        const send = platform === 'max' ? sendMaxMessage : sendTelegramMessage
+        await send(managerChatId, msg).catch(() => {})
+      }
+      return res.send(`OK${InvId}`)
     }
     
     logger.info({ 
@@ -824,20 +831,16 @@ app.post('/api/robokassa/result', express.urlencoded({ extended: true }), async 
 
 // обработчик для Success URL (поддерживает GET и POST)
 const handleSuccessUrl = (req: express.Request, res: express.Response) => {
-  // получаем InvId из query (GET) или body (POST)
   const InvId = req.query.InvId || req.body?.InvId
+  // Shp_platform передан Робокассой обратно — не зависит от in-memory заказа
+  const shpPlatform = (req.query.Shp_platform || req.body?.Shp_platform) as string | undefined
+  const platform: Platform = shpPlatform === 'max' ? 'max' : 'telegram'
 
-  // определяем платформу заказа для правильного deep link
-  const orderId = `ORD-${InvId}`
-  const order = getOrder(orderId)
-  const platform = order?.platform ?? 'telegram'
+  logger.info({ InvId, platform, shpPlatform }, 'success URL: определена платформа')
 
   const deepLink = buildPaymentReturnLink(platform, InvId, 'success')
-  if (deepLink) {
-    return res.redirect(deepLink)
-  }
+  if (deepLink) return res.redirect(deepLink)
 
-  // fallback: редирект на фронтенд соответствующей платформы
   const webappUrl = platform === 'max'
     ? (process.env.MAX_WEBAPP_URL || process.env.TG_WEBAPP_URL || 'https://sam-polo.github.io/shop-koshekjewerly')
     : (process.env.TG_WEBAPP_URL || 'https://sam-polo.github.io/shop-koshekjewerly')
@@ -852,25 +855,19 @@ app.post('/api/robokassa/success', express.urlencoded({ extended: true }), handl
 
 // обработчик для Fail URL (поддерживает GET и POST)
 const handleFailUrl = (req: express.Request, res: express.Response) => {
-  // получаем InvId из query (GET) или body (POST)
   const InvId = req.query.InvId || req.body?.InvId
+  const shpPlatform = (req.query.Shp_platform || req.body?.Shp_platform) as string | undefined
+  const platform: Platform = shpPlatform === 'max' ? 'max' : 'telegram'
 
-  // обновляем статус заказа на failed и определяем платформу
-  let platform: Platform = 'telegram'
   if (InvId) {
     const orderId = `ORD-${InvId}`
-    const order = getOrder(orderId)
-    platform = order?.platform ?? 'telegram'
     updateOrderStatus(orderId, 'failed')
     logger.info({ InvId, orderId, platform }, 'статус заказа обновлен на failed')
   }
 
   const deepLink = buildPaymentReturnLink(platform, InvId, 'fail')
-  if (deepLink) {
-    return res.redirect(deepLink)
-  }
+  if (deepLink) return res.redirect(deepLink)
 
-  // fallback: редирект на фронтенд соответствующей платформы
   const webappUrl = platform === 'max'
     ? (process.env.MAX_WEBAPP_URL || process.env.TG_WEBAPP_URL || 'https://sam-polo.github.io/shop-koshekjewerly')
     : (process.env.TG_WEBAPP_URL || 'https://sam-polo.github.io/shop-koshekjewerly')
