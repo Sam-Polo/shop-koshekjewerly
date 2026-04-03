@@ -792,8 +792,11 @@ const CheckoutForm = ({
       newErrors.phone = 'Обязательное поле'
     } else if (!/^[\d\s\-\+\(\)]+$/.test(formData.phone)) {
       newErrors.phone = 'Некорректный номер телефона'
-    } else if (formData.phone.length > 20) {
-      newErrors.phone = 'Максимум 20 символов'
+    } else {
+      const digits = formData.phone.replace(/\D/g, '')
+      if (digits.length < 10 || digits.length > 12) {
+        newErrors.phone = 'Номер должен содержать 10–12 цифр'
+      }
     }
     
     if (!formData.country.trim()) {

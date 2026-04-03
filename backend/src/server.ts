@@ -16,13 +16,16 @@ const logger = pino();
 const app = express();
 
 // нормализация номера телефона в формат +7XXXXXXXXXX
+// убирает все не-цифры, затем приводит к +7XXXXXXXXXX
+// поддерживает форматы: 9028144475 / 79028144475 / 89028144475
+//   и с форматированием: +7(902)814-44-75 / 8 902 814 44 75 / +7 902 8144475
 function normalizePhone(phone: string): string {
   if (!phone) return phone
-  const digits = phone.replace(/\D/g, '') // только цифры
-  if (digits.length === 10) return `+7${digits}`           // 9028144475 → +79028144475
-  if (digits.length === 11 && digits[0] === '7') return `+${digits}` // 79028144475 → +79028144475
-  if (digits.length === 11 && digits[0] === '8') return `+7${digits.slice(1)}` // 89028144475 → +79028144475
-  return phone // не трогаем нераспознанные форматы (международные)
+  const digits = phone.replace(/\D/g, '')
+  if (digits.length === 10) return `+7${digits}`
+  if (digits.length === 11 && (digits[0] === '7' || digits[0] === '8')) return `+7${digits.slice(1)}`
+  if (digits.length === 12 && digits.startsWith('87')) return `+7${digits.slice(2)}` // редкий случай двойного префикса
+  return phone // не трогаем нераспознанные форматы (международные номера)
 }
 
 // функция экранирования HTML для защиты от XSS
