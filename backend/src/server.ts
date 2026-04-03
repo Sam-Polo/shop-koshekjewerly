@@ -15,6 +15,16 @@ import { fetchCategoriesFromSheet } from './categories.js';
 const logger = pino();
 const app = express();
 
+// нормализация номера телефона в формат +7XXXXXXXXXX
+function normalizePhone(phone: string): string {
+  if (!phone) return phone
+  const digits = phone.replace(/\D/g, '') // только цифры
+  if (digits.length === 10) return `+7${digits}`           // 9028144475 → +79028144475
+  if (digits.length === 11 && digits[0] === '7') return `+${digits}` // 79028144475 → +79028144475
+  if (digits.length === 11 && digits[0] === '8') return `+7${digits.slice(1)}` // 89028144475 → +79028144475
+  return phone // не трогаем нераспознанные форматы (международные)
+}
+
 // функция экранирования HTML для защиты от XSS
 function escapeHtml(text: string): string {
   if (!text) return ''
@@ -427,7 +437,7 @@ ${priorityManagerHeader}🛒 <b>Новый заказ!</b>
 Покупатель: ${escapeHtml(order.orderData.fullName)}
 Телефон: ${escapeHtml(order.orderData.phone)}
 ${order.platform === 'max'
-  ? `MAX: ${order.customerName ? escapeHtml(order.customerName) : '—'}${order.customerChatId ? ` (ID: <code>${order.customerChatId}</code>)` : ''}`
+  ? `MAX: ${order.customerName ? escapeHtml(order.customerName) : '—'}${order.customerChatId ? `, ID: <code>${order.customerChatId}</code>` : ''}`
   : `TG: ${order.orderData.username ? escapeHtml(order.orderData.username) : 'не указан'}`
 }
 
@@ -607,7 +617,7 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
     const order = createOrder(orderId, {
       items: validatedItems, // используем валидированные товары с актуальными ценами
       fullName: orderData.fullName || '',
-      phone: orderData.phone || '',
+      phone: normalizePhone(orderData.phone || ''),
       username: orderData.username,
       country: orderData.country || '',
       city: orderData.city || '',
