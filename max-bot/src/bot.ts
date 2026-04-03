@@ -265,15 +265,8 @@ bot.command('cancel', async (ctx) => {
 
 // ──────────────────────── Callback query handlers ─────────────────────────
 
-// Дебаг: логируем сырой update при любом callback — чтобы понять структуру ctx
-bot.on('message_callback', async (ctx) => {
-  console.log('[debug callback] ctx.from:', JSON.stringify((ctx as any).from))
-  console.log('[debug callback] ctx.update:', JSON.stringify((ctx as any).update))
-})
-
 bot.action('broadcast_photo_yes', async (ctx) => {
   const chatId = getSenderId(ctx)
-  console.log('[broadcast_photo_yes] chatId:', chatId, 'isManager:', isManager(chatId))
   if (!isManager(chatId)) {
     await ctx.answerOnCallback({ notification: '⛔ У вас нет доступа' })
     return
