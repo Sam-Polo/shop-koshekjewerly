@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import pino from 'pino';
 import rateLimit from 'express-rate-limit';
+import fs from 'node:fs';
 import { fetchProductsFromSheet } from './sheets.js';
 import { listProducts, upsertProducts, decreaseProductStock } from './store.js';
 import { createOrder, getOrder, updateOrderStatus, type OrderStatus, type Platform } from './orders.js';
@@ -140,6 +141,48 @@ app.use(generalLimiter)
 // health
 app.get('/health', (_req, res) => {
   res.json({ ok: true });
+});
+
+// регистрация пользователя мини-аппа (вызывается при открытии, до любого заказа)
+app.post('/api/register-user', (req, res) => {
+  try {
+    const { initData, platform } = req.body
+    if (!initData || !platform) {
+      res.json({ ok: false, reason: 'missing fields' })
+      return
+    }
+
+    const { id: userId } = extractUserFromInitData(initData)
+    if (!userId) {
+      res.json({ ok: false, reason: 'no user id' })
+      return
+    }
+
+    const filePath = platform === 'max'
+      ? (process.env.MAX_USERS_FILE || '/opt/bot/max-bot/user-chat-ids.json')
+      : (process.env.TG_USERS_FILE || '/opt/bot/bot/user-chat-ids.json')
+
+    // читаем текущий список, добавляем ID, сохраняем
+    let ids: (string | number)[] = []
+    try {
+      if (fs.existsSync(filePath)) {
+        ids = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+      }
+    } catch { ids = [] }
+
+    const userIdNum = Number(userId)
+    const idToStore = isNaN(userIdNum) ? userId : userIdNum
+    if (!ids.includes(idToStore) && !ids.includes(userId)) {
+      ids.push(idToStore)
+      fs.writeFileSync(filePath, JSON.stringify(ids, null, 2), 'utf8')
+      logger.info({ platform, userId }, 'новый пользователь зарегистрирован через мини-апп')
+    }
+
+    res.json({ ok: true })
+  } catch (e: any) {
+    logger.warn({ error: e?.message }, 'ошибка register-user')
+    res.json({ ok: false })
+  }
 });
 
 // products

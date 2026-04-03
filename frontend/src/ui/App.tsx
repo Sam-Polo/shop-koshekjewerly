@@ -734,6 +734,18 @@ const CheckoutForm = ({
     } catch {}
   }, [])
 
+  // регистрируем пользователя при открытии мини-аппа (для рассылки)
+  useEffect(() => {
+    const initData = WebApp.initData
+    if (!initData) return
+    const apiUrl = import.meta.env.VITE_API_URL || ''
+    fetch(`${apiUrl}/api/register-user`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, platform: appPlatform })
+    }).catch(() => {}) // fire and forget, ошибки не критичны
+  }, [])
+
   // автозаполнение страны
   useEffect(() => {
     if (deliveryRegion === 'moscow' || deliveryRegion === 'russia') {
