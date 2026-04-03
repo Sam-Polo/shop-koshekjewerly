@@ -32,6 +32,7 @@ function createPaymentSignature(
 }
 
 // создаем MD5 подпись для проверки callback
+// формат: OutSum:InvId:Password2[:Shp_key1=val1:Shp_key2=val2] (ключи в алфавитном порядке)
 function createResultSignature(
   outSum: string,
   invoiceId: string,
@@ -39,15 +40,12 @@ function createResultSignature(
   additionalParams?: Record<string, string>
 ): string {
   let str = `${outSum}:${invoiceId}:${password}`
-  
-  // добавляем дополнительные параметры если есть (в алфавитном порядке ключей)
   if (additionalParams && Object.keys(additionalParams).length > 0) {
     const sortedKeys = Object.keys(additionalParams).sort()
     for (const key of sortedKeys) {
-      str += `:${additionalParams[key]}`
+      str += `:${key}=${additionalParams[key]}` // key=value, как в createPaymentSignature
     }
   }
-  
   return crypto.createHash('md5').update(str, 'utf8').digest('hex').toUpperCase()
 }
 
