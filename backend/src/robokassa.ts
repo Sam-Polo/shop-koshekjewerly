@@ -13,14 +13,21 @@ const IS_TEST = process.env.ROBOKASSA_TEST === 'true' || process.env.ROBOKASSA_T
 const ROBOKASSA_URL = 'https://auth.robokassa.ru/Merchant/Index.aspx'
 
 // создаем MD5 подпись для создания платежа
+// если переданы shpParams — они включаются в подпись (в алфавитном порядке ключей)
 function createPaymentSignature(
   merchantLogin: string,
   outSum: string,
   invoiceId: string,
   password: string,
-  description?: string
+  shpParams?: Record<string, string>
 ): string {
-  const str = `${merchantLogin}:${outSum}:${invoiceId}:${password}`
+  let str = `${merchantLogin}:${outSum}:${invoiceId}:${password}`
+  if (shpParams && Object.keys(shpParams).length > 0) {
+    const sortedKeys = Object.keys(shpParams).sort()
+    for (const key of sortedKeys) {
+      str += `:${key}=${shpParams[key]}`
+    }
+  }
   return crypto.createHash('md5').update(str, 'utf8').digest('hex')
 }
 
@@ -53,68 +60,45 @@ export function generatePaymentUrl(params: {
   email?: string
   successUrl?: string
   failUrl?: string
+  platform?: string // передаётся как Shp_platform, возвращается в success/fail callback
 }): string {
   if (!MERCHANT_LOGIN || !PASSWORD_1) {
     throw new Error('ROBOKASSA_MERCHANT_LOGIN и ROBOKASSA_PASSWORD_1 должны быть заданы')
   }
-  
-  const { orderId, invoiceId, amount, description, email, successUrl, failUrl } = params
-  
-  // сумма с двумя знаками после запятой
+
+  const { orderId, invoiceId, amount, description, email, successUrl, failUrl, platform } = params
+
   const outSum = amount.toFixed(2)
-  
-  // создаем подпись (используем invoiceId для подписи)
-  const signature = createPaymentSignature(
-    MERCHANT_LOGIN,
-    outSum,
-    invoiceId,
-    PASSWORD_1,
-    description
-  )
-  
-  // формируем URL
+
+  // Shp_ параметры включаются в подпись (Робокасса требует их в алфавитном порядке)
+  const shpParams: Record<string, string> = {}
+  if (platform) shpParams['Shp_platform'] = platform
+
+  const signature = createPaymentSignature(MERCHANT_LOGIN, outSum, invoiceId, PASSWORD_1, shpParams)
+
   const url = new URL(ROBOKASSA_URL)
   url.searchParams.set('MerchantLogin', MERCHANT_LOGIN)
   url.searchParams.set('OutSum', outSum)
-  url.searchParams.set('InvId', invoiceId) // используем числовой ID
+  url.searchParams.set('InvId', invoiceId)
   url.searchParams.set('SignatureValue', signature)
-  
-  if (description) {
-    url.searchParams.set('Description', description)
+
+  if (description) url.searchParams.set('Description', description)
+  if (email) url.searchParams.set('Email', email)
+  if (successUrl) url.searchParams.set('SuccessURL', successUrl)
+  if (failUrl) url.searchParams.set('FailURL', failUrl)
+  if (IS_TEST) url.searchParams.set('IsTest', '1')
+
+  // Shp_ параметры добавляем в URL (Робокасса вернёт их в callback)
+  for (const [key, value] of Object.entries(shpParams)) {
+    url.searchParams.set(key, value)
   }
-  
-  if (email) {
-    url.searchParams.set('Email', email)
-  }
-  
-  if (successUrl) {
-    url.searchParams.set('SuccessURL', successUrl)
-  }
-  
-  if (failUrl) {
-    url.searchParams.set('FailURL', failUrl)
-  }
-  
-  // для тестового режима
-  if (IS_TEST) {
-    url.searchParams.set('IsTest', '1')
-  }
-  
-  const finalUrl = url.toString()
-  
-  // логируем для отладки (без паролей)
+
   logger.info({
-    merchantLogin: MERCHANT_LOGIN,
-    outSum,
-    invoiceId,
-    orderId, // внутренний ID для справки
-    isTest: IS_TEST,
-    hasDescription: !!description,
-    hasSuccessUrl: !!successUrl,
-    hasFailUrl: !!failUrl
+    merchantLogin: MERCHANT_LOGIN, outSum, invoiceId, orderId,
+    isTest: IS_TEST, platform, hasSuccessUrl: !!successUrl, hasFailUrl: !!failUrl
   }, 'генерируем URL для оплаты в Робокассе')
-  
-  return finalUrl
+
+  return url.toString()
 }
 
 // проверяем подпись от callback
