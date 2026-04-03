@@ -39,6 +39,8 @@ export type Order = {
     }
   }
   customerChatId?: string | null
+  /** имя пользователя из initData (для MAX — first_name + last_name) */
+  customerName?: string | null
   /** платформа, с которой создан заказ (telegram или max) */
   platform?: Platform
 }
@@ -46,7 +48,7 @@ export type Order = {
 const orders = new Map<string, Order>()
 
 // создаем заказ
-export function createOrder(orderId: string, orderData: Order['orderData'], customerChatId?: string | null, platform?: Platform): Order {
+export function createOrder(orderId: string, orderData: Order['orderData'], customerChatId?: string | null, platform?: Platform, customerName?: string | null): Order {
   const order: Order = {
     orderId,
     status: 'pending',
@@ -54,6 +56,7 @@ export function createOrder(orderId: string, orderData: Order['orderData'], cust
     updatedAt: Date.now(),
     orderData,
     customerChatId,
+    customerName,
     platform: platform ?? 'telegram'
   }
   orders.set(orderId, order)

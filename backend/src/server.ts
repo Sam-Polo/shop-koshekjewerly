@@ -306,24 +306,27 @@ function buildPaymentReturnLink(platform: Platform | undefined, invoiceId: strin
   return null
 }
 
-// извлекаем chat_id из initData (упрощенная версия без проверки подписи для MVP)
-function extractChatIdFromInitData(initData: string): string | null {
-  if (!initData) return null
-  
+// извлекаем данные пользователя из initData (упрощенная версия без проверки подписи для MVP)
+function extractUserFromInitData(initData: string): { id: string | null; displayName: string | null } {
+  if (!initData) return { id: null, displayName: null }
+
   try {
-    // парсим initData и ищем user
     const params = new URLSearchParams(initData)
     const userParam = params.get('user')
     if (userParam) {
       const user = JSON.parse(userParam)
-      return user.id?.toString() || null
+      const id = user.id?.toString() || null
+      const nameParts = [user.first_name, user.last_name].filter(Boolean)
+      const displayName = nameParts.length > 0 ? nameParts.join(' ') : null
+      return { id, displayName }
     }
   } catch (e: any) {
-    logger.warn({ error: e?.message }, 'не удалось извлечь chat_id из initData')
+    logger.warn({ error: e?.message }, 'не удалось извлечь данные из initData')
   }
-  
-  return null
+
+  return { id: null, displayName: null }
 }
+
 
 // отправка уведомлений о заказе (вызывается после успешной оплаты)
 async function sendOrderNotifications(order: any) {
@@ -380,7 +383,10 @@ ${priorityManagerHeader}🛒 <b>Новый заказ!</b>
 Номер: <code>${escapeHtml(order.orderId)}</code>
 Покупатель: ${escapeHtml(order.orderData.fullName)}
 Телефон: ${escapeHtml(order.orderData.phone)}
-TG: ${order.orderData.username ? escapeHtml(order.orderData.username) : 'не указан'}
+${order.platform === 'max'
+  ? `MAX: ${order.customerName ? escapeHtml(order.customerName) : '—'}${order.customerChatId ? ` (ID: <code>${order.customerChatId}</code>)` : ''}`
+  : `TG: ${order.orderData.username ? escapeHtml(order.orderData.username) : 'не указан'}`
+}
 
 ${order.orderData.deliveryRegion === 'europe' ? '📍 Адрес доставки:' : '📍 Пункт СДЭК:'}
 ${escapeHtml(order.orderData.country)}, ${escapeHtml(order.orderData.city)}
@@ -547,8 +553,9 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
     const orderId = `ORD-${timestamp}`
     const invoiceId = String(timestamp) // числовой ID для Робокассы
     
-    // получаем chat_id покупателя из initData
-    const customerChatId = orderData.initData ? extractChatIdFromInitData(orderData.initData) : null
+    // получаем данные покупателя из initData
+    const initDataUser = orderData.initData ? extractUserFromInitData(orderData.initData) : { id: null, displayName: null }
+    const customerChatId = initDataUser.id
 
     // определяем платформу заказа (telegram по умолчанию для обратной совместимости)
     const orderPlatform: Platform = orderData.platform === 'max' ? 'max' : 'telegram'
@@ -569,7 +576,7 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
       priorityOrder: priorityOrder && priorityFee > 0,
       priorityFee: priorityFee > 0 ? priorityFee : undefined,
       promocode: promocodeInfo
-    }, customerChatId, orderPlatform)
+    }, customerChatId, orderPlatform, initDataUser.displayName)
 
     logger.info({
       orderId,
@@ -583,20 +590,33 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
     
     // генерируем URL для оплаты
     const webappUrl = process.env.TG_WEBAPP_URL || 'https://sam-polo.github.io/shop-koshekjewerly'
-    
+
     // проверяем наличие обязательных переменных для Робокассы
     if (!process.env.ROBOKASSA_MERCHANT_LOGIN || !process.env.ROBOKASSA_PASSWORD_1) {
       logger.error('ROBOKASSA_MERCHANT_LOGIN или ROBOKASSA_PASSWORD_1 не заданы')
       return res.status(500).json({ error: 'payment_config_error' })
     }
-    
+
+    // Для MAX: после оплаты Робокасса редиректит на бэкенд, который строит MAX deep link.
+    // Для TG: редирект сразу на GitHub Pages (мини-апп показывает страницу успеха).
+    let successUrl: string
+    let failUrl: string
+    if (orderPlatform === 'max') {
+      const backendUrl = process.env.BACKEND_URL || 'https://shop-koshekjewerly.onrender.com'
+      successUrl = `${backendUrl}/api/robokassa/success`
+      failUrl = `${backendUrl}/api/robokassa/fail`
+    } else {
+      successUrl = `${webappUrl}/payment/success`
+      failUrl = `${webappUrl}/payment/fail`
+    }
+
     const paymentUrl = generatePaymentUrl({
       orderId, // внутренний ID для логирования
       invoiceId, // числовой ID для Робокассы
       amount: total, // используем пересчитанную сумму, а не от клиента
       description: `Заказ ${orderId}`,
-      successUrl: `${webappUrl}/payment/success`,
-      failUrl: `${webappUrl}/payment/fail`
+      successUrl,
+      failUrl
     })
     
     // логируем сгенерированный URL для отладки (без паролей)
