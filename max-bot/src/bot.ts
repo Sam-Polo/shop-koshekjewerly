@@ -267,7 +267,7 @@ bot.command('cancel', async (ctx) => {
 
 // Дебаг: логируем сырой update при любом callback — чтобы понять структуру ctx
 bot.on('message_callback', async (ctx) => {
-  console.log('[debug callback] ctx.from:', JSON.stringify(ctx.from))
+  console.log('[debug callback] ctx.from:', JSON.stringify((ctx as any).from))
   console.log('[debug callback] ctx.update:', JSON.stringify((ctx as any).update))
 })
 
