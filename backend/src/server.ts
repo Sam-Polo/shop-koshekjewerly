@@ -3,7 +3,6 @@ import express from 'express';
 import cors from 'cors';
 import pino from 'pino';
 import rateLimit from 'express-rate-limit';
-import fs from 'node:fs';
 import { fetchProductsFromSheet } from './sheets.js';
 import { listProducts, upsertProducts, decreaseProductStock } from './store.js';
 import { createOrder, getOrder, updateOrderStatus, type OrderStatus, type Platform } from './orders.js';
@@ -156,46 +155,47 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true });
 });
 
+// in-memory очередь новых пользователей для каждой платформы.
+// Боты периодически забирают её через GET /api/pending-users?platform=...&secret=...
+// и сами сохраняют в свой user-chat-ids.json.
+// Render sleep не страшен — при следующем открытии мини-аппа пользователь снова попадёт в очередь.
+const pendingUsers: { tg: Set<number>; max: Set<number> } = { tg: new Set(), max: new Set() }
+
 // регистрация пользователя мини-аппа (вызывается при открытии, до любого заказа)
 app.post('/api/register-user', (req, res) => {
   try {
     const { initData, platform } = req.body
-    if (!initData || !platform) {
-      res.json({ ok: false, reason: 'missing fields' })
-      return
-    }
+    if (!initData || !platform) { res.json({ ok: false, reason: 'missing fields' }); return }
 
     const { id: userId } = extractUserFromInitData(initData)
-    if (!userId) {
-      res.json({ ok: false, reason: 'no user id' })
-      return
-    }
-
-    const filePath = platform === 'max'
-      ? (process.env.MAX_USERS_FILE || '/opt/bot/max-bot/user-chat-ids.json')
-      : (process.env.TG_USERS_FILE || '/opt/bot/bot/user-chat-ids.json')
-
-    // читаем текущий список, добавляем ID, сохраняем
-    let ids: (string | number)[] = []
-    try {
-      if (fs.existsSync(filePath)) {
-        ids = JSON.parse(fs.readFileSync(filePath, 'utf8'))
-      }
-    } catch { ids = [] }
+    if (!userId) { res.json({ ok: false, reason: 'no user id' }); return }
 
     const userIdNum = Number(userId)
-    const idToStore = isNaN(userIdNum) ? userId : userIdNum
-    if (!ids.includes(idToStore) && !ids.includes(userId)) {
-      ids.push(idToStore)
-      fs.writeFileSync(filePath, JSON.stringify(ids, null, 2), 'utf8')
-      logger.info({ platform, userId }, 'новый пользователь зарегистрирован через мини-апп')
-    }
+    if (isNaN(userIdNum)) { res.json({ ok: false, reason: 'invalid user id' }); return }
+
+    const queue = platform === 'max' ? pendingUsers.max : pendingUsers.tg
+    const isNew = !queue.has(userIdNum)
+    queue.add(userIdNum)
+    if (isNew) logger.info({ platform, userId: userIdNum }, 'пользователь добавлен в очередь регистрации')
 
     res.json({ ok: true })
   } catch (e: any) {
     logger.warn({ error: e?.message }, 'ошибка register-user')
     res.json({ ok: false })
   }
+});
+
+// боты забирают очередь новых пользователей и сохраняют в свой файл
+app.get('/api/pending-users', (req, res) => {
+  const secret = process.env.BOT_API_SECRET
+  if (secret && req.query.secret !== secret) {
+    res.status(401).json({ error: 'unauthorized' }); return
+  }
+  const platform = req.query.platform as string
+  const queue = platform === 'max' ? pendingUsers.max : pendingUsers.tg
+  const ids = Array.from(queue)
+  queue.clear()
+  res.json({ ids })
 });
 
 // products

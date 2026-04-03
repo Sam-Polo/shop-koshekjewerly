@@ -927,12 +927,37 @@ async function keepAlive() {
 // это разбудит бэкенд если он спит и не даст ему заснуть
 const KEEP_ALIVE_INTERVAL = 5 * 60 * 1000; // 5 минут
 setInterval(keepAlive, KEEP_ALIVE_INTERVAL);
-
-// сразу делаем первый запрос при запуске
 keepAlive();
 
 console.log(`[keep-alive] настроен, интервал: ${KEEP_ALIVE_INTERVAL / 1000} секунд`);
 console.log(`[keep-alive] URL бэкенда: ${BACKEND_URL}/health`);
+
+// ── Синхронизация пользователей из мини-аппа ──────────────────────────────
+// Каждые 10 минут забираем новых пользователей из бэкенда и сохраняем в файл
+
+async function syncPendingUsers() {
+  try {
+    const secret = process.env.BOT_API_SECRET
+    const url = `${BACKEND_URL}/api/pending-users?platform=tg${secret ? `&secret=${secret}` : ''}`
+    const resp = await fetch(url)
+    if (!resp.ok) return
+    const data = await resp.json() as { ids: number[] }
+    if (!Array.isArray(data.ids) || data.ids.length === 0) return
+    let added = 0
+    for (const id of data.ids) {
+      if (!userChatIds.has(id)) { userChatIds.add(id); added++ }
+    }
+    if (added > 0) {
+      saveUserChatIds(userChatIds)
+      console.log(`[sync-users] добавлено ${added} новых пользователей из мини-аппа`)
+    }
+  } catch (e: any) {
+    console.warn('[sync-users] ошибка:', e?.message)
+  }
+}
+
+setInterval(syncPendingUsers, 10 * 60 * 1000)
+syncPendingUsers()
 
 // настраиваем команды бота (появятся в меню)
 bot.api.setMyCommands([
