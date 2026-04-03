@@ -182,6 +182,25 @@ type ChannelPostDraft = {
 }
 const channelPostDrafts = new Map<string | number, ChannelPostDraft>();
 
+// ─── /test_order state ───────────────────────────────────────────────────────
+type TestOrderStep = 'fullName' | 'phone' | 'city' | 'address' | 'comments'
+type TestOrderDraft = {
+  step: TestOrderStep
+  fullName?: string
+  phone?: string
+  city?: string
+  address?: string
+}
+const testOrderDrafts = new Map<string | number, TestOrderDraft>()
+
+function normalizePhone(phone: string): string {
+  const digits = phone.replace(/\D/g, '')
+  if (digits.length === 10) return `+7${digits}`
+  if (digits.length === 11 && digits[0] === '7') return `+${digits}`
+  if (digits.length === 11 && digits[0] === '8') return `+7${digits.slice(1)}`
+  return phone
+}
+
 type SendMessageResult = { success: boolean; messageId?: number; error?: string }
 
 // отправка сообщения через Telegram Bot API (для рассылки и канала)
@@ -358,6 +377,10 @@ bot.command('cancel', async (ctx) => {
     channelPostDrafts.delete(chatId!)
     wasCancelled = true
   }
+  if (testOrderDrafts.has(chatId!)) {
+    testOrderDrafts.delete(chatId!)
+    wasCancelled = true
+  }
   if (wasCancelled) {
     await ctx.reply('❌ Действие отменено.')
   }
@@ -376,6 +399,17 @@ bot.command('users', async (ctx) => {
   const usersCount = userChatIds.size
   await ctx.reply(`👥 Всего пользователей: <b>${usersCount}</b>`, { parse_mode: 'HTML' })
 });
+
+bot.command('test_order', async (ctx) => {
+  const chatId = ctx.from?.id
+  const username = ctx.from?.username
+  if (!isManager(chatId, username)) {
+    await ctx.reply('❌ У вас нет доступа к этой команде.')
+    return
+  }
+  testOrderDrafts.set(chatId!, { step: 'fullName' })
+  await ctx.reply('🧪 Тестовый заказ\n\nШаг 1/5: введи ФИО покупателя.\nИспользуй /cancel для отмены.')
+})
 
 let cachedMiniAppLink: string | null = null
 
@@ -510,6 +544,7 @@ function getHelpMessage(): string {
     '/broadcast — запустить рассылку\n' +
     '/channel_post — отправить пост в канал\n' +
     '/users — показать количество пользователей\n' +
+    '/test_order — тестовый заказ без оплаты\n' +
     '/cancel — отменить текущую операцию'
   )
 }
@@ -577,6 +612,62 @@ bot.on('message', async (ctx) => {
   // сохраняем chat_id пользователя
   if (chatId) {
     addUserChatId(chatId)
+  }
+
+  // ── /test_order шаги ────────────────────────────────────────────────────
+  if (chatId && testOrderDrafts.has(chatId) && isManager(chatId, username)) {
+    const draft = testOrderDrafts.get(chatId)!
+    const text = ctx.message.text?.trim() || ''
+    if (!text) { await ctx.reply('❌ Пустой ввод, попробуй ещё раз.'); return }
+
+    if (draft.step === 'fullName') {
+      draft.fullName = text
+      draft.step = 'phone'
+      testOrderDrafts.set(chatId, draft)
+      await ctx.reply('Шаг 2/5: введи номер телефона.')
+      return
+    }
+    if (draft.step === 'phone') {
+      draft.phone = normalizePhone(text)
+      draft.step = 'city'
+      testOrderDrafts.set(chatId, draft)
+      await ctx.reply(`✅ Телефон: ${draft.phone}\n\nШаг 3/5: введи город.`)
+      return
+    }
+    if (draft.step === 'city') {
+      draft.city = text
+      draft.step = 'address'
+      testOrderDrafts.set(chatId, draft)
+      await ctx.reply('Шаг 4/5: введи пункт СДЭК или адрес доставки.')
+      return
+    }
+    if (draft.step === 'address') {
+      draft.address = text
+      draft.step = 'comments'
+      testOrderDrafts.set(chatId, draft)
+      await ctx.reply('Шаг 5/5: введи комментарий к заказу (или "-" если нет).')
+      return
+    }
+    if (draft.step === 'comments') {
+      const comments = text === '-' ? '' : text
+      testOrderDrafts.delete(chatId)
+      const managerChatId = process.env.TG_MANAGER_CHAT_ID
+      if (!managerChatId) {
+        await ctx.reply('❌ TG_MANAGER_CHAT_ID не задан.')
+        return
+      }
+      const msg =
+        `🧪 <b>Тестовый заказ</b>\n\n` +
+        `Покупатель: ${draft.fullName}\n` +
+        `Телефон: ${draft.phone}\n` +
+        `Город: ${draft.city}\n` +
+        `Адрес/СДЭК: ${draft.address}\n` +
+        (comments ? `Комментарий: ${comments}\n` : '') +
+        `\nTG: @${username || 'неизвестно'}`
+      await ctx.api.sendMessage(Number(managerChatId), msg, { parse_mode: 'HTML' })
+      await ctx.reply('✅ Тестовый заказ отправлен менеджеру.')
+      return
+    }
   }
 
   // fallback для /help, если middleware команд не сработал

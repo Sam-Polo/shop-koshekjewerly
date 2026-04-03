@@ -82,6 +82,28 @@ function isManager(chatId: string | number | undefined): boolean {
   return false
 }
 
+// ─────────────────────────── Phone normalization ─────────────────────────────
+
+function normalizePhone(phone: string): string {
+  const digits = phone.replace(/\D/g, '')
+  if (digits.length === 10) return `+7${digits}`
+  if (digits.length === 11 && digits[0] === '7') return `+${digits}`
+  if (digits.length === 11 && digits[0] === '8') return `+7${digits.slice(1)}`
+  return phone
+}
+
+// ─────────────────────────── Test order state ────────────────────────────────
+
+type TestOrderStep = 'fullName' | 'phone' | 'city' | 'address' | 'comments'
+type TestOrderDraft = {
+  step: TestOrderStep
+  fullName?: string
+  phone?: string
+  city?: string
+  address?: string
+}
+const testOrderDrafts = new Map<string | number, TestOrderDraft>()
+
 // ───────────────────────────── Broadcast state ─────────────────────────────
 
 // Шаг 1: ждём текст рассылки
@@ -212,6 +234,7 @@ function getHelpMessage(): string {
     '🔐 Команды только для админа:\n' +
     '/broadcast — рассылка (текст + фото)\n' +
     '/users — показать количество пользователей\n' +
+    '/test_order — тестовый заказ без оплаты\n' +
     '/cancel — отменить текущую операцию'
   )
 }
@@ -252,15 +275,31 @@ bot.command('myid', async (ctx) => {
 
 bot.command('cancel', async (ctx) => {
   const chatId = getSenderId(ctx)
-  const wasCancelled =
+  let wasCancelled =
     waitingForBroadcastText.has(chatId!) ||
     waitingForBroadcastPhoto.has(chatId!)
   if (wasCancelled) {
     waitingForBroadcastText.delete(chatId!)
     waitingForBroadcastPhoto.delete(chatId!)
     broadcastData.delete(chatId!)
+  }
+  if (testOrderDrafts.has(chatId!)) {
+    testOrderDrafts.delete(chatId!)
+    wasCancelled = true
+  }
+  if (wasCancelled) {
     await ctx.reply('❌ Действие отменено.')
   }
+})
+
+bot.command('test_order', async (ctx) => {
+  const chatId = getSenderId(ctx)
+  if (!isManager(chatId)) {
+    await ctx.reply('❌ У вас нет доступа к этой команде.')
+    return
+  }
+  testOrderDrafts.set(chatId!, { step: 'fullName' })
+  await ctx.reply('🧪 Тестовый заказ\n\nШаг 1/5: введи ФИО покупателя.\nИспользуй /cancel для отмены.')
 })
 
 // ──────────────────────── Callback query handlers ─────────────────────────
@@ -362,6 +401,57 @@ bot.on('message_created', async (ctx) => {
     ])
     await ctx.reply('❓ Добавить фото к рассылке?', { attachments: [keyboard] })
     return
+  }
+
+  // ── /test_order шаги ────────────────────────────────────────────────────
+  if (chatId && testOrderDrafts.has(chatId) && isManager(chatId)) {
+    const draft = testOrderDrafts.get(chatId)!
+    if (!text) { await ctx.reply('❌ Пустой ввод, попробуй ещё раз.'); return }
+
+    if (draft.step === 'fullName') {
+      draft.fullName = text; draft.step = 'phone'
+      testOrderDrafts.set(chatId, draft)
+      await ctx.reply('Шаг 2/5: введи номер телефона.')
+      return
+    }
+    if (draft.step === 'phone') {
+      draft.phone = normalizePhone(text); draft.step = 'city'
+      testOrderDrafts.set(chatId, draft)
+      await ctx.reply(`✅ Телефон: ${draft.phone}\n\nШаг 3/5: введи город.`)
+      return
+    }
+    if (draft.step === 'city') {
+      draft.city = text; draft.step = 'address'
+      testOrderDrafts.set(chatId, draft)
+      await ctx.reply('Шаг 4/5: введи пункт СДЭК или адрес доставки.')
+      return
+    }
+    if (draft.step === 'address') {
+      draft.address = text; draft.step = 'comments'
+      testOrderDrafts.set(chatId, draft)
+      await ctx.reply('Шаг 5/5: введи комментарий к заказу (или "-" если нет).')
+      return
+    }
+    if (draft.step === 'comments') {
+      const comments = text === '-' ? '' : text
+      testOrderDrafts.delete(chatId)
+      if (!MANAGER_CHAT_ID) {
+        await ctx.reply('❌ MAX_MANAGER_CHAT_ID не задан.')
+        return
+      }
+      const senderName = (ctx as any).update?.message?.sender?.name || 'неизвестно'
+      const msg =
+        `🧪 <b>Тестовый заказ</b>\n\n` +
+        `Покупатель: ${draft.fullName}\n` +
+        `Телефон: ${draft.phone}\n` +
+        `Город: ${draft.city}\n` +
+        `Адрес/СДЭК: ${draft.address}\n` +
+        (comments ? `Комментарий: ${comments}\n` : '') +
+        `\nMAX: ${senderName}, ID: <code>${chatId}</code>`
+      await sendMaxMessageDirect(MANAGER_CHAT_ID, msg)
+      await ctx.reply('✅ Тестовый заказ отправлен менеджеру.')
+      return
+    }
   }
 
   // Обычное сообщение
