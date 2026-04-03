@@ -482,6 +482,32 @@ async function keepAlive() {
 setInterval(keepAlive, 5 * 60 * 1000)
 keepAlive()
 
+// ── Синхронизация пользователей из мини-аппа ──────────────────────────────
+
+async function syncPendingUsers() {
+  try {
+    const secret = process.env.BOT_API_SECRET
+    const url = `${BACKEND_URL}/api/pending-users?platform=max${secret ? `&secret=${secret}` : ''}`
+    const resp = await fetch(url)
+    if (!resp.ok) return
+    const data = await resp.json() as { ids: number[] }
+    if (!Array.isArray(data.ids) || data.ids.length === 0) return
+    let added = 0
+    for (const id of data.ids) {
+      if (!userChatIds.has(id)) { userChatIds.add(id); added++ }
+    }
+    if (added > 0) {
+      saveUserChatIds(userChatIds)
+      console.log(`[sync-users] добавлено ${added} новых пользователей из мини-аппа`)
+    }
+  } catch (e: any) {
+    console.warn('[sync-users] ошибка:', e?.message)
+  }
+}
+
+setInterval(syncPendingUsers, 10 * 60 * 1000)
+syncPendingUsers()
+
 // ───────────────────────── Bot commands menu ─────────────────────────────
 
 bot.api.setMyCommands([
