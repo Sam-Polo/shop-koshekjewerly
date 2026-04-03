@@ -63,10 +63,15 @@ const loadedIds = loadUserChatIds()
 loadedIds.forEach(id => userChatIds.add(id))
 
 // Извлекаем числовой ID отправителя из контекста MAX SDK.
+// Поля различаются для message_created и callback (action) контекстов:
+//   message:  ctx.from.id  или  ctx.update.message.sender.user_id
+//   callback: ctx.update.callback.user.user_id  (MAX-специфичное поле)
 function getSenderId(ctx: any): string | number | undefined {
   return ctx.from?.id
+    ?? ctx.update?.callback?.user?.user_id
     ?? ctx.update?.sender?.user_id
     ?? ctx.update?.message?.sender?.user_id
+    ?? ctx.callbackQuery?.from?.id
 }
 
 function isManager(chatId: string | number | undefined): boolean {
@@ -260,8 +265,15 @@ bot.command('cancel', async (ctx) => {
 
 // ──────────────────────── Callback query handlers ─────────────────────────
 
+// Дебаг: логируем сырой update при любом callback — чтобы понять структуру ctx
+bot.on('message_callback', async (ctx) => {
+  console.log('[debug callback] ctx.from:', JSON.stringify(ctx.from))
+  console.log('[debug callback] ctx.update:', JSON.stringify((ctx as any).update))
+})
+
 bot.action('broadcast_photo_yes', async (ctx) => {
   const chatId = getSenderId(ctx)
+  console.log('[broadcast_photo_yes] chatId:', chatId, 'isManager:', isManager(chatId))
   if (!isManager(chatId)) {
     await ctx.answerOnCallback({ notification: '⛔ У вас нет доступа' })
     return
