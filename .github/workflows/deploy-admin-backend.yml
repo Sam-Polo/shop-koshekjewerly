@@ -1,0 +1,60 @@
+name: Deploy Admin Backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'admin/backend/**'
+      - '.github/workflows/deploy-admin-backend.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-admin-backend
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: admin/backend/package-lock.json
+
+      - name: Install deps
+        working-directory: admin/backend
+        run: npm ci
+
+      - name: Build
+        working-directory: admin/backend
+        run: npm run build
+
+      - name: Prune dev deps
+        working-directory: admin/backend
+        run: npm prune --omit=dev
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy artifacts
+        env:
+          TARGET: root@${{ secrets.SSH_HOST }}:/opt/bot/admin/backend
+        run: |
+          rsync -azv --delete -e "ssh -i ~/.ssh/id_ed25519" \
+            admin/backend/dist/ "$TARGET/dist/"
+          rsync -azv --delete -e "ssh -i ~/.ssh/id_ed25519" \
+            admin/backend/node_modules/ "$TARGET/node_modules/"
+          rsync -azv -e "ssh -i ~/.ssh/id_ed25519" \
+            admin/backend/package.json admin/backend/package-lock.json "$TARGET/"
+
+      - name: Restart PM2
+        run: |
+          ssh -i ~/.ssh/id_ed25519 root@${{ secrets.SSH_HOST }} \
+            "pm2 restart admin-backend --update-env && pm2 save"
