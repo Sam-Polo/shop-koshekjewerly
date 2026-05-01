@@ -1,0 +1,60 @@
+name: Deploy MAX Bot
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'max-bot/**'
+      - '.github/workflows/deploy-max-bot.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-max-bot
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: max-bot/package-lock.json
+
+      - name: Install deps
+        working-directory: max-bot
+        run: npm ci
+
+      - name: Build
+        working-directory: max-bot
+        run: npm run build
+
+      - name: Prune dev deps
+        working-directory: max-bot
+        run: npm prune --omit=dev
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy artifacts
+        env:
+          TARGET: root@${{ secrets.SSH_HOST }}:/opt/bot/max-bot
+        run: |
+          rsync -azv --delete -e "ssh -i ~/.ssh/id_ed25519" \
+            max-bot/dist/ "$TARGET/dist/"
+          rsync -azv --delete -e "ssh -i ~/.ssh/id_ed25519" \
+            max-bot/node_modules/ "$TARGET/node_modules/"
+          rsync -azv -e "ssh -i ~/.ssh/id_ed25519" \
+            max-bot/package.json max-bot/package-lock.json "$TARGET/"
+
+      - name: Restart PM2
+        run: |
+          ssh -i ~/.ssh/id_ed25519 root@${{ secrets.SSH_HOST }} \
+            "pm2 restart max-bot --update-env && pm2 save"

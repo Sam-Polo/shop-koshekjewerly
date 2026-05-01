@@ -1,0 +1,48 @@
+name: Deploy Admin Frontend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'admin/frontend/**'
+      - '.github/workflows/deploy-admin-frontend.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-admin-frontend
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: admin/frontend/package-lock.json
+
+      - name: Install deps
+        working-directory: admin/frontend
+        run: npm ci
+
+      - name: Build
+        working-directory: admin/frontend
+        env:
+          VITE_API_URL: ${{ vars.ADMIN_FRONTEND_VITE_API_URL }}
+        run: npm run build
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy artifacts
+        run: |
+          rsync -azv --delete -e "ssh -i ~/.ssh/id_ed25519" \
+            admin/frontend/dist/ \
+            root@${{ secrets.SSH_HOST }}:/opt/bot/admin/frontend/dist/
