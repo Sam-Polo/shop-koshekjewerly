@@ -4,6 +4,15 @@ import React from 'react'
 import { Swiper, SwiperSlide, type SwiperClass } from 'swiper/react'
 import { Pagination, Zoom, Navigation } from 'swiper/modules'
 import { motion, AnimatePresence } from 'framer-motion'
+import Constructor, { type ConstructorComposite, type JewelryType } from './Constructor'
+
+const CONSTRUCTOR_CATEGORY_KEY = 'constructor'
+
+const TYPE_TITLES: Record<JewelryType, string> = {
+  necklace: 'Колье',
+  earrings: 'Серьги',
+  bracelet: 'Браслет'
+}
 import 'swiper/css'
 import 'swiper/css/pagination'
 import 'swiper/css/zoom'
@@ -58,9 +67,43 @@ type Product = {
   article?: string // артикул товара
 }
 
-type CartItem = {
+type RegularCartItem = {
+  kind: 'regular'
   slug: string
   quantity: number
+}
+
+type ConstructorComponentRef = {
+  id: string
+  title: string
+  image: string
+  price: number
+}
+
+type CompositeCartItem = {
+  kind: 'constructor'
+  /** канонический id композита: composer-{type}-{baseId}-{sortedPendantIds} — для дедупликации в корзине */
+  id: string
+  type: JewelryType
+  base: ConstructorComponentRef
+  pendants: ConstructorComponentRef[]
+  quantity: number
+}
+
+type CartItem = RegularCartItem | CompositeCartItem
+
+function makeCompositeId(c: { type: JewelryType; base: { id: string }; pendants: { id: string }[] }): string {
+  const sortedPendantIds = [...c.pendants.map(p => p.id)].sort()
+  return `composer-${c.type}-${c.base.id}-${sortedPendantIds.join('-')}`
+}
+
+function compositeUnitPrice(c: CompositeCartItem): number {
+  return c.base.price + c.pendants.reduce((s, p) => s + p.price, 0)
+}
+
+function compositeTitle(c: CompositeCartItem): string {
+  const pendantTitles = c.pendants.map(p => p.title).join(', ')
+  return `${TYPE_TITLES[c.type]} на заказ: ${c.base.title} + ${pendantTitles}`
 }
 
 // функция для получения актуальной цены товара (со скидкой если есть, иначе обычная)
@@ -240,7 +283,7 @@ const ProductModal = ({
   const { loading: mainImageLoading } = useImageLoader(
     product.images?.[selectedImageIndex] || ''
   )
-  const cartItem = cart.find(item => item.slug === product.slug)
+  const cartItem = cart.find(item => item.kind === 'regular' && item.slug === product.slug)
   const currentQuantity = cartItem?.quantity || 0
   const maxQuantity = product.stock !== undefined ? product.stock : 999
   const availableQuantity = Math.max(0, maxQuantity - currentQuantity)
@@ -640,8 +683,11 @@ const isCartOnlyTestProducts = (cart: CartItem[], products: Product[]): boolean 
     return false // если не задан тестовый товар, считаем что все обычные
   }
   
-  // проверяем что все товары в корзине - тестовые
+  // проверяем что все товары в корзине - тестовые. Композиты считаем не-тестовыми.
   const cartItems = cart.map(item => {
+    if (item.kind === 'constructor') {
+      return { item, product: null, isTest: false }
+    }
     const product = products.find(p => p.slug === item.slug)
     const isTest = product ? isTestProduct(product.slug) : false
     console.log('[isCartOnlyTestProducts] товар:', {
@@ -652,12 +698,15 @@ const isCartOnlyTestProducts = (cart: CartItem[], products: Product[]): boolean 
     })
     return { item, product, isTest }
   })
-  
+
   const allTest = cartItems.every(({ isTest }) => isTest)
   console.log('[isCartOnlyTestProducts] результат:', {
     cartLength: cart.length,
     allTest,
-    items: cartItems.map(({ item, isTest }) => ({ slug: item.slug, isTest }))
+    items: cartItems.map(({ item, isTest }) => ({
+      key: item.kind === 'regular' ? item.slug : item.id,
+      isTest
+    }))
   })
   
   return allTest
@@ -858,8 +907,10 @@ const CheckoutForm = ({
     try {
       const apiUrl = import.meta.env.VITE_API_URL || '/api'
       const currentSubtotal = cartTotal + deliveryCost
-      // получаем slug'и товаров из корзины для проверки привязки промокода
-      const orderItemSlugs = cart.map(item => item.slug)
+      // получаем slug'и товаров из корзины для проверки привязки промокода (композиты не учитываем — у них синтетические slug'и)
+      const orderItemSlugs = cart
+        .filter((item): item is RegularCartItem => item.kind === 'regular')
+        .map(item => item.slug)
       const response = await fetch(`${apiUrl}/api/promocodes/validate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1127,48 +1178,52 @@ const CheckoutForm = ({
   )
 }
 
-const CartModal = ({ 
-  cart, 
-  products, 
-  onUpdateCart, 
+const CartModal = ({
+  cart,
+  products,
+  onUpdateCart,
+  onRemovePendant,
+  onOpenConstructor,
   onClose,
   onCheckout
-}: { 
+}: {
   cart: CartItem[]
   products: Product[]
-  onUpdateCart: (slug: string, delta: number) => void
+  onUpdateCart: (key: string, delta: number) => void
+  onRemovePendant: (compositeId: string, pendantId: string) => void
+  onOpenConstructor: () => void
   onClose: () => void
   onCheckout: () => void
 }) => {
-  const cartItems = cart
-    .map(item => {
+  type ResolvedRegular = { kind: 'regular'; cartItem: RegularCartItem; product: Product; quantity: number; unitPrice: number }
+  type ResolvedComposite = { kind: 'constructor'; cartItem: CompositeCartItem; quantity: number; unitPrice: number }
+  type Resolved = ResolvedRegular | ResolvedComposite
+
+  const cartItems: Resolved[] = cart
+    .map((item): Resolved | null => {
+      if (item.kind === 'constructor') {
+        return { kind: 'constructor', cartItem: item, quantity: item.quantity, unitPrice: compositeUnitPrice(item) }
+      }
       const product = products.find(p => p.slug === item.slug)
-      return product ? { ...product, quantity: item.quantity } : null
+      if (!product) return null
+      return { kind: 'regular', cartItem: item, product, quantity: item.quantity, unitPrice: getProductPrice(product) }
     })
-    .filter(Boolean) as (Product & { quantity: number })[]
+    .filter((x): x is Resolved => x !== null)
 
-  const total = cartItems.reduce((sum, item) => sum + getProductPrice(item) * item.quantity, 0)
-
-  const handleRemove = (slug: string) => {
-    onUpdateCart(slug, -999) // удаляем всё
-  }
-
-  const handleQuantityChange = (slug: string, delta: number) => {
-    onUpdateCart(slug, delta)
-  }
+  const total = cartItems.reduce((sum, it) => sum + it.unitPrice * it.quantity, 0)
 
   const handleCheckout = () => {
-    // проверка stock перед оформлением заказа
-    const invalidItems = cartItems.filter(item => {
-      const maxQuantity = item.stock !== undefined ? item.stock : 999
-      return item.quantity > maxQuantity
-    })
-    
-    if (invalidItems.length > 0) {
-      alert(`Недостаточно товара в наличии для:\n${invalidItems.map(i => i.title).join('\n')}`)
+    // проверка stock только для обычных товаров (у композитов остатков нет)
+    const invalid = cartItems.filter(it => {
+      if (it.kind !== 'regular') return false
+      const maxQuantity = it.product.stock !== undefined ? it.product.stock : 999
+      return it.quantity > maxQuantity
+    }) as ResolvedRegular[]
+
+    if (invalid.length > 0) {
+      alert(`Недостаточно товара в наличии для:\n${invalid.map(i => i.product.title).join('\n')}`)
       return
     }
-    
     onCheckout()
   }
 
@@ -1177,58 +1232,147 @@ const CartModal = ({
       <div className="modal-content modal-content--cart" onClick={e => e.stopPropagation()}>
         <button className="modal-close" onClick={onClose}>&times;</button>
         <h2 className="cart-modal__title">Корзина</h2>
-        
+
         {cartItems.length === 0 ? (
           <p className="cart-modal__empty">Корзина пуста</p>
         ) : (
           <>
             <div className="cart-modal__items">
-              {cartItems.map(item => {
-                const maxQuantity = item.stock !== undefined ? item.stock : 999
-                const canAddMore = item.quantity < maxQuantity
-                
-                return (
-                  <div key={item.slug} className="cart-item">
-                    {item.images && item.images.length > 0 && (
-                      <div 
+              {cartItems.map(it => {
+                if (it.kind === 'constructor') {
+                  const composite = it.cartItem
+                  const canRemovePendant = composite.pendants.length > 1
+                  return (
+                    <div key={composite.id} className="cart-item">
+                      <div
                         className="cart-item__image"
-                        style={{ backgroundImage: `url(${item.images[0]})` }}
+                        style={{ backgroundImage: composite.base.image ? `url(${composite.base.image})` : undefined }}
+                      />
+                      <div className="cart-item__info">
+                        <h3 className="cart-item__title">{TYPE_TITLES[composite.type]} на заказ</h3>
+                        <p style={{ fontSize: 12, color: '#666', margin: '4px 0' }}>
+                          Основа: {composite.base.title}
+                        </p>
+                        <p style={{ fontSize: 12, color: '#666', margin: '4px 0' }}>
+                          Подвески:{' '}
+                          {composite.pendants.map((p, i) => (
+                            <span key={p.id}>
+                              {p.title}
+                              {canRemovePendant && (
+                                <button
+                                  type="button"
+                                  onClick={() => onRemovePendant(composite.id, p.id)}
+                                  aria-label={`Убрать подвеску ${p.title}`}
+                                  style={{
+                                    background: 'transparent',
+                                    border: 'none',
+                                    color: '#888',
+                                    cursor: 'pointer',
+                                    padding: '0 4px',
+                                    fontSize: 12
+                                  }}
+                                  title="Убрать эту подвеску"
+                                >
+                                  ✕
+                                </button>
+                              )}
+                              {i < composite.pendants.length - 1 ? ', ' : ''}
+                            </span>
+                          ))}
+                        </p>
+                        <p className="cart-item__price">{it.unitPrice} ₽ × {it.quantity}</p>
+                        <div className="cart-item__controls">
+                          <button
+                            className="quantity-btn"
+                            onClick={() => onUpdateCart(composite.id, -1)}
+                            disabled={it.quantity === 0}
+                          >
+                            −
+                          </button>
+                          <span className="quantity-value">{it.quantity}</span>
+                          <button
+                            className="quantity-btn"
+                            onClick={() => onUpdateCart(composite.id, 1)}
+                          >
+                            +
+                          </button>
+                          <button
+                            className="cart-item__remove"
+                            onClick={() => onUpdateCart(composite.id, -999)}
+                            aria-label="Удалить композит"
+                          >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                              <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14zM10 11v6M14 11v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                }
+
+                const product = it.product
+                const maxQuantity = product.stock !== undefined ? product.stock : 999
+                const canAddMore = it.quantity < maxQuantity
+                return (
+                  <div key={product.slug} className="cart-item">
+                    {product.images && product.images.length > 0 && (
+                      <div
+                        className="cart-item__image"
+                        style={{ backgroundImage: `url(${product.images[0]})` }}
                       />
                     )}
                     <div className="cart-item__info">
-                      <h3 className="cart-item__title">{item.title}</h3>
-                      <p className="cart-item__price">{getProductPrice(item)} ₽ × {item.quantity}</p>
+                      <h3 className="cart-item__title">{product.title}</h3>
+                      <p className="cart-item__price">{it.unitPrice} ₽ × {it.quantity}</p>
                       <div className="cart-item__controls">
-                        <button 
-                          className="quantity-btn" 
-                          onClick={() => handleQuantityChange(item.slug, -1)}
-                          disabled={item.quantity === 0}
+                        <button
+                          className="quantity-btn"
+                          onClick={() => onUpdateCart(product.slug, -1)}
+                          disabled={it.quantity === 0}
                         >
                           −
-        </button>
-                        <span className="quantity-value">{item.quantity}</span>
-                        <button 
-                          className="quantity-btn" 
-                          onClick={() => handleQuantityChange(item.slug, 1)}
+                        </button>
+                        <span className="quantity-value">{it.quantity}</span>
+                        <button
+                          className="quantity-btn"
+                          onClick={() => onUpdateCart(product.slug, 1)}
                           disabled={!canAddMore}
                         >
                           +
-              </button>
-                        <button 
+                        </button>
+                        <button
                           className="cart-item__remove"
-                          onClick={() => handleRemove(item.slug)}
+                          onClick={() => onUpdateCart(product.slug, -999)}
                           aria-label="Удалить товар"
                         >
                           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                             <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14zM10 11v6M14 11v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
                           </svg>
-              </button>
-            </div>
-          </div>
-          </div>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 )
               })}
             </div>
+            <button
+              type="button"
+              onClick={onOpenConstructor}
+              style={{
+                margin: '8px 0',
+                padding: 10,
+                width: '100%',
+                background: 'transparent',
+                border: '1px dashed #c8cae8',
+                color: '#3942b8',
+                borderRadius: 8,
+                cursor: 'pointer',
+                fontSize: 13
+              }}
+            >
+              + Собрать ещё одно украшение
+            </button>
             
             <div className="cart-modal__footer">
               <div className="cart-modal__total">
@@ -1460,59 +1604,101 @@ export default function App() {
     loadOrdersStatus()
   }, [])
 
-  // управление корзиной с проверкой stock и статуса заказов
-  const updateCart = (slug: string, delta: number) => {
-    console.log('[mini-app] updateCart вызван:', { slug, delta, ordersClosed })
-    // проверка статуса заказов при добавлении товара (delta > 0)
+  // управление корзиной с проверкой stock и статуса заказов.
+  // key — slug для regular items или canonical id для композитов.
+  const updateCart = (key: string, delta: number) => {
+    console.log('[mini-app] updateCart вызван:', { key, delta, ordersClosed })
     if (delta > 0 && ordersClosed) {
       console.log('[mini-app] заказы закрыты, показываем модальное окно')
       setOrdersClosedModalOpen(true)
       return
     }
-    
-    setCart(prev => {
-      const existing = prev.find(item => item.slug === slug)
-      const product = products.find(p => p.slug === slug)
-      if (!product) return prev
 
-      const maxQuantity = product.stock !== undefined ? product.stock : 999
-      
+    setCart(prev => {
+      const existing = prev.find(item =>
+        item.kind === 'regular' ? item.slug === key : item.id === key
+      )
+      if (!existing) return prev
+
+      // для regular ограничиваем по stock; для композита — без ограничения
+      let maxQuantity = 999
+      if (existing.kind === 'regular') {
+        const product = products.find(p => p.slug === existing.slug)
+        if (!product) return prev
+        maxQuantity = product.stock !== undefined ? product.stock : 999
+      }
+
+      const matches = (item: CartItem) =>
+        item.kind === 'regular' ? item.slug === key : item.id === key
+
       if (delta < 0) {
-        // уменьшение
-        if (!existing || existing.quantity === 0) return prev
+        if (existing.quantity === 0) return prev
         const newQuantity = Math.max(0, existing.quantity + delta)
         if (newQuantity === 0) {
-          return prev.filter(item => item.slug !== slug)
+          return prev.filter(item => !matches(item))
         }
-        return prev.map(item => 
-          item.slug === slug 
-            ? { ...item, quantity: newQuantity }
-            : item
-        )
+        return prev.map(item => matches(item) ? { ...item, quantity: newQuantity } : item)
       } else {
-        // увеличение
-        const currentQty = existing?.quantity || 0
-        const newQuantity = Math.min(maxQuantity, currentQty + delta)
-        
-        if (currentQty === 0) {
-          // добавляем новый товар
-          return [...prev, { slug, quantity: newQuantity }]
-        } else {
-          // обновляем существующий
-          return prev.map(item => 
-            item.slug === slug 
-              ? { ...item, quantity: newQuantity }
-              : item
-          )
-        }
+        const newQuantity = Math.min(maxQuantity, existing.quantity + delta)
+        return prev.map(item => matches(item) ? { ...item, quantity: newQuantity } : item)
       }
     })
   }
 
+  // добавление композита из конструктора в корзину (или инкремент quantity, если такой уже есть)
+  const addComposite = (composite: ConstructorComposite) => {
+    if (ordersClosed) {
+      setOrdersClosedModalOpen(true)
+      return
+    }
+    setCart(prev => {
+      const id = makeCompositeId(composite)
+      const existing = prev.find((item): item is CompositeCartItem => item.kind === 'constructor' && item.id === id)
+      if (existing) {
+        return prev.map(item =>
+          item.kind === 'constructor' && item.id === id
+            ? { ...item, quantity: item.quantity + 1 }
+            : item
+        )
+      }
+      const newItem: CompositeCartItem = {
+        kind: 'constructor',
+        id,
+        type: composite.type,
+        base: { id: composite.base.id, title: composite.base.title, image: composite.base.image, price: composite.base.price },
+        pendants: composite.pendants.map(p => ({ id: p.id, title: p.title, image: p.image, price: p.price })),
+        quantity: 1
+      }
+      return [...prev, newItem]
+    })
+  }
+
+  // удалить одну подвеску из существующего композита (если останется ≥ 1)
+  const removePendantFromComposite = (compositeId: string, pendantId: string) => {
+    setCart(prev => {
+      const idx = prev.findIndex(item => item.kind === 'constructor' && item.id === compositeId)
+      if (idx === -1) return prev
+      const item = prev[idx] as CompositeCartItem
+      if (item.pendants.length <= 1) return prev // защита: должна остаться хотя бы 1 подвеска
+      const newPendants = item.pendants.filter(p => p.id !== pendantId)
+      const newComposite: CompositeCartItem = {
+        ...item,
+        pendants: newPendants,
+        id: makeCompositeId({ type: item.type, base: item.base, pendants: newPendants })
+      }
+      const next = [...prev]
+      next[idx] = newComposite
+      return next
+    })
+  }
+
   const cartTotal = cart.reduce((sum, item) => sum + item.quantity, 0)
-  
+
   // расчет суммы корзины
   const cartTotalPrice = cart.reduce((sum, item) => {
+    if (item.kind === 'constructor') {
+      return sum + compositeUnitPrice(item) * item.quantity
+    }
     const product = products.find(p => p.slug === item.slug)
     return sum + (product ? getProductPrice(product) * item.quantity : 0)
   }, 0)
@@ -1662,10 +1848,23 @@ export default function App() {
 
   const handleCheckoutSubmit = async (data: any) => {
     try {
-      // собираем данные заказа с товарами из корзины
+      // собираем данные заказа с товарами из корзины (regular + composite)
       const orderItems = cart.map(item => {
+        if (item.kind === 'constructor') {
+          return {
+            kind: 'constructor' as const,
+            type: item.type,
+            baseId: item.base.id,
+            pendantIds: item.pendants.map(p => p.id),
+            quantity: item.quantity,
+            // подсказка для бэкенда (он всё равно пересчитывает на свежих ценах)
+            title: compositeTitle(item),
+            price: compositeUnitPrice(item)
+          }
+        }
         const product = products.find(p => p.slug === item.slug)
         return product ? {
+          kind: 'regular' as const,
           slug: product.slug,
           title: product.title,
           price: getProductPrice(product),
@@ -1790,6 +1989,17 @@ export default function App() {
                 />
               ))}
             </motion.section>
+          ) : selectedCategory === CONSTRUCTOR_CATEGORY_KEY ? (
+            <Constructor
+              key="constructor"
+              apiUrl={import.meta.env.VITE_API_URL || ''}
+              onAddToCart={(composite) => {
+                addComposite(composite)
+                setToastMessage('Украшение добавлено в корзину')
+                setSelectedCategory(null)
+              }}
+              onClose={() => setSelectedCategory(null)}
+            />
           ) : (
             // грид товаров выбранной категории
             <motion.section
@@ -1901,10 +2111,15 @@ export default function App() {
         />
       )}
       {cartOpen && (
-        <CartModal 
+        <CartModal
           cart={cart}
           products={products}
           onUpdateCart={updateCart}
+          onRemovePendant={removePendantFromComposite}
+          onOpenConstructor={() => {
+            setCartOpen(false)
+            setSelectedCategory(CONSTRUCTOR_CATEGORY_KEY)
+          }}
           onClose={() => setCartOpen(false)}
           onCheckout={handleCheckoutStart}
         />

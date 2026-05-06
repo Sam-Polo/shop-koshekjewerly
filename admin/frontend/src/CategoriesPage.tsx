@@ -17,7 +17,10 @@ import {
   verticalListSortingStrategy
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import type { AdminPage } from './BasesPage'
 import './App.css'
+
+const CONSTRUCTOR_KEY = 'constructor'
 
 type Category = {
   key: string
@@ -82,7 +85,14 @@ function SortableCategoryRow({
           }}
         />
       </td>
-      <td>{category.key}</td>
+      <td>
+        {category.key}
+        {category.key === CONSTRUCTOR_KEY && (
+          <span style={{ marginLeft: 6, padding: '2px 6px', background: '#e8eaff', color: '#3942b8', borderRadius: 4, fontSize: 11, fontWeight: 600 }}>
+            Конструктор
+          </span>
+        )}
+      </td>
       <td>{category.title}</td>
       <td>{category.description || '—'}</td>
       <td>
@@ -96,7 +106,7 @@ function SortableCategoryRow({
 function CategoriesPage({
   onNavigate
 }: {
-  onNavigate?: (page: 'products' | 'promocodes' | 'categories') => void
+  onNavigate?: (page: AdminPage) => void
 }) {
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
@@ -285,6 +295,12 @@ function CategoriesPage({
           <button className="nav-btn active" onClick={() => onNavigate?.('categories')}>
             Категории
           </button>
+          <button className="nav-btn" onClick={() => onNavigate?.('bases')}>
+            Основы
+          </button>
+          <button className="nav-btn" onClick={() => onNavigate?.('pendants')}>
+            Подвески
+          </button>
         </div>
         <div className="header-actions">
           <button className="btn btn-add" onClick={handleAdd}>
@@ -381,6 +397,11 @@ function CategoriesPage({
           <div className="modal-content modal-form" onClick={(e) => e.stopPropagation()}>
             <button className="modal-close" onClick={() => setIsModalOpen(false)}>×</button>
             <h2>{editingCategory ? 'Редактировать категорию' : 'Добавить категорию'}</h2>
+            {editingCategory?.key === CONSTRUCTOR_KEY && (
+              <div style={{ padding: 10, marginBottom: 12, background: '#e8eaff', color: '#3942b8', borderRadius: 6, fontSize: 13 }}>
+                Это категория-конструктор. При клике в мини-приложении открывается экран сборки украшения. Управление содержимым — в разделах <b>Основы</b> и <b>Подвески</b>. Здесь можно поменять название, описание, фото и порядок.
+              </div>
+            )}
             <div className="form-group">
               <label>Ключ (имя листа в Google Таблице) *</label>
               <input

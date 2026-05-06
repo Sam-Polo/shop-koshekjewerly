@@ -10,6 +10,20 @@ import { generatePaymentUrl, verifyResultSignature } from './robokassa.js';
 import { fetchPromocodesFromSheet, loadPromocodes, findPromocode, validatePromocode, listPromocodes } from './promocodes.js';
 import { fetchOrdersSettingsFromSheet } from './settings.js';
 import { fetchCategoriesFromSheet } from './categories.js';
+import {
+  fetchBasesFromSheet,
+  fetchPendantsFromSheet,
+  setCachedBases,
+  setCachedPendants,
+  getCachedBases,
+  getCachedPendants,
+  basesForType,
+  pendantsForType,
+  effectiveLimit,
+  getBaseLimit,
+  JEWELRY_TYPES,
+  type JewelryType
+} from './constructor.js';
 
 const logger = pino();
 const app = express();
@@ -70,6 +84,27 @@ async function importPromocodes() {
     logger.info({ imported: promocodes.length }, 'промокоды импортированы');
   } catch (e: any) {
     logger.error({ error: e?.message }, 'ошибка импорта промокодов');
+  }
+}
+
+// импорт основ и подвесок конструктора из google sheets
+async function importConstructor() {
+  const sheetId = process.env.IMPORT_SHEET_ID;
+  if (!sheetId) {
+    logger.warn('IMPORT_SHEET_ID не задан, импорт конструктора пропущен');
+    return;
+  }
+  try {
+    logger.info('импорт основ и подвесок из google sheets...');
+    const [bases, pendants] = await Promise.all([
+      fetchBasesFromSheet(sheetId),
+      fetchPendantsFromSheet(sheetId)
+    ]);
+    setCachedBases(bases);
+    setCachedPendants(pendants);
+    logger.info({ bases: bases.length, pendants: pendants.length }, 'компоненты конструктора импортированы');
+  } catch (e: any) {
+    logger.error({ error: e?.message }, 'ошибка импорта компонентов конструктора');
   }
 }
 
@@ -202,6 +237,45 @@ app.get('/api/pending-users', (req, res) => {
 app.get('/api/products', (_req, res) => {
   const items = listProducts().filter(p => p.active)
   res.json({ items, total: items.length });
+});
+
+// конструктор: список типов украшений
+app.get('/api/constructor/types', (_req, res) => {
+  res.json({ types: JEWELRY_TYPES });
+});
+
+// конструктор: список основ для типа украшения
+app.get('/api/constructor/bases', (req, res) => {
+  const type = req.query.type as JewelryType
+  if (!['necklace', 'earrings', 'bracelet'].includes(type)) {
+    return res.status(400).json({ error: 'invalid_type' })
+  }
+  const bases = basesForType(type).map(b => ({
+    id: b.id,
+    title: b.title,
+    description: b.description,
+    image: b.image,
+    price: b.price,
+    // нормализуем лимит: null → 1 (дефолт), 0 → без ограничения, N → максимум
+    limit: effectiveLimit(b, type)
+  }))
+  res.json({ bases })
+});
+
+// конструктор: список подвесок для типа украшения
+app.get('/api/constructor/pendants', (req, res) => {
+  const type = req.query.type as JewelryType
+  if (!['necklace', 'earrings', 'bracelet'].includes(type)) {
+    return res.status(400).json({ error: 'invalid_type' })
+  }
+  const pendants = pendantsForType(type).map(p => ({
+    id: p.id,
+    title: p.title,
+    description: p.description,
+    image: p.image,
+    price: p.price
+  }))
+  res.json({ pendants })
 });
 
 // получение категорий (для мини-приложения)
@@ -516,24 +590,94 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
     
     // пересчитываем цены на бэкенде из актуальных данных товаров (защита от подмены цен)
     const products = listProducts()
+    const TYPE_TITLES: Record<JewelryType, string> = {
+      necklace: 'Колье',
+      earrings: 'Серьги',
+      bracelet: 'Браслет'
+    }
+
     const validatedItems = orderData.items.map((item: any) => {
+      const quantity = Math.max(1, Math.floor(item.quantity || 1))
+
+      // композитный товар (конструктор)
+      if (item.kind === 'constructor') {
+        const type = item.type as JewelryType
+        if (!['necklace', 'earrings', 'bracelet'].includes(type)) {
+          logger.warn({ type }, 'композит: неизвестный тип украшения')
+          throw new Error(`Конструктор: неизвестный тип украшения "${type}"`)
+        }
+
+        const allBases = getCachedBases()
+        const base = allBases.find(b => b.id === item.baseId && b.active)
+        if (!base) {
+          logger.warn({ baseId: item.baseId }, 'композит: основа не найдена')
+          throw new Error(`Конструктор: основа не найдена или неактивна`)
+        }
+
+        const baseSupportsType =
+          (type === 'necklace' && base.for_necklace) ||
+          (type === 'earrings' && base.for_earrings) ||
+          (type === 'bracelet' && base.for_bracelet)
+        if (!baseSupportsType) {
+          throw new Error(`Конструктор: основа "${base.title}" не поддерживает тип "${TYPE_TITLES[type]}"`)
+        }
+
+        const pendantIds: string[] = Array.isArray(item.pendantIds) ? item.pendantIds : []
+        if (pendantIds.length < 1) {
+          throw new Error('Конструктор: нужно выбрать минимум одну подвеску')
+        }
+
+        // лимит: 0 = без ограничения, иначе максимум подвесок
+        const limit = effectiveLimit(base, type)
+        if (limit > 0 && pendantIds.length > limit) {
+          throw new Error(`Конструктор: превышен лимит подвесок (${pendantIds.length}/${limit})`)
+        }
+
+        const allPendants = getCachedPendants()
+        const pendantsResolved = pendantIds.map((pid: string) => {
+          const p = allPendants.find(x => x.id === pid && x.active)
+          if (!p) throw new Error(`Конструктор: подвеска ${pid} не найдена или неактивна`)
+          const pendantSupportsType =
+            (type === 'necklace' && p.for_necklace) ||
+            (type === 'earrings' && p.for_earrings) ||
+            (type === 'bracelet' && p.for_bracelet)
+          if (!pendantSupportsType) {
+            throw new Error(`Конструктор: подвеска "${p.title}" не поддерживает тип "${TYPE_TITLES[type]}"`)
+          }
+          return p
+        })
+
+        const compositePrice = base.price + pendantsResolved.reduce((s, p) => s + p.price, 0)
+        const pendantTitles = pendantsResolved.map(p => p.title).join(', ')
+        const compositeTitle = `${TYPE_TITLES[type]} на заказ: ${base.title} + ${pendantTitles}`
+
+        return {
+          slug: `composer-${base.id}-${pendantsResolved.map(p => p.id).join('-')}`,
+          title: compositeTitle,
+          price: compositePrice,
+          quantity,
+          article: undefined as string | undefined
+        }
+      }
+
+      // обычный товар
       const product = products.find(p => p.slug === item.slug && p.active)
       if (!product) {
         logger.warn({ slug: item.slug }, 'товар не найден или неактивен при валидации заказа')
         throw new Error(`Товар ${item.slug} не найден или неактивен`)
       }
-      
+
       // используем актуальную цену и название с бэкенда, игнорируем данные от клиента
       // если есть discount_price_rub - используем её, иначе price_rub
       const actualPrice = product.discount_price_rub !== undefined && product.discount_price_rub > 0
         ? product.discount_price_rub
         : product.price_rub
-      
+
       return {
         slug: product.slug,
         title: product.title,
         price: actualPrice, // актуальная цена с бэкенда (со скидкой если есть)
-        quantity: Math.max(1, Math.floor(item.quantity || 1)), // валидация количества
+        quantity, // валидация количества
         article: product.article // артикул товара
       }
     })
@@ -895,15 +1039,22 @@ app.post('/admin/import/sheets', async (req, res) => {
   }, 30000);
   
   try {
-    logger.info('начат ручной импорт товаров, промокодов и настроек заказов');
+    logger.info('начат ручной импорт товаров, промокодов, конструктора и настроек заказов');
     await importProducts();
     await importPromocodes();
+    await importConstructor();
     await importOrdersSettings();
     const count = listProducts().length;
     const promocodesCount = listPromocodes().length;
     clearTimeout(timeout);
     if (!res.headersSent) {
-      res.json({ ok: true, total: count, promocodes: promocodesCount });
+      res.json({
+        ok: true,
+        total: count,
+        promocodes: promocodesCount,
+        bases: getCachedBases().length,
+        pendants: getCachedPendants().length
+      });
     }
   } catch (e: any) {
     clearTimeout(timeout);
@@ -934,13 +1085,15 @@ app.listen(port, async () => {
   // импорт при запуске
   await importProducts();
   await importPromocodes();
-  
+  await importConstructor();
+
   // периодический импорт (по умолчанию каждые 10 минут)
   const intervalMinutes = Number(process.env.IMPORT_INTERVAL_MINUTES ?? 10);
   if (intervalMinutes > 0) {
     setInterval(() => {
       importProducts();
       importPromocodes();
+      importConstructor();
     }, intervalMinutes * 60 * 1000);
     logger.info({ intervalMinutes }, 'периодический импорт настроен');
   }

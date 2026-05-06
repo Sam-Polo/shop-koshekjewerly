@@ -3,6 +3,8 @@ import { api, getToken, saveToken, removeToken } from './api'
 import { generateSlug, formatArticle, parseArticle, normalizeArticle } from './utils'
 import PromocodesPage from './PromocodesPage'
 import CategoriesPage from './CategoriesPage'
+import BasesPage, { type AdminPage } from './BasesPage'
+import PendantsPage from './PendantsPage'
 import {
   DndContext,
   closestCenter,
@@ -178,7 +180,7 @@ function LoginForm({ onLogin }: { onLogin: () => void }) {
 
 type CategoryOption = { key: string; title: string }
 
-function ProductsList({ onNavigate }: { onNavigate?: (page: 'products' | 'promocodes' | 'categories') => void }) {
+function ProductsList({ onNavigate }: { onNavigate?: (page: AdminPage) => void }) {
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<CategoryOption[]>([])
   const [loading, setLoading] = useState(true)
@@ -575,11 +577,23 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: 'products' | 'promoc
           >
             Промокоды
           </button>
-          <button 
+          <button
             className="nav-btn"
             onClick={() => onNavigate?.('categories')}
           >
             Категории
+          </button>
+          <button
+            className="nav-btn"
+            onClick={() => onNavigate?.('bases')}
+          >
+            Основы
+          </button>
+          <button
+            className="nav-btn"
+            onClick={() => onNavigate?.('pendants')}
+          >
+            Подвески
           </button>
         </div>
         <button onClick={handleLogout} className="logout-btn">
@@ -2171,7 +2185,7 @@ function ProductFormModal({
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [checking, setChecking] = useState(true)
-  const [currentPage, setCurrentPage] = useState<'products' | 'promocodes' | 'categories'>('products')
+  const [currentPage, setCurrentPage] = useState<AdminPage>('products')
   const [isPageLoading, setIsPageLoading] = useState(false)
 
   useEffect(() => {
@@ -2183,7 +2197,7 @@ export default function App() {
     setChecking(false)
   }, [])
 
-  const handlePageChange = (page: 'products' | 'promocodes' | 'categories') => {
+  const handlePageChange = (page: AdminPage) => {
     if (page !== currentPage) {
       setIsPageLoading(true)
       // небольшая задержка для плавной анимации
@@ -2214,6 +2228,10 @@ export default function App() {
           <PromocodesPage onNavigate={handlePageChange} />
         ) : currentPage === 'categories' ? (
           <CategoriesPage onNavigate={handlePageChange} />
+        ) : currentPage === 'bases' ? (
+          <BasesPage onNavigate={handlePageChange} />
+        ) : currentPage === 'pendants' ? (
+          <PendantsPage onNavigate={handlePageChange} />
         ) : (
           <ProductsList onNavigate={handlePageChange} />
         )}

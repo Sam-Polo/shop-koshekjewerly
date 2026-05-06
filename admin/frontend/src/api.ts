@@ -223,6 +223,32 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ categories })
     })
+  },
+
+  // конструктор: основы
+  async getBases() {
+    return fetchWithAuth('/api/bases')
+  },
+
+  async saveBases(bases: Array<any>) {
+    return fetchWithAuth('/api/bases', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bases })
+    })
+  },
+
+  // конструктор: подвески
+  async getPendants() {
+    return fetchWithAuth('/api/pendants')
+  },
+
+  async savePendants(pendants: Array<any>) {
+    return fetchWithAuth('/api/pendants', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pendants })
+    })
   }
 }
 
