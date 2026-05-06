@@ -138,7 +138,7 @@ export const api = {
     })
   },
 
-  // загрузка фото в Uploadcare (таймаут 2 мин — большие фото по медленной сети)
+  // загрузка фото в S3 (таймаут 2 мин — большие фото по медленной сети)
   async uploadImage(file: File): Promise<string> {
     const formData = new FormData()
     formData.append('file', file)

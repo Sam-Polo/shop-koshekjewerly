@@ -1,7 +1,7 @@
 import express from 'express'
 import multer from 'multer'
 import { requireAuth } from '../auth.js'
-import { uploadToUploadcare } from '../uploadcare.js'
+import { uploadToS3 } from '../s3.js'
 import { logger } from '../logger.js'
 
 const router = express.Router()
@@ -9,7 +9,6 @@ const router = express.Router()
 // все роуты требуют авторизации
 router.use(requireAuth)
 
-// лимит API Uploadcare — 10 MB
 const MAX_FILE_SIZE = 10 * 1024 * 1024
 
 const upload = multer({
@@ -25,7 +24,7 @@ const upload = multer({
   }
 })
 
-// загрузка фото в Uploadcare + обработка ошибок multer
+// загрузка фото в S3 + обработка ошибок multer
 router.post(
   '/',
   (req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -41,9 +40,9 @@ router.post(
       }
 
       const sizeMB = (req.file.size / (1024 * 1024)).toFixed(2)
-      logger.info({ name: req.file.originalname, sizeBytes: req.file.size, sizeMB }, 'файл принят, отправка в Uploadcare')
+      logger.info({ name: req.file.originalname, sizeBytes: req.file.size, sizeMB }, 'файл принят, отправка в S3')
 
-      const fileUrl = await uploadToUploadcare(
+      const fileUrl = await uploadToS3(
         req.file.buffer,
         req.file.originalname,
         req.file.mimetype
