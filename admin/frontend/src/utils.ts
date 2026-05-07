@@ -1,3 +1,16 @@
+// генерация UUID v4 с fallback для не-secure контекстов (HTTP без HTTPS).
+// crypto.randomUUID доступен только в secure context (HTTPS, localhost).
+export function genUuid(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = (Math.random() * 16) | 0
+    const v = c === 'x' ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
+}
+
 // транслитерация русского текста в латиницу для slug
 export function transliterate(text: string): string {
   const map: Record<string, string> = {

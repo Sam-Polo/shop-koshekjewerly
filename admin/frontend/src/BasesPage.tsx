@@ -17,6 +17,7 @@ import {
   verticalListSortingStrategy
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { genUuid } from './utils'
 import './App.css'
 
 export type AdminPage = 'products' | 'promocodes' | 'categories' | 'bases' | 'pendants'
@@ -242,7 +243,7 @@ function BasesPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }) {
     }
 
     const updated: Base = {
-      id: formData.id || (editingBase?.id ?? crypto.randomUUID()),
+      id: formData.id || (editingBase?.id ?? genUuid()),
       title: title.trim(),
       description: formData.description.trim() || undefined,
       image: image.trim(),
@@ -316,8 +317,7 @@ function BasesPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }) {
           <button className="nav-btn" onClick={() => onNavigate?.('products')}>Товары</button>
           <button className="nav-btn" onClick={() => onNavigate?.('promocodes')}>Промокоды</button>
           <button className="nav-btn" onClick={() => onNavigate?.('categories')}>Категории</button>
-          <button className="nav-btn active" onClick={() => onNavigate?.('bases')}>Основы</button>
-          <button className="nav-btn" onClick={() => onNavigate?.('pendants')}>Подвески</button>
+          <button className="nav-btn active" onClick={() => onNavigate?.('bases')}>Конструктор</button>
         </div>
         <div className="header-actions">
           <button className="btn btn-add" onClick={handleAdd}>+ Добавить основу</button>
@@ -326,6 +326,40 @@ function BasesPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }) {
       </header>
 
       <div className="categories-content">
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16, borderBottom: '1px solid #e8e8e8', paddingBottom: 0 }}>
+          <button
+            type="button"
+            onClick={() => onNavigate?.('bases')}
+            style={{
+              padding: '10px 18px',
+              background: 'transparent',
+              border: 'none',
+              borderBottom: '2px solid #3942b8',
+              color: '#3942b8',
+              fontWeight: 600,
+              cursor: 'pointer',
+              fontSize: 14
+            }}
+          >
+            Основы
+          </button>
+          <button
+            type="button"
+            onClick={() => onNavigate?.('pendants')}
+            style={{
+              padding: '10px 18px',
+              background: 'transparent',
+              border: 'none',
+              borderBottom: '2px solid transparent',
+              color: '#666',
+              cursor: 'pointer',
+              fontSize: 14
+            }}
+          >
+            Подвески
+          </button>
+        </div>
+
         <p className="categories-hint">
           Основы — компоненты конструктора украшений. У каждой основы задаётся лимит количества подвесок для каждого типа украшения, к которому она привязана. Лимит «0» = без ограничения, пусто = по умолчанию (1 подвеска).
         </p>

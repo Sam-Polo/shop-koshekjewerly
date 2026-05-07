@@ -587,13 +587,7 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
             className="nav-btn"
             onClick={() => onNavigate?.('bases')}
           >
-            Основы
-          </button>
-          <button
-            className="nav-btn"
-            onClick={() => onNavigate?.('pendants')}
-          >
-            Подвески
+            Конструктор
           </button>
         </div>
         <button onClick={handleLogout} className="logout-btn">

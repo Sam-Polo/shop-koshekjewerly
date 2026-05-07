@@ -296,10 +296,7 @@ function CategoriesPage({
             Категории
           </button>
           <button className="nav-btn" onClick={() => onNavigate?.('bases')}>
-            Основы
-          </button>
-          <button className="nav-btn" onClick={() => onNavigate?.('pendants')}>
-            Подвески
+            Конструктор
           </button>
         </div>
         <div className="header-actions">

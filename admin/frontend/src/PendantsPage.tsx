@@ -18,6 +18,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { AdminPage } from './BasesPage'
+import { genUuid } from './utils'
 import './App.css'
 
 type Pendant = {
@@ -206,7 +207,7 @@ function PendantsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
     }
 
     const updated: Pendant = {
-      id: formData.id || (editingPendant?.id ?? crypto.randomUUID()),
+      id: formData.id || (editingPendant?.id ?? genUuid()),
       title: title.trim(),
       description: formData.description.trim() || undefined,
       image: image.trim(),
@@ -277,8 +278,7 @@ function PendantsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
           <button className="nav-btn" onClick={() => onNavigate?.('products')}>Товары</button>
           <button className="nav-btn" onClick={() => onNavigate?.('promocodes')}>Промокоды</button>
           <button className="nav-btn" onClick={() => onNavigate?.('categories')}>Категории</button>
-          <button className="nav-btn" onClick={() => onNavigate?.('bases')}>Основы</button>
-          <button className="nav-btn active" onClick={() => onNavigate?.('pendants')}>Подвески</button>
+          <button className="nav-btn active" onClick={() => onNavigate?.('bases')}>Конструктор</button>
         </div>
         <div className="header-actions">
           <button className="btn btn-add" onClick={handleAdd}>+ Добавить подвеску</button>
@@ -287,6 +287,40 @@ function PendantsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
       </header>
 
       <div className="categories-content">
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16, borderBottom: '1px solid #e8e8e8', paddingBottom: 0 }}>
+          <button
+            type="button"
+            onClick={() => onNavigate?.('bases')}
+            style={{
+              padding: '10px 18px',
+              background: 'transparent',
+              border: 'none',
+              borderBottom: '2px solid transparent',
+              color: '#666',
+              cursor: 'pointer',
+              fontSize: 14
+            }}
+          >
+            Основы
+          </button>
+          <button
+            type="button"
+            onClick={() => onNavigate?.('pendants')}
+            style={{
+              padding: '10px 18px',
+              background: 'transparent',
+              border: 'none',
+              borderBottom: '2px solid #3942b8',
+              color: '#3942b8',
+              fontWeight: 600,
+              cursor: 'pointer',
+              fontSize: 14
+            }}
+          >
+            Подвески
+          </button>
+        </div>
+
         <p className="categories-hint">
           Подвески — компоненты конструктора украшений. Привязываются к одному или нескольким типам украшений (колье, серьги, браслет). Лимит количества подвесок задаётся на основе.
         </p>
