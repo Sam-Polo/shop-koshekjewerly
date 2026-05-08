@@ -4,7 +4,7 @@ import React from 'react'
 import { Swiper, SwiperSlide, type SwiperClass } from 'swiper/react'
 import { Pagination, Zoom, Navigation } from 'swiper/modules'
 import { motion, AnimatePresence } from 'framer-motion'
-import Constructor, { type ConstructorComposite, type JewelryType } from './Constructor'
+import Constructor, { ConstructorDetailModal, type ConstructorComposite, type ConstructorDetailView, type JewelryType } from './Constructor'
 
 const CONSTRUCTOR_CATEGORY_KEY = 'constructor'
 
@@ -1182,14 +1182,14 @@ const CartModal = ({
   cart,
   products,
   onUpdateCart,
-  onRemovePendant,
+  onPreviewComponent,
   onClose,
   onCheckout
 }: {
   cart: CartItem[]
   products: Product[]
   onUpdateCart: (key: string, delta: number) => void
-  onRemovePendant: (compositeId: string, pendantId: string) => void
+  onPreviewComponent: (kind: 'base' | 'pendant', ref: ConstructorComponentRef) => void
   onClose: () => void
   onCheckout: () => void
 }) => {
@@ -1239,53 +1239,71 @@ const CartModal = ({
               {cartItems.map(it => {
                 if (it.kind === 'constructor') {
                   const composite = it.cartItem
-                  const canRemovePendant = composite.pendants.length > 1
-                  const visiblePendants = composite.pendants.slice(0, 3)
-                  const overflowPendants = composite.pendants.length - visiblePendants.length
+                  // максимум 3 миниатюры в ряд под основой; если подвесок больше — 2 + «+N»
+                  const visible = composite.pendants.length <= 3
+                    ? composite.pendants
+                    : composite.pendants.slice(0, 2)
+                  const overflowCount = composite.pendants.length - visible.length
                   return (
                     <div key={composite.id} className="cart-item">
-                      <div style={{ display: 'flex', gap: 4, flexShrink: 0, alignItems: 'stretch' }}>
-                        <div
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
+                        {/* фото основы */}
+                        <button
+                          type="button"
+                          onClick={() => onPreviewComponent('base', composite.base)}
+                          aria-label={`Открыть основу: ${composite.base.title}`}
                           className="cart-item__image"
                           style={{
                             backgroundImage: composite.base.image ? `url(${composite.base.image})` : undefined,
-                            margin: 0
+                            margin: 0,
+                            padding: 0,
+                            border: 'none',
+                            cursor: 'pointer'
                           }}
                         />
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, justifyContent: 'flex-start' }}>
-                          {visiblePendants.map(p => (
-                            <div
-                              key={p.id}
-                              style={{
-                                width: 26,
-                                height: 26,
+                        {/* ряд миниатюр подвесок шириной как фото основы */}
+                        {composite.pendants.length > 0 && (
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            {visible.map(p => (
+                              <button
+                                key={p.id}
+                                type="button"
+                                onClick={() => onPreviewComponent('pendant', p)}
+                                aria-label={`Открыть подвеску: ${p.title}`}
+                                style={{
+                                  flex: 1,
+                                  minWidth: 0,
+                                  aspectRatio: '1 / 1',
+                                  padding: 0,
+                                  border: '1px solid rgba(94, 102, 35, 0.25)',
+                                  borderRadius: 3,
+                                  background: p.image
+                                    ? `center / cover no-repeat url(${p.image})`
+                                    : '#f0f0f0',
+                                  cursor: 'pointer'
+                                }}
+                                title={p.title}
+                              />
+                            ))}
+                            {overflowCount > 0 && (
+                              <div style={{
+                                flex: 1,
+                                minWidth: 0,
+                                aspectRatio: '1 / 1',
+                                background: '#f4f4f4',
+                                border: '1px solid #e8e8e8',
                                 borderRadius: 3,
-                                backgroundImage: p.image ? `url(${p.image})` : undefined,
-                                backgroundSize: 'cover',
-                                backgroundPosition: 'center',
-                                backgroundColor: '#f0f0f0',
-                                border: '1px solid #e8e8e8'
-                              }}
-                              title={p.title}
-                            />
-                          ))}
-                          {overflowPendants > 0 && (
-                            <div style={{
-                              width: 26,
-                              height: 26,
-                              borderRadius: 3,
-                              background: '#f4f4f4',
-                              border: '1px solid #e8e8e8',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              fontSize: 10,
-                              color: '#888'
-                            }}>
-                              +{overflowPendants}
-                            </div>
-                          )}
-                        </div>
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: 11,
+                                color: '#888'
+                              }}>
+                                +{overflowCount}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                       <div className="cart-item__info">
                         <h3 className="cart-item__title">{TYPE_TITLES[composite.type]} на заказ</h3>
@@ -1293,31 +1311,7 @@ const CartModal = ({
                           Основа: {composite.base.title}
                         </p>
                         <p style={{ fontSize: 12, color: '#666', margin: '4px 0' }}>
-                          Подвески:{' '}
-                          {composite.pendants.map((p, i) => (
-                            <span key={p.id}>
-                              {p.title}
-                              {canRemovePendant && (
-                                <button
-                                  type="button"
-                                  onClick={() => onRemovePendant(composite.id, p.id)}
-                                  aria-label={`Убрать подвеску ${p.title}`}
-                                  style={{
-                                    background: 'transparent',
-                                    border: 'none',
-                                    color: '#888',
-                                    cursor: 'pointer',
-                                    padding: '0 4px',
-                                    fontSize: 12
-                                  }}
-                                  title="Убрать эту подвеску"
-                                >
-                                  ✕
-                                </button>
-                              )}
-                              {i < composite.pendants.length - 1 ? ', ' : ''}
-                            </span>
-                          ))}
+                          Подвески: {composite.pendants.map(p => p.title).join(', ')}
                         </p>
                         <p className="cart-item__price">{it.unitPrice} ₽ × {it.quantity}</p>
                         <div className="cart-item__controls">
@@ -1533,6 +1527,8 @@ export default function App() {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [cart, setCart] = useState<CartItem[]>([])
+  // preview-карточка компонента из корзины (только просмотр, без действий)
+  const [cartPreview, setCartPreview] = useState<ConstructorDetailView>(null)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
   const [orderSuccessOpen, setOrderSuccessOpen] = useState(false)
   const [orderId, setOrderId] = useState<string | null>(null)
@@ -1699,25 +1695,6 @@ export default function App() {
         quantity: 1
       }
       return [...prev, newItem]
-    })
-  }
-
-  // удалить одну подвеску из существующего композита (если останется ≥ 1)
-  const removePendantFromComposite = (compositeId: string, pendantId: string) => {
-    setCart(prev => {
-      const idx = prev.findIndex(item => item.kind === 'constructor' && item.id === compositeId)
-      if (idx === -1) return prev
-      const item = prev[idx] as CompositeCartItem
-      if (item.pendants.length <= 1) return prev // защита: должна остаться хотя бы 1 подвеска
-      const newPendants = item.pendants.filter(p => p.id !== pendantId)
-      const newComposite: CompositeCartItem = {
-        ...item,
-        pendants: newPendants,
-        id: makeCompositeId({ type: item.type, base: item.base, pendants: newPendants })
-      }
-      const next = [...prev]
-      next[idx] = newComposite
-      return next
     })
   }
 
@@ -2144,9 +2121,28 @@ export default function App() {
           cart={cart}
           products={products}
           onUpdateCart={updateCart}
-          onRemovePendant={removePendantFromComposite}
+          onPreviewComponent={(kind, ref) => {
+            // строим минимальный объект для DetailModal: image (если есть) кладём в images[]
+            const data = {
+              id: ref.id,
+              title: ref.title,
+              description: undefined,
+              images: ref.image ? [ref.image] : [],
+              price: ref.price,
+              ...(kind === 'base' ? { limit: 0 } : {})
+            } as any
+            setCartPreview({ kind, data })
+          }}
           onClose={() => setCartOpen(false)}
           onCheckout={handleCheckoutStart}
+        />
+      )}
+
+      {cartPreview && (
+        <ConstructorDetailModal
+          detail={cartPreview}
+          mode="cart-preview"
+          onClose={() => setCartPreview(null)}
         />
       )}
       

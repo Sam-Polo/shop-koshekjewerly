@@ -38,10 +38,11 @@ const TYPES: { key: JewelryType; title: string }[] = [
 const BADGE_COLOR = '#5e6623'
 
 type Step = 'type' | 'base' | 'pendants'
-type DetailView =
+export type ConstructorDetailView =
   | { kind: 'base'; data: ConstructorBase }
   | { kind: 'pendant'; data: ConstructorPendant }
   | null
+type DetailView = ConstructorDetailView
 
 function ImageBg({ url, className, style }: { url: string | undefined, className?: string, style?: React.CSSProperties }) {
   return (
@@ -84,6 +85,71 @@ function ImageWithLoader({ src, className }: { src: string | undefined, classNam
       className={`${className ?? ''} ${loaded ? 'fade-in-image' : 'shimmer-bg'}`}
       style={loaded ? { backgroundImage: `url(${src})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
     />
+  )
+}
+
+// миниатюра в sticky-превью: фото + крестик в углу (стиль как у modal-close — без рамок-кружков)
+function ThumbnailWithRemove({
+  imageUrl,
+  borderColor,
+  ariaLabel,
+  onOpen,
+  onRemove,
+  removeAriaLabel
+}: {
+  imageUrl: string | undefined
+  borderColor: string
+  ariaLabel: string
+  onOpen: () => void
+  onRemove: () => void
+  removeAriaLabel: string
+}) {
+  return (
+    <div style={{ position: 'relative', flexShrink: 0 }}>
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={ariaLabel}
+        style={{
+          width: 56,
+          height: 56,
+          padding: 0,
+          background: 'transparent',
+          border: `1px solid ${borderColor}`,
+          borderRadius: 6,
+          cursor: 'pointer',
+          overflow: 'hidden',
+          display: 'block'
+        }}
+      >
+        <ImageBg url={imageUrl} style={{ width: '100%', height: '100%' }} />
+      </button>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onRemove() }}
+        aria-label={removeAriaLabel}
+        style={{
+          position: 'absolute',
+          top: 0,
+          right: 0,
+          width: 24,
+          height: 24,
+          padding: 0,
+          background: 'transparent',
+          border: 'none',
+          color: '#ffffff',
+          fontSize: 18,
+          lineHeight: 1,
+          cursor: 'pointer',
+          textShadow: '0 1px 2px rgba(0,0,0,0.55)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}
+      >
+        ×
+      </button>
+    </div>
   )
 }
 
@@ -450,82 +516,35 @@ export default function Constructor({
             fontFamily: 'inherit'
           }}
         >
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', overflowX: 'auto', marginBottom: 10, paddingTop: 6 }}>
-            {/* основа — кликабельна, открывает её карточку. без × (основу нельзя убрать без переключения шага) */}
-            <button
-              type="button"
-              onClick={() => selectedBase && setDetail({ kind: 'base', data: selectedBase })}
-              aria-label={`Открыть карточку: ${selectedBase.title}`}
-              style={{
-                flexShrink: 0,
-                width: 52,
-                height: 52,
-                padding: 0,
-                background: 'transparent',
-                border: `2px solid rgba(94, 102, 35, 0.45)`,
-                borderRadius: 6,
-                cursor: 'pointer',
-                overflow: 'hidden'
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', overflowX: 'auto', marginBottom: 10, paddingTop: 4 }}>
+            <ThumbnailWithRemove
+              imageUrl={selectedBase.images[0]}
+              borderColor="rgba(94, 102, 35, 0.45)"
+              ariaLabel={`Открыть карточку: ${selectedBase.title}`}
+              onOpen={() => selectedBase && setDetail({ kind: 'base', data: selectedBase })}
+              onRemove={() => {
+                // удаление основы → возврат к выбору типа украшения
+                setSelectedBase(null)
+                setSelectedPendantIds([])
+                setBases([])
+                setSelectedType(null)
+                setStep('type')
               }}
-            >
-              <ImageBg url={selectedBase.images[0]} style={{ width: '100%', height: '100%' }} />
-            </button>
-
-            {/* подвески — клик открывает карточку, × удаляет (зона нажатия больше иконки) */}
+              removeAriaLabel={`Сменить основу: ${selectedBase.title}`}
+            />
             {selectedPendantIds.map(id => {
               const p = pendants.find(x => x.id === id)
               if (!p) return null
               return (
-                <div key={id} style={{ position: 'relative', flexShrink: 0 }}>
-                  <button
-                    type="button"
-                    onClick={() => setDetail({ kind: 'pendant', data: p })}
-                    aria-label={`Открыть карточку: ${p.title}`}
-                    style={{
-                      width: 52,
-                      height: 52,
-                      padding: 0,
-                      background: 'transparent',
-                      border: `1px solid rgba(94, 102, 35, 0.25)`,
-                      borderRadius: 6,
-                      cursor: 'pointer',
-                      overflow: 'hidden',
-                      display: 'block'
-                    }}
-                  >
-                    <ImageBg url={p.images[0]} style={{ width: '100%', height: '100%' }} />
-                  </button>
-                  {/* зона удаления — 26x26 для пальца, иконка × визуально 14px */}
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      togglePendant(id)
-                    }}
-                    aria-label={`Убрать подвеску: ${p.title}`}
-                    style={{
-                      position: 'absolute',
-                      top: -10,
-                      right: -10,
-                      width: 26,
-                      height: 26,
-                      padding: 0,
-                      borderRadius: '50%',
-                      background: '#fff',
-                      border: '1px solid rgba(0,0,0,0.15)',
-                      boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: '#666',
-                      fontSize: 14,
-                      lineHeight: 1
-                    }}
-                  >
-                    ×
-                  </button>
-                </div>
+                <ThumbnailWithRemove
+                  key={id}
+                  imageUrl={p.images[0]}
+                  borderColor="rgba(94, 102, 35, 0.25)"
+                  ariaLabel={`Открыть карточку: ${p.title}`}
+                  onOpen={() => setDetail({ kind: 'pendant', data: p })}
+                  onRemove={() => togglePendant(id)}
+                  removeAriaLabel={`Убрать подвеску: ${p.title}`}
+                />
               )
             })}
             <div style={{
@@ -568,57 +587,81 @@ export default function Constructor({
 
       {/* детальная карточка компонента */}
       {detail && (
-        <DetailModal
+        <ConstructorDetailModal
           detail={detail}
+          mode="wizard"
           alreadySelected={detail.kind === 'pendant' && selectedPendantIds.includes(detail.data.id)}
           canSelectMore={!reachedLimit}
+          isCurrentBase={detail.kind === 'base' && selectedBase?.id === detail.data.id}
           onClose={() => setDetail(null)}
           onConfirmBase={handleConfirmBase}
           onTogglePendant={togglePendant}
+          onChangeBase={() => {
+            setSelectedBase(null)
+            setSelectedPendantIds([])
+            setBases([])
+            setSelectedType(null)
+            setStep('type')
+          }}
         />
       )}
     </motion.section>
   )
 }
 
-function DetailModal({
+export function ConstructorDetailModal({
   detail,
-  alreadySelected,
-  canSelectMore,
+  mode = 'wizard',
+  alreadySelected = false,
+  canSelectMore = true,
+  isCurrentBase = false,
   onClose,
   onConfirmBase,
-  onTogglePendant
+  onTogglePendant,
+  onChangeBase
 }: {
   detail: NonNullable<DetailView>
-  alreadySelected: boolean
-  canSelectMore: boolean
+  /** wizard — рабочий режим (можно менять состав); cart-preview — только просмотр (без действий) */
+  mode?: 'wizard' | 'cart-preview'
+  alreadySelected?: boolean
+  canSelectMore?: boolean
+  /** только для wizard + base: эта основа сейчас выбрана */
+  isCurrentBase?: boolean
   onClose: () => void
-  onConfirmBase: (b: ConstructorBase) => void
-  onTogglePendant: (id: string) => void
+  onConfirmBase?: (b: ConstructorBase) => void
+  onTogglePendant?: (id: string) => void
+  /** только для wizard + base: пользователь хочет сменить основу */
+  onChangeBase?: () => void
 }) {
   const data = detail.data
   const images = data.images.length > 0 ? data.images : ['']
 
-  const handleAction = () => {
-    if (detail.kind === 'base') {
-      onConfirmBase(detail.data)
-    } else {
-      onTogglePendant(detail.data.id)
-      onClose()
-    }
-  }
-
   let actionLabel = ''
   let actionEnabled = true
-  if (detail.kind === 'base') {
-    actionLabel = 'Выбрать эту основу'
-  } else if (alreadySelected) {
-    actionLabel = 'Убрать из подборки'
-  } else if (!canSelectMore) {
-    actionLabel = 'Лимит подвесок достигнут'
-    actionEnabled = false
+  let actionHandler: () => void = onClose
+
+  if (mode === 'cart-preview') {
+    actionLabel = 'Закрыть'
+    actionHandler = onClose
+  } else if (detail.kind === 'base') {
+    if (isCurrentBase) {
+      actionLabel = 'Сменить основу'
+      actionHandler = () => { onChangeBase?.(); onClose() }
+    } else {
+      actionLabel = 'Выбрать эту основу'
+      actionHandler = () => onConfirmBase?.(detail.data)
+    }
   } else {
-    actionLabel = 'Добавить подвеску'
+    if (alreadySelected) {
+      actionLabel = 'Убрать из подборки'
+      actionHandler = () => { onTogglePendant?.(detail.data.id); onClose() }
+    } else if (!canSelectMore) {
+      actionLabel = 'Лимит подвесок достигнут'
+      actionEnabled = false
+    } else {
+      actionLabel = 'Добавить подвеску'
+      actionHandler = () => { onTogglePendant?.(detail.data.id); onClose() }
+    }
   }
 
   return (
@@ -686,7 +729,7 @@ function DetailModal({
           )}
           <button
             type="button"
-            onClick={handleAction}
+            onClick={actionHandler}
             disabled={!actionEnabled}
             style={{
               width: '100%',
