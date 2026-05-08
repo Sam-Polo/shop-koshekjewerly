@@ -521,37 +521,50 @@ function BasesPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }) {
 
             <div className="form-group">
               <label>Типы украшений *</label>
-              {TYPES.map(t => {
-                const checkedKey = `for_${t.key}` as 'for_necklace' | 'for_earrings' | 'for_bracelet'
-                const limitKey = `limit_${t.key}` as 'limit_necklace' | 'limit_earrings' | 'limit_bracelet'
-                const checked = formData[checkedKey]
-                return (
-                  <div key={t.key} style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 120 }}>
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={e => setFormData(p => ({ ...p, [checkedKey]: e.target.checked }))}
-                      />
-                      {t.title}
-                    </label>
-                    {checked && (
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span>Макс. подвесок:</span>
+              <div style={{ display: 'grid', gap: 10 }}>
+                {TYPES.map(t => {
+                  const checkedKey = `for_${t.key}` as 'for_necklace' | 'for_earrings' | 'for_bracelet'
+                  const limitKey = `limit_${t.key}` as 'limit_necklace' | 'limit_earrings' | 'limit_bracelet'
+                  const checked = formData[checkedKey]
+                  return (
+                    <div
+                      key={t.key}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '160px 1fr',
+                        alignItems: 'center',
+                        gap: 16
+                      }}
+                    >
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
                         <input
-                          type="number"
-                          min="0"
-                          style={{ width: 80 }}
-                          value={formData[limitKey]}
-                          onChange={e => setFormData(p => ({ ...p, [limitKey]: e.target.value }))}
-                          placeholder="1"
+                          type="checkbox"
+                          checked={checked}
+                          onChange={e => setFormData(p => ({ ...p, [checkedKey]: e.target.checked }))}
+                          style={{ margin: 0 }}
                         />
-                        <small style={{ color: '#888' }}>(0 = без огр.)</small>
+                        <span>{t.title}</span>
                       </label>
-                    )}
-                  </div>
-                )
-              })}
+                      {checked ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontSize: 13, color: '#555' }}>Макс. подвесок:</span>
+                          <input
+                            type="number"
+                            min="0"
+                            style={{ width: 70 }}
+                            value={formData[limitKey]}
+                            onChange={e => setFormData(p => ({ ...p, [limitKey]: e.target.value }))}
+                            placeholder="1"
+                          />
+                          <small style={{ color: '#888' }}>0 = без огр.</small>
+                        </div>
+                      ) : (
+                        <span style={{ color: '#bbb', fontSize: 13 }}>—</span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
             </div>
 
             <div className="form-group">

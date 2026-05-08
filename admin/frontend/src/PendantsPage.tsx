@@ -482,21 +482,25 @@ function PendantsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
 
             <div className="form-group">
               <label>Типы украшений *</label>
-              {TYPES.map(t => {
-                const checkedKey = `for_${t.key}` as 'for_necklace' | 'for_earrings' | 'for_bracelet'
-                return (
-                  <div key={t.key} style={{ marginBottom: 8 }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ display: 'grid', gap: 10 }}>
+                {TYPES.map(t => {
+                  const checkedKey = `for_${t.key}` as 'for_necklace' | 'for_earrings' | 'for_bracelet'
+                  return (
+                    <label
+                      key={t.key}
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}
+                    >
                       <input
                         type="checkbox"
                         checked={formData[checkedKey]}
                         onChange={e => setFormData(p => ({ ...p, [checkedKey]: e.target.checked }))}
+                        style={{ margin: 0 }}
                       />
-                      {t.title}
+                      <span>{t.title}</span>
                     </label>
-                  </div>
-                )
-              })}
+                  )
+                })}
+              </div>
             </div>
 
             <div className="form-group">
