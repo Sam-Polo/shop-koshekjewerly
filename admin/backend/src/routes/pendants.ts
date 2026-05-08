@@ -66,15 +66,29 @@ router.put('/', async (req, res) => {
         return res.status(400).json({ error: 'invalid_price', title: p.title })
       }
 
-      if (typeof p.image !== 'string' || !p.image.trim()) {
-        return res.status(400).json({ error: 'image_required', title: p.title })
+      let images: string[] = []
+      if (Array.isArray(p.images)) {
+        images = p.images.filter((s: any) => typeof s === 'string' && s.trim()).map((s: string) => s.trim())
+      } else if (typeof p.image === 'string' && p.image.trim()) {
+        images = [p.image.trim()]
+      }
+      if (images.length === 0) {
+        return res.status(400).json({ error: 'images_required', title: p.title })
+      }
+      if (images.length > 20) {
+        return res.status(400).json({ error: 'too_many_images', title: p.title })
+      }
+      for (const img of images) {
+        try { new URL(img) } catch {
+          return res.status(400).json({ error: 'invalid_image_url_format', title: p.title })
+        }
       }
 
       valid.push({
         id: typeof p.id === 'string' && p.id.trim() ? p.id.trim() : randomUUID(),
         title: p.title.trim(),
         description: typeof p.description === 'string' ? p.description.trim() || undefined : undefined,
-        image: p.image.trim(),
+        images,
         price,
         for_necklace,
         for_earrings,

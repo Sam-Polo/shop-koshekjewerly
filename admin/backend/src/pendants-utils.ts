@@ -8,7 +8,7 @@ export type Pendant = {
   id: string
   title: string
   description?: string
-  image: string
+  images: string[]
   price: number
   for_necklace: boolean
   for_earrings: boolean
@@ -19,7 +19,7 @@ export type Pendant = {
 
 const SHEET_NAME = 'pendants'
 const HEADERS = [
-  'id', 'title', 'description', 'image', 'price',
+  'id', 'title', 'description', 'images', 'price',
   'for_necklace', 'for_earrings', 'for_bracelet',
   'active', 'order'
 ]
@@ -74,11 +74,16 @@ export async function fetchPendantsFromSheet(sheetId: string): Promise<Pendant[]
       const order = parseInt(get('order'), 10)
       const price = parseFloat(get('price'))
 
+      const imagesRaw = get('images') || get('image')
+      const images = imagesRaw
+        ? imagesRaw.split(/[,\n]/).map(s => s.trim()).filter(Boolean)
+        : []
+
       items.push({
         id,
         title: get('title') || id,
         description: get('description') || undefined,
-        image: get('image') || '',
+        images,
         price: Number.isFinite(price) ? price : 0,
         for_necklace: parseBool(get('for_necklace')),
         for_earrings: parseBool(get('for_earrings')),
@@ -109,7 +114,7 @@ export async function savePendantsToSheet(sheetId: string, items: Pendant[]): Pr
       it.id,
       it.title,
       it.description || '',
-      it.image,
+      it.images.join('\n'),
       it.price,
       it.for_necklace ? 'true' : 'false',
       it.for_earrings ? 'true' : 'false',

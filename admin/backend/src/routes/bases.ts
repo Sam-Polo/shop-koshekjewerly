@@ -74,15 +74,30 @@ router.put('/', async (req, res) => {
         return res.status(400).json({ error: 'invalid_price', title: b.title })
       }
 
-      if (typeof b.image !== 'string' || !b.image.trim()) {
-        return res.status(400).json({ error: 'image_required', title: b.title })
+      // images: массив URL (1..20). Поддерживаем back-compat: одиночный image тоже принимаем.
+      let images: string[] = []
+      if (Array.isArray(b.images)) {
+        images = b.images.filter((s: any) => typeof s === 'string' && s.trim()).map((s: string) => s.trim())
+      } else if (typeof b.image === 'string' && b.image.trim()) {
+        images = [b.image.trim()]
+      }
+      if (images.length === 0) {
+        return res.status(400).json({ error: 'images_required', title: b.title })
+      }
+      if (images.length > 20) {
+        return res.status(400).json({ error: 'too_many_images', title: b.title })
+      }
+      for (const img of images) {
+        try { new URL(img) } catch {
+          return res.status(400).json({ error: 'invalid_image_url_format', title: b.title })
+        }
       }
 
       valid.push({
         id: typeof b.id === 'string' && b.id.trim() ? b.id.trim() : randomUUID(),
         title: b.title.trim(),
         description: typeof b.description === 'string' ? b.description.trim() || undefined : undefined,
-        image: b.image.trim(),
+        images,
         price,
         for_necklace,
         for_earrings,

@@ -256,7 +256,7 @@ app.get('/api/constructor/bases', (req, res) => {
     id: b.id,
     title: b.title,
     description: b.description,
-    image: b.image,
+    images: b.images,
     price: b.price,
     // нормализуем лимит: null → 1 (дефолт), 0 → без ограничения, N → максимум
     limit: effectiveLimit(b, type)
@@ -274,7 +274,7 @@ app.get('/api/constructor/pendants', (req, res) => {
     id: p.id,
     title: p.title,
     description: p.description,
-    image: p.image,
+    images: p.images,
     price: p.price
   }))
   res.json({ pendants })

@@ -13,7 +13,7 @@ export type Base = {
   id: string
   title: string
   description?: string
-  image: string
+  images: string[]
   price: number
   for_necklace: boolean
   for_earrings: boolean
@@ -30,13 +30,17 @@ export type Pendant = {
   id: string
   title: string
   description?: string
-  image: string
+  images: string[]
   price: number
   for_necklace: boolean
   for_earrings: boolean
   for_bracelet: boolean
   active: boolean
   order: number
+}
+
+function parseImages(raw: string): string[] {
+  return raw.split(/[,\n]/).map(s => s.trim()).filter(Boolean)
 }
 
 function getAuthFromEnv() {
@@ -89,11 +93,12 @@ export async function fetchBasesFromSheet(sheetId: string): Promise<Base[]> {
       const id = get('id')
       if (!id) continue
 
+      const imagesRaw = get('images') || get('image')
       out.push({
         id,
         title: get('title') || id,
         description: get('description') || undefined,
-        image: get('image') || '',
+        images: imagesRaw ? parseImages(imagesRaw) : [],
         price: Number(get('price')) || 0,
         for_necklace: parseBool(get('for_necklace')),
         for_earrings: parseBool(get('for_earrings')),
@@ -136,11 +141,12 @@ export async function fetchPendantsFromSheet(sheetId: string): Promise<Pendant[]
       const id = get('id')
       if (!id) continue
 
+      const imagesRaw = get('images') || get('image')
       out.push({
         id,
         title: get('title') || id,
         description: get('description') || undefined,
-        image: get('image') || '',
+        images: imagesRaw ? parseImages(imagesRaw) : [],
         price: Number(get('price')) || 0,
         for_necklace: parseBool(get('for_necklace')),
         for_earrings: parseBool(get('for_earrings')),

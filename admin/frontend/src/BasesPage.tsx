@@ -26,7 +26,7 @@ type Base = {
   id: string
   title: string
   description?: string
-  image: string
+  images: string[]
   price: number
   for_necklace: boolean
   for_earrings: boolean
@@ -42,7 +42,7 @@ type FormData = {
   id: string
   title: string
   description: string
-  image: string
+  images: string[]
   price: string
   for_necklace: boolean
   for_earrings: boolean
@@ -102,7 +102,7 @@ function SortableBaseRow({
         <div
           className="category-row-preview"
           style={{
-            backgroundImage: base.image ? `url(${base.image})` : undefined,
+            backgroundImage: base.images[0] ? `url(${base.images[0]})` : undefined,
             backgroundSize: 'cover',
             backgroundPosition: 'center'
           }}
@@ -124,7 +124,7 @@ const emptyForm = (): FormData => ({
   id: '',
   title: '',
   description: '',
-  image: '',
+  images: [],
   price: '',
   for_necklace: false,
   for_earrings: false,
@@ -176,7 +176,7 @@ function BasesPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }) {
       id: b.id,
       title: b.title,
       description: b.description || '',
-      image: b.image,
+      images: [...b.images],
       price: String(b.price),
       for_necklace: b.for_necklace,
       for_earrings: b.for_earrings,
@@ -205,7 +205,7 @@ function BasesPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }) {
         id: b.id,
         title: b.title,
         description: b.description,
-        image: b.image,
+        images: b.images,
         price: b.price,
         for_necklace: b.for_necklace,
         for_earrings: b.for_earrings,
@@ -233,9 +233,9 @@ function BasesPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }) {
   }
 
   const handleSave = async () => {
-    const { title, image, price, for_necklace, for_earrings, for_bracelet } = formData
+    const { title, images, price, for_necklace, for_earrings, for_bracelet } = formData
     if (!title.trim()) { showToast('Укажите название', 'error'); return }
-    if (!image.trim()) { showToast('Загрузите фото', 'error'); return }
+    if (images.length === 0) { showToast('Загрузите хотя бы одно фото', 'error'); return }
     const priceNum = Number(price)
     if (!Number.isFinite(priceNum) || priceNum < 0) { showToast('Некорректная цена', 'error'); return }
     if (!for_necklace && !for_earrings && !for_bracelet) {
@@ -246,7 +246,7 @@ function BasesPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }) {
       id: formData.id || (editingBase?.id ?? genUuid()),
       title: title.trim(),
       description: formData.description.trim() || undefined,
-      image: image.trim(),
+      images: [...images],
       price: priceNum,
       for_necklace,
       for_earrings,
@@ -272,7 +272,7 @@ function BasesPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }) {
     setUploading(true)
     try {
       const url = await api.uploadImage(file)
-      setFormData(prev => ({ ...prev, image: url }))
+      setFormData(prev => ({ ...prev, images: [...prev.images, url] }))
     } catch (e: any) {
       showToast(e.message || 'Ошибка загрузки фото', 'error')
     } finally {
@@ -284,10 +284,18 @@ function BasesPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }) {
     const files = e.target.files
     if (!files?.length) return
     const allowed = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
-    const file = files[0]
-    if (allowed.includes(file.type.toLowerCase())) handleFileUpload(file)
-    else showToast('Поддерживаются JPG, PNG, WebP', 'error')
+    Array.from(files).forEach(file => {
+      if (allowed.includes(file.type.toLowerCase())) {
+        handleFileUpload(file)
+      } else {
+        showToast('Поддерживаются JPG, PNG, WebP', 'error')
+      }
+    })
     if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const removeImage = (idx: number) => {
+    setFormData(prev => ({ ...prev, images: prev.images.filter((_, i) => i !== idx) }))
   }
 
   const sensors = useSensors(
@@ -453,26 +461,62 @@ function BasesPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }) {
             </div>
 
             <div className="form-group">
-              <label>Фото *</label>
+              <label>Фото * (можно несколько, первое будет главным)</label>
               <div className="image-upload-area">
                 <input
                   type="file"
                   ref={fileInputRef}
                   id="base-image-input"
                   accept="image/jpeg,image/jpg,image/png,image/webp"
+                  multiple
                   onChange={handleFileSelect}
                   style={{ display: 'none' }}
                 />
                 <label htmlFor="base-image-input" className="image-upload-button">
                   {uploading ? 'Загрузка...' : 'Загрузить фото'}
                 </label>
-                {formData.image && (
-                  <div
-                    className="category-form-preview"
-                    style={{ backgroundImage: `url(${formData.image})`, backgroundSize: 'cover', backgroundPosition: 'center' }}
-                  />
-                )}
               </div>
+              {formData.images.length > 0 && (
+                <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                  {formData.images.map((url, i) => (
+                    <div key={url + i} style={{ position: 'relative' }}>
+                      <div
+                        style={{
+                          width: 80,
+                          height: 80,
+                          borderRadius: 6,
+                          border: i === 0 ? '2px solid #3942b8' : '1px solid #e8e8e8',
+                          backgroundImage: `url(${url})`,
+                          backgroundSize: 'cover',
+                          backgroundPosition: 'center'
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeImage(i)}
+                        title="Удалить"
+                        style={{
+                          position: 'absolute', top: -8, right: -8,
+                          width: 22, height: 22, borderRadius: '50%',
+                          background: '#fff', border: '1px solid #ddd',
+                          cursor: 'pointer', fontSize: 12, lineHeight: 1
+                        }}
+                      >
+                        ×
+                      </button>
+                      {i === 0 && (
+                        <div style={{
+                          position: 'absolute', bottom: 2, left: 2,
+                          fontSize: 10, padding: '2px 4px',
+                          background: 'rgba(0,0,0,0.65)', color: '#fff', borderRadius: 3
+                        }}>
+                          главное
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="form-group">

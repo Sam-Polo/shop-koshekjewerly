@@ -1665,8 +1665,8 @@ export default function App() {
         kind: 'constructor',
         id,
         type: composite.type,
-        base: { id: composite.base.id, title: composite.base.title, image: composite.base.image, price: composite.base.price },
-        pendants: composite.pendants.map(p => ({ id: p.id, title: p.title, image: p.image, price: p.price })),
+        base: { id: composite.base.id, title: composite.base.title, image: composite.base.images[0] || '', price: composite.base.price },
+        pendants: composite.pendants.map(p => ({ id: p.id, title: p.title, image: p.images[0] || '', price: p.price })),
         quantity: 1
       }
       return [...prev, newItem]

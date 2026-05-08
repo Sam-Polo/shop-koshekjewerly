@@ -10,7 +10,7 @@ export type Base = {
   id: string
   title: string
   description?: string
-  image: string
+  images: string[]
   price: number
   for_necklace: boolean
   for_earrings: boolean
@@ -28,7 +28,7 @@ export type Base = {
 
 const SHEET_NAME = 'bases'
 const HEADERS = [
-  'id', 'title', 'description', 'image', 'price',
+  'id', 'title', 'description', 'images', 'price',
   'for_necklace', 'for_earrings', 'for_bracelet',
   'limit_necklace', 'limit_earrings', 'limit_bracelet',
   'active', 'order'
@@ -91,11 +91,17 @@ export async function fetchBasesFromSheet(sheetId: string): Promise<Base[]> {
       const order = parseInt(get('order'), 10)
       const price = parseFloat(get('price'))
 
+      // back-compat: читаем сначала images (новая колонка), затем image (старая)
+      const imagesRaw = get('images') || get('image')
+      const images = imagesRaw
+        ? imagesRaw.split(/[,\n]/).map(s => s.trim()).filter(Boolean)
+        : []
+
       items.push({
         id,
         title: get('title') || id,
         description: get('description') || undefined,
-        image: get('image') || '',
+        images,
         price: Number.isFinite(price) ? price : 0,
         for_necklace: parseBool(get('for_necklace')),
         for_earrings: parseBool(get('for_earrings')),
@@ -129,7 +135,7 @@ export async function saveBasesToSheet(sheetId: string, items: Base[]): Promise<
       it.id,
       it.title,
       it.description || '',
-      it.image,
+      it.images.join('\n'),
       it.price,
       it.for_necklace ? 'true' : 'false',
       it.for_earrings ? 'true' : 'false',

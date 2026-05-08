@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { Swiper, SwiperSlide } from 'swiper/react'
+import { Pagination, Navigation } from 'swiper/modules'
 
 export type JewelryType = 'necklace' | 'earrings' | 'bracelet'
 
@@ -7,7 +9,7 @@ export type ConstructorBase = {
   id: string
   title: string
   description?: string
-  image: string
+  images: string[]
   price: number
   /** 0 = без ограничения, N>0 = максимум подвесок */
   limit: number
@@ -17,7 +19,7 @@ export type ConstructorPendant = {
   id: string
   title: string
   description?: string
-  image: string
+  images: string[]
   price: number
 }
 
@@ -33,7 +35,29 @@ const TYPES: { key: JewelryType; title: string }[] = [
   { key: 'bracelet', title: 'Браслет' }
 ]
 
+const BADGE_COLOR = '#5e6623'
+
 type Step = 'type' | 'base' | 'pendants'
+type DetailView =
+  | { kind: 'base'; data: ConstructorBase }
+  | { kind: 'pendant'; data: ConstructorPendant }
+  | null
+
+function ImageBg({ url, className, style }: { url: string | undefined, className?: string, style?: React.CSSProperties }) {
+  return (
+    <div
+      className={className}
+      style={{
+        backgroundImage: url ? `url(${url})` : undefined,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+        backgroundColor: '#f0f0f0',
+        ...style
+      }}
+    />
+  )
+}
 
 export default function Constructor({
   apiUrl,
@@ -52,8 +76,8 @@ export default function Constructor({
   const [selectedPendantIds, setSelectedPendantIds] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [detail, setDetail] = useState<DetailView>(null)
 
-  // загрузка основ при выборе типа
   useEffect(() => {
     if (!selectedType) return
     setLoading(true)
@@ -65,7 +89,6 @@ export default function Constructor({
       .finally(() => setLoading(false))
   }, [selectedType, apiUrl])
 
-  // загрузка подвесок при переходе к шагу подвесок
   useEffect(() => {
     if (step !== 'pendants' || !selectedType) return
     setLoading(true)
@@ -79,6 +102,7 @@ export default function Constructor({
 
   const goBack = () => {
     setError(null)
+    setDetail(null)
     if (step === 'pendants') {
       setStep('base')
       setSelectedPendantIds([])
@@ -98,10 +122,11 @@ export default function Constructor({
     setStep('base')
   }
 
-  const handlePickBase = (b: ConstructorBase) => {
+  const handleConfirmBase = (b: ConstructorBase) => {
     setSelectedBase(b)
     setSelectedPendantIds([])
     setStep('pendants')
+    setDetail(null)
   }
 
   const limit = selectedBase?.limit ?? 1
@@ -138,18 +163,21 @@ export default function Constructor({
     })
   }
 
-  const typeTitle = TYPES.find(t => t.key === selectedType)?.title ?? ''
-
   return (
     <motion.section
-      className="constructor"
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -12 }}
+      key="constructor"
+      className="constructor-page"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
       transition={{ duration: 0.25 }}
-      style={{ paddingBottom: selectedBase ? 140 : 24 }}
+      style={{
+        fontFamily: 'inherit',
+        paddingBottom: selectedBase ? 160 : 24
+      }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px' }}>
+      {/* шапка с кнопкой "назад" и заголовком шага */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px 0' }}>
         <button
           type="button"
           onClick={goBack}
@@ -159,21 +187,47 @@ export default function Constructor({
             border: 'none',
             padding: 8,
             cursor: 'pointer',
-            fontSize: 20,
-            lineHeight: 1
+            fontSize: 22,
+            lineHeight: 1,
+            fontFamily: 'inherit',
+            color: 'inherit'
           }}
         >
           ←
         </button>
-        <h2 style={{ margin: 0, fontSize: 18 }}>
-          {step === 'type' && 'Выберите тип украшения'}
-          {step === 'base' && `${typeTitle}: выберите основу`}
-          {step === 'pendants' && `${typeTitle}: выберите подвески${limit > 0 ? ` (до ${limit})` : ''}`}
-        </h2>
       </div>
 
+      <h2
+        style={{
+          fontFamily: "'Forum', serif",
+          fontSize: 24,
+          fontWeight: 400,
+          letterSpacing: '0.04em',
+          textAlign: 'center',
+          margin: '8px 16px 16px',
+          lineHeight: 1.3
+        }}
+      >
+        {step === 'type' && 'Выбери тип украшения'}
+        {step === 'base' && 'Шаг 1: Выбери базу для украшения'}
+        {step === 'pendants' && 'Шаг 2: Добавь подвеску, одну или несколько'}
+      </h2>
+
+      {step === 'pendants' && limit > 0 && (
+        <p style={{
+          textAlign: 'center',
+          margin: '0 16px 16px',
+          fontSize: 14,
+          color: '#666',
+          fontFamily: 'inherit'
+        }}>
+          Можно выбрать до {limit}{' '}
+          {limit === 1 ? 'подвески' : limit < 5 ? 'подвесок' : 'подвесок'}
+        </p>
+      )}
+
       {error && (
-        <p style={{ padding: 16, color: '#c33' }}>{error}</p>
+        <p style={{ padding: 16, color: '#c33', textAlign: 'center' }}>{error}</p>
       )}
 
       <AnimatePresence mode="wait">
@@ -184,7 +238,12 @@ export default function Constructor({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            style={{ display: 'grid', gap: 12, padding: 16 }}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+              gap: 16,
+              padding: 16
+            }}
           >
             {TYPES.map(t => (
               <button
@@ -192,13 +251,22 @@ export default function Constructor({
                 type="button"
                 onClick={() => handlePickType(t.key)}
                 style={{
-                  padding: '20px 16px',
-                  fontSize: 16,
-                  textAlign: 'left',
-                  background: '#fff',
-                  border: '1px solid #e8e8e8',
-                  borderRadius: 12,
-                  cursor: 'pointer'
+                  aspectRatio: '1 / 1',
+                  background: BADGE_COLOR,
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 0,
+                  cursor: 'pointer',
+                  fontFamily: "'Forum', serif",
+                  fontSize: 22,
+                  fontWeight: 400,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.08em',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                  transition: 'transform 0.2s ease, box-shadow 0.2s ease'
                 }}
               >
                 {t.title}
@@ -214,7 +282,6 @@ export default function Constructor({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            style={{ padding: 16 }}
           >
             {loading ? (
               <p style={{ textAlign: 'center', padding: 40 }}>Загрузка...</p>
@@ -223,37 +290,24 @@ export default function Constructor({
                 Пока нет доступных основ для этого типа
               </p>
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+              <div className="products-grid" style={{ padding: '0 16px' }}>
                 {bases.map(b => (
-                  <button
+                  <div
                     key={b.id}
-                    type="button"
-                    onClick={() => handlePickBase(b)}
-                    style={{
-                      padding: 0,
-                      background: '#fff',
-                      border: '1px solid #e8e8e8',
-                      borderRadius: 12,
-                      cursor: 'pointer',
-                      overflow: 'hidden',
-                      textAlign: 'left'
-                    }}
+                    className="product-card"
+                    onClick={() => setDetail({ kind: 'base', data: b })}
+                    style={{ cursor: 'pointer' }}
                   >
-                    <div
-                      style={{
-                        width: '100%',
-                        aspectRatio: '1 / 1',
-                        backgroundImage: `url(${b.image})`,
-                        backgroundSize: 'cover',
-                        backgroundPosition: 'center',
-                        background: b.image ? `center / cover no-repeat url(${b.image})` : '#f4f4f4'
-                      }}
-                    />
-                    <div style={{ padding: 10 }}>
-                      <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>{b.title}</div>
-                      <div style={{ fontSize: 13, color: '#666' }}>{b.price} ₽</div>
+                    <div className="product-card__image-wrapper">
+                      <ImageBg url={b.images[0]} className="product-card__image" />
                     </div>
-                  </button>
+                    <div className="product-card__info">
+                      <h3 className="product-card__title">{b.title}</h3>
+                      <p className="product-card__price">
+                        <span>{b.price} ₽</span>
+                      </p>
+                    </div>
+                  </div>
                 ))}
               </div>
             )}
@@ -267,7 +321,6 @@ export default function Constructor({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            style={{ padding: 16 }}
           >
             {loading ? (
               <p style={{ textAlign: 'center', padding: 40 }}>Загрузка...</p>
@@ -276,40 +329,39 @@ export default function Constructor({
                 Пока нет подвесок для этого типа
               </p>
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+              <div className="products-grid" style={{ padding: '0 16px' }}>
                 {pendants.map(p => {
                   const selected = selectedPendantIds.includes(p.id)
                   const disabled = !selected && reachedLimit
                   return (
-                    <button
+                    <div
                       key={p.id}
-                      type="button"
-                      onClick={() => !disabled && togglePendant(p.id)}
-                      disabled={disabled}
+                      className="product-card"
+                      onClick={() => !disabled && setDetail({ kind: 'pendant', data: p })}
                       style={{
-                        padding: 0,
-                        background: '#fff',
-                        border: selected ? '2px solid #3942b8' : '1px solid #e8e8e8',
-                        borderRadius: 12,
                         cursor: disabled ? 'not-allowed' : 'pointer',
-                        overflow: 'hidden',
-                        textAlign: 'left',
                         opacity: disabled ? 0.4 : 1,
-                        transition: 'opacity 0.2s, border-color 0.2s'
+                        outline: selected ? `2px solid ${BADGE_COLOR}` : 'none',
+                        outlineOffset: -2,
+                        position: 'relative',
+                        transition: 'opacity 0.2s, outline-color 0.2s'
                       }}
                     >
-                      <div
-                        style={{
-                          width: '100%',
-                          aspectRatio: '1 / 1',
-                          background: p.image ? `center / cover no-repeat url(${p.image})` : '#f4f4f4'
-                        }}
-                      />
-                      <div style={{ padding: 10 }}>
-                        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>{p.title}</div>
-                        <div style={{ fontSize: 13, color: '#666' }}>{p.price} ₽</div>
+                      {selected && (
+                        <div className="product-card__badge" style={{ background: BADGE_COLOR }}>
+                          выбрано
+                        </div>
+                      )}
+                      <div className="product-card__image-wrapper">
+                        <ImageBg url={p.images[0]} className="product-card__image" />
                       </div>
-                    </button>
+                      <div className="product-card__info">
+                        <h3 className="product-card__title">{p.title}</h3>
+                        <p className="product-card__price">
+                          <span>{p.price} ₽</span>
+                        </p>
+                      </div>
+                    </div>
                   )
                 })}
               </div>
@@ -318,7 +370,7 @@ export default function Constructor({
         )}
       </AnimatePresence>
 
-      {/* Sticky-превью внизу */}
+      {/* sticky-превью внизу когда уже выбрана основа */}
       {selectedBase && (step === 'base' || step === 'pendants') && (
         <div
           style={{
@@ -328,42 +380,42 @@ export default function Constructor({
             right: 0,
             background: '#fff',
             borderTop: '1px solid #e8e8e8',
-            padding: 12,
+            padding: '12px 16px',
             boxShadow: '0 -4px 12px rgba(0,0,0,0.06)',
-            zIndex: 100
+            zIndex: 100,
+            fontFamily: 'inherit'
           }}
         >
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', overflowX: 'auto', marginBottom: 8 }}>
-            <div
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', overflowX: 'auto', marginBottom: 10 }}>
+            <ImageBg
+              url={selectedBase.images[0]}
               style={{
                 flexShrink: 0,
-                width: 48,
-                height: 48,
-                borderRadius: 8,
-                background: selectedBase.image ? `center / cover no-repeat url(${selectedBase.image})` : '#f4f4f4',
-                border: '1px solid #e8e8e8'
+                width: 52,
+                height: 52,
+                border: `2px solid ${BADGE_COLOR}`
               }}
-              title={selectedBase.title}
             />
             {selectedPendantIds.map(id => {
               const p = pendants.find(x => x.id === id)
               if (!p) return null
               return (
-                <div
+                <ImageBg
                   key={id}
-                  style={{
-                    flexShrink: 0,
-                    width: 48,
-                    height: 48,
-                    borderRadius: 8,
-                    background: p.image ? `center / cover no-repeat url(${p.image})` : '#f4f4f4',
-                    border: '1px solid #e8e8e8'
-                  }}
-                  title={p.title}
+                  url={p.images[0]}
+                  style={{ flexShrink: 0, width: 52, height: 52, border: '1px solid #e8e8e8' }}
                 />
               )
             })}
-            <div style={{ marginLeft: 'auto', fontSize: 16, fontWeight: 600, paddingRight: 8, whiteSpace: 'nowrap' }}>
+            <div style={{
+              marginLeft: 'auto',
+              fontSize: 18,
+              fontWeight: 600,
+              fontFamily: "'Forum', serif",
+              paddingLeft: 8,
+              whiteSpace: 'nowrap',
+              color: '#bf9243'
+            }}>
               {totalPrice} ₽
             </div>
           </div>
@@ -375,20 +427,164 @@ export default function Constructor({
               width: '100%',
               padding: 14,
               fontSize: 15,
-              fontWeight: 500,
-              background: canAddToCart ? '#000' : '#ccc',
+              fontWeight: 400,
+              fontFamily: "'Forum', serif",
+              letterSpacing: '0.06em',
+              textTransform: 'uppercase',
+              background: canAddToCart ? BADGE_COLOR : '#ccc',
               color: '#fff',
               border: 'none',
-              borderRadius: 10,
+              borderRadius: 0,
               cursor: canAddToCart ? 'pointer' : 'not-allowed'
             }}
           >
             {selectedPendantIds.length === 0
-              ? 'Выберите минимум 1 подвеску'
+              ? 'Выберите подвеску'
               : 'В корзину'}
           </button>
         </div>
       )}
+
+      {/* детальная карточка компонента */}
+      {detail && (
+        <DetailModal
+          detail={detail}
+          alreadySelected={detail.kind === 'pendant' && selectedPendantIds.includes(detail.data.id)}
+          canSelectMore={!reachedLimit}
+          onClose={() => setDetail(null)}
+          onConfirmBase={handleConfirmBase}
+          onTogglePendant={togglePendant}
+        />
+      )}
     </motion.section>
+  )
+}
+
+function DetailModal({
+  detail,
+  alreadySelected,
+  canSelectMore,
+  onClose,
+  onConfirmBase,
+  onTogglePendant
+}: {
+  detail: NonNullable<DetailView>
+  alreadySelected: boolean
+  canSelectMore: boolean
+  onClose: () => void
+  onConfirmBase: (b: ConstructorBase) => void
+  onTogglePendant: (id: string) => void
+}) {
+  const data = detail.data
+  const images = data.images.length > 0 ? data.images : ['']
+
+  const handleAction = () => {
+    if (detail.kind === 'base') {
+      onConfirmBase(detail.data)
+    } else {
+      onTogglePendant(detail.data.id)
+      onClose()
+    }
+  }
+
+  let actionLabel = ''
+  let actionEnabled = true
+  if (detail.kind === 'base') {
+    actionLabel = 'Выбрать эту основу'
+  } else if (alreadySelected) {
+    actionLabel = 'Убрать из подборки'
+  } else if (!canSelectMore) {
+    actionLabel = 'Лимит подвесок достигнут'
+    actionEnabled = false
+  } else {
+    actionLabel = 'Добавить подвеску'
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div
+        className="modal-content modal-content--product"
+        onClick={e => e.stopPropagation()}
+        style={{ fontFamily: 'inherit' }}
+      >
+        <button className="modal-close" onClick={onClose}>&times;</button>
+
+        <div className="product-modal__gallery">
+          {images.length > 1 ? (
+            <Swiper
+              modules={[Pagination, Navigation]}
+              pagination={{ clickable: true }}
+              navigation
+              spaceBetween={0}
+              slidesPerView={1}
+            >
+              {images.map((img, i) => (
+                <SwiperSlide key={i}>
+                  <div className="product-modal__image-wrapper">
+                    <ImageBg url={img} className="product-modal__image" />
+                  </div>
+                </SwiperSlide>
+              ))}
+            </Swiper>
+          ) : (
+            <div className="product-modal__image-wrapper">
+              <ImageBg url={images[0]} className="product-modal__image" />
+            </div>
+          )}
+        </div>
+
+        <div style={{ padding: '20px 20px 24px' }}>
+          <h2 style={{
+            margin: '0 0 8px',
+            fontSize: 24,
+            fontFamily: "'Forum', serif",
+            fontWeight: 400
+          }}>
+            {data.title}
+          </h2>
+          <p style={{
+            margin: '0 0 16px',
+            fontSize: 18,
+            fontWeight: 600,
+            color: '#bf9243',
+            fontFamily: "'Forum', serif"
+          }}>
+            {data.price} ₽
+          </p>
+          {data.description && (
+            <p style={{
+              margin: '0 0 20px',
+              fontSize: 14,
+              lineHeight: 1.5,
+              color: '#555',
+              fontFamily: 'inherit',
+              whiteSpace: 'pre-wrap'
+            }}>
+              {data.description}
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={handleAction}
+            disabled={!actionEnabled}
+            style={{
+              width: '100%',
+              padding: 14,
+              fontSize: 14,
+              fontFamily: "'Forum', serif",
+              letterSpacing: '0.06em',
+              textTransform: 'uppercase',
+              background: actionEnabled ? BADGE_COLOR : '#ccc',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 0,
+              cursor: actionEnabled ? 'pointer' : 'not-allowed'
+            }}
+          >
+            {actionLabel}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
