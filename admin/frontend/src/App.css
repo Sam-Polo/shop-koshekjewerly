@@ -2697,3 +2697,81 @@
   }
 }
 
+/* ===== Конструктор: формы основ и подвесок ===== */
+.constructor-types-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.constructor-type-row {
+  display: grid;
+  grid-template-columns: 170px 1fr;
+  align-items: center;
+  gap: 16px;
+  min-height: 36px;
+}
+
+.constructor-type-limit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #555;
+  flex-wrap: wrap;
+}
+
+.constructor-subnav {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid #e8e8e8;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.constructor-subnav-tab {
+  padding: 10px 18px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #666;
+  cursor: pointer;
+  font-size: 14px;
+  font-family: inherit;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: color 0.15s, border-bottom-color 0.15s;
+}
+
+.constructor-subnav-tab.active {
+  border-bottom-color: #3942b8;
+  color: #3942b8;
+  font-weight: 600;
+}
+
+.constructor-image-thumbs {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 600px) {
+  .constructor-type-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+    min-height: 0;
+  }
+
+  /* блок «Макс. подвесок» под чекбоксом — отступ слева чтобы не сливался с краем */
+  .constructor-type-row > .constructor-type-limit {
+    margin-left: 28px;
+  }
+
+  .constructor-subnav-tab {
+    padding: 10px 14px;
+    font-size: 13px;
+  }
+}
+

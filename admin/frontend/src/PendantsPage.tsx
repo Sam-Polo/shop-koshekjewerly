@@ -295,35 +295,18 @@ function PendantsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
       </header>
 
       <div className="categories-content">
-        <div style={{ display: 'flex', gap: 8, marginBottom: 16, borderBottom: '1px solid #e8e8e8', paddingBottom: 0 }}>
+        <div className="constructor-subnav">
           <button
             type="button"
+            className="constructor-subnav-tab"
             onClick={() => onNavigate?.('bases')}
-            style={{
-              padding: '10px 18px',
-              background: 'transparent',
-              border: 'none',
-              borderBottom: '2px solid transparent',
-              color: '#666',
-              cursor: 'pointer',
-              fontSize: 14
-            }}
           >
             Основы
           </button>
           <button
             type="button"
+            className="constructor-subnav-tab active"
             onClick={() => onNavigate?.('pendants')}
-            style={{
-              padding: '10px 18px',
-              background: 'transparent',
-              border: 'none',
-              borderBottom: '2px solid #3942b8',
-              color: '#3942b8',
-              fontWeight: 600,
-              cursor: 'pointer',
-              fontSize: 14
-            }}
           >
             Подвески
           </button>
@@ -438,7 +421,7 @@ function PendantsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
                 </label>
               </div>
               {formData.images.length > 0 && (
-                <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                <div className="constructor-image-thumbs">
                   {formData.images.map((url, i) => (
                     <div key={url + i} style={{ position: 'relative' }}>
                       <div
@@ -482,19 +465,41 @@ function PendantsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
 
             <div className="form-group">
               <label>Типы украшений *</label>
-              <div style={{ display: 'grid', gap: 10 }}>
+              <div className="constructor-types-list">
                 {TYPES.map(t => {
                   const checkedKey = `for_${t.key}` as 'for_necklace' | 'for_earrings' | 'for_bracelet'
                   return (
                     <label
                       key={t.key}
-                      style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        margin: 0,
+                        minHeight: 36,
+                        cursor: 'pointer',
+                        fontWeight: 500,
+                        color: '#333',
+                        userSelect: 'none'
+                      }}
                     >
                       <input
                         type="checkbox"
                         checked={formData[checkedKey]}
                         onChange={e => setFormData(p => ({ ...p, [checkedKey]: e.target.checked }))}
-                        style={{ margin: 0 }}
+                        style={{
+                          width: 18,
+                          height: 18,
+                          margin: 0,
+                          padding: 0,
+                          border: '1px solid #ccc',
+                          borderRadius: 3,
+                          background: '#fff',
+                          cursor: 'pointer',
+                          accentColor: '#3942b8',
+                          flexShrink: 0,
+                          boxShadow: 'none'
+                        }}
                       />
                       <span>{t.title}</span>
                     </label>
@@ -504,13 +509,36 @@ function PendantsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
             </div>
 
             <div className="form-group">
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  cursor: 'pointer',
+                  fontWeight: 500,
+                  color: '#333',
+                  userSelect: 'none',
+                  margin: 0
+                }}
+              >
                 <input
                   type="checkbox"
                   checked={formData.active}
                   onChange={e => setFormData(p => ({ ...p, active: e.target.checked }))}
+                  style={{
+                    width: 18,
+                    height: 18,
+                    margin: 0,
+                    padding: 0,
+                    border: '1px solid #ccc',
+                    borderRadius: 3,
+                    cursor: 'pointer',
+                    accentColor: '#3942b8',
+                    flexShrink: 0,
+                    boxShadow: 'none'
+                  }}
                 />
-                Активна (видна в мини-приложении)
+                <span>Активна (видна в мини-приложении)</span>
               </label>
             </div>
 
