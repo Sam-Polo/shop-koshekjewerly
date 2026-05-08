@@ -645,7 +645,7 @@ export function ConstructorDetailModal({
     actionHandler = onClose
   } else if (detail.kind === 'base') {
     if (isCurrentBase) {
-      actionLabel = 'Сменить основу'
+      actionLabel = 'Удалить основу'
       actionHandler = () => { onChangeBase?.(); onClose() }
     } else {
       actionLabel = 'Выбрать эту основу'

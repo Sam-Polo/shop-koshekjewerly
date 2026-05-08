@@ -76,7 +76,11 @@ type RegularCartItem = {
 type ConstructorComponentRef = {
   id: string
   title: string
+  description?: string
+  /** главная (первая) фотография — для быстрой отрисовки миниатюры */
   image: string
+  /** полная галерея для preview-карточки */
+  images: string[]
   price: number
 }
 
@@ -1690,8 +1694,22 @@ export default function App() {
         kind: 'constructor',
         id,
         type: composite.type,
-        base: { id: composite.base.id, title: composite.base.title, image: composite.base.images[0] || '', price: composite.base.price },
-        pendants: composite.pendants.map(p => ({ id: p.id, title: p.title, image: p.images[0] || '', price: p.price })),
+        base: {
+          id: composite.base.id,
+          title: composite.base.title,
+          description: composite.base.description,
+          image: composite.base.images[0] || '',
+          images: composite.base.images,
+          price: composite.base.price
+        },
+        pendants: composite.pendants.map(p => ({
+          id: p.id,
+          title: p.title,
+          description: p.description,
+          image: p.images[0] || '',
+          images: p.images,
+          price: p.price
+        })),
         quantity: 1
       }
       return [...prev, newItem]
@@ -2122,12 +2140,11 @@ export default function App() {
           products={products}
           onUpdateCart={updateCart}
           onPreviewComponent={(kind, ref) => {
-            // строим минимальный объект для DetailModal: image (если есть) кладём в images[]
             const data = {
               id: ref.id,
               title: ref.title,
-              description: undefined,
-              images: ref.image ? [ref.image] : [],
+              description: ref.description,
+              images: ref.images && ref.images.length > 0 ? ref.images : (ref.image ? [ref.image] : []),
               price: ref.price,
               ...(kind === 'base' ? { limit: 0 } : {})
             } as any
