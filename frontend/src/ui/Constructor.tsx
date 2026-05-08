@@ -59,6 +59,71 @@ function ImageBg({ url, className, style }: { url: string | undefined, className
   )
 }
 
+// фоновое фото с состояниями загрузки (shimmer → fade-in), как в основном каталоге
+function ImageWithLoader({ src, className }: { src: string | undefined, className?: string }) {
+  const [loaded, setLoaded] = useState(false)
+  const [errored, setErrored] = useState(false)
+  useEffect(() => {
+    setLoaded(false)
+    setErrored(false)
+    if (!src) {
+      setErrored(true)
+      return
+    }
+    const img = new Image()
+    img.onload = () => setLoaded(true)
+    img.onerror = () => setErrored(true)
+    img.src = src
+  }, [src])
+
+  if (errored || !src) {
+    return <div className={`${className ?? ''} product-card__image--placeholder`} />
+  }
+  return (
+    <div
+      className={`${className ?? ''} ${loaded ? 'fade-in-image' : 'shimmer-bg'}`}
+      style={loaded ? { backgroundImage: `url(${src})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
+    />
+  )
+}
+
+function SkeletonGrid({ count }: { count: number }) {
+  return (
+    <div className="products-grid" style={{ padding: '0 16px' }}>
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} className="product-card">
+          <div className="product-card__image-wrapper">
+            <div className="product-card__image shimmer-bg" />
+          </div>
+          <div className="product-card__info">
+            <div className="shimmer-bg" style={{ height: 16, width: '70%', marginBottom: 8, borderRadius: 2 }} />
+            <div className="shimmer-bg" style={{ height: 14, width: '40%', borderRadius: 2 }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// fetch с retry+backoff — Render free tier просыпается ~30с, бывают сетевые сбои
+async function fetchJsonWithRetry<T>(url: string, attempts = 4): Promise<T> {
+  let lastErr: any = null
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(url, { cache: 'no-store' })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      return await res.json() as T
+    } catch (err) {
+      lastErr = err
+      if (i < attempts - 1) {
+        // 600мс, 1.2с, 2.4с
+        await new Promise(r => setTimeout(r, 600 * Math.pow(2, i)))
+      }
+    }
+  }
+  throw lastErr
+}
+
 export default function Constructor({
   apiUrl,
   onAddToCart,
@@ -80,24 +145,26 @@ export default function Constructor({
 
   useEffect(() => {
     if (!selectedType) return
+    let cancelled = false
     setLoading(true)
     setError(null)
-    fetch(`${apiUrl}/api/constructor/bases?type=${selectedType}`)
-      .then(r => r.json())
-      .then(data => setBases(data.bases || []))
-      .catch(() => setError('Не удалось загрузить основы'))
-      .finally(() => setLoading(false))
+    fetchJsonWithRetry<{ bases?: ConstructorBase[] }>(`${apiUrl}/api/constructor/bases?type=${selectedType}`)
+      .then(data => { if (!cancelled) setBases(data.bases || []) })
+      .catch(() => { if (!cancelled) setError('Не удалось загрузить основы. Попробуйте обновить страницу.') })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
   }, [selectedType, apiUrl])
 
   useEffect(() => {
     if (step !== 'pendants' || !selectedType) return
+    let cancelled = false
     setLoading(true)
     setError(null)
-    fetch(`${apiUrl}/api/constructor/pendants?type=${selectedType}`)
-      .then(r => r.json())
-      .then(data => setPendants(data.pendants || []))
-      .catch(() => setError('Не удалось загрузить подвески'))
-      .finally(() => setLoading(false))
+    fetchJsonWithRetry<{ pendants?: ConstructorPendant[] }>(`${apiUrl}/api/constructor/pendants?type=${selectedType}`)
+      .then(data => { if (!cancelled) setPendants(data.pendants || []) })
+      .catch(() => { if (!cancelled) setError('Не удалось загрузить подвески. Попробуйте обновить страницу.') })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
   }, [step, selectedType, apiUrl])
 
   const goBack = () => {
@@ -240,8 +307,7 @@ export default function Constructor({
             transition={{ duration: 0.2 }}
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
-              gap: 16,
+              gap: 12,
               padding: 16
             }}
           >
@@ -251,22 +317,20 @@ export default function Constructor({
                 type="button"
                 onClick={() => handlePickType(t.key)}
                 style={{
-                  aspectRatio: '1 / 1',
-                  background: BADGE_COLOR,
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: 0,
+                  padding: '20px 24px',
+                  background: '#fff',
+                  color: BADGE_COLOR,
+                  border: `1px solid ${BADGE_COLOR}`,
+                  borderRadius: 999,
                   cursor: 'pointer',
                   fontFamily: "'Forum', serif",
-                  fontSize: 22,
+                  fontSize: 18,
                   fontWeight: 400,
                   textTransform: 'uppercase',
                   letterSpacing: '0.08em',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-                  transition: 'transform 0.2s ease, box-shadow 0.2s ease'
+                  textAlign: 'center',
+                  transition: 'background-color 0.2s ease, color 0.2s ease',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
                 }}
               >
                 {t.title}
@@ -284,7 +348,7 @@ export default function Constructor({
             transition={{ duration: 0.2 }}
           >
             {loading ? (
-              <p style={{ textAlign: 'center', padding: 40 }}>Загрузка...</p>
+              <SkeletonGrid count={6} />
             ) : bases.length === 0 ? (
               <p style={{ textAlign: 'center', padding: 40, color: '#888' }}>
                 Пока нет доступных основ для этого типа
@@ -299,7 +363,7 @@ export default function Constructor({
                     style={{ cursor: 'pointer' }}
                   >
                     <div className="product-card__image-wrapper">
-                      <ImageBg url={b.images[0]} className="product-card__image" />
+                      <ImageWithLoader src={b.images[0]} className="product-card__image" />
                     </div>
                     <div className="product-card__info">
                       <h3 className="product-card__title">{b.title}</h3>
@@ -323,7 +387,7 @@ export default function Constructor({
             transition={{ duration: 0.2 }}
           >
             {loading ? (
-              <p style={{ textAlign: 'center', padding: 40 }}>Загрузка...</p>
+              <SkeletonGrid count={6} />
             ) : pendants.length === 0 ? (
               <p style={{ textAlign: 'center', padding: 40, color: '#888' }}>
                 Пока нет подвесок для этого типа
@@ -353,7 +417,7 @@ export default function Constructor({
                         </div>
                       )}
                       <div className="product-card__image-wrapper">
-                        <ImageBg url={p.images[0]} className="product-card__image" />
+                        <ImageWithLoader src={p.images[0]} className="product-card__image" />
                       </div>
                       <div className="product-card__info">
                         <h3 className="product-card__title">{p.title}</h3>
@@ -386,25 +450,82 @@ export default function Constructor({
             fontFamily: 'inherit'
           }}
         >
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', overflowX: 'auto', marginBottom: 10 }}>
-            <ImageBg
-              url={selectedBase.images[0]}
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', overflowX: 'auto', marginBottom: 10, paddingTop: 6 }}>
+            {/* основа — кликабельна, открывает её карточку. без × (основу нельзя убрать без переключения шага) */}
+            <button
+              type="button"
+              onClick={() => selectedBase && setDetail({ kind: 'base', data: selectedBase })}
+              aria-label={`Открыть карточку: ${selectedBase.title}`}
               style={{
                 flexShrink: 0,
                 width: 52,
                 height: 52,
-                border: `2px solid ${BADGE_COLOR}`
+                padding: 0,
+                background: 'transparent',
+                border: `2px solid rgba(94, 102, 35, 0.45)`,
+                borderRadius: 6,
+                cursor: 'pointer',
+                overflow: 'hidden'
               }}
-            />
+            >
+              <ImageBg url={selectedBase.images[0]} style={{ width: '100%', height: '100%' }} />
+            </button>
+
+            {/* подвески — клик открывает карточку, × удаляет (зона нажатия больше иконки) */}
             {selectedPendantIds.map(id => {
               const p = pendants.find(x => x.id === id)
               if (!p) return null
               return (
-                <ImageBg
-                  key={id}
-                  url={p.images[0]}
-                  style={{ flexShrink: 0, width: 52, height: 52, border: '1px solid #e8e8e8' }}
-                />
+                <div key={id} style={{ position: 'relative', flexShrink: 0 }}>
+                  <button
+                    type="button"
+                    onClick={() => setDetail({ kind: 'pendant', data: p })}
+                    aria-label={`Открыть карточку: ${p.title}`}
+                    style={{
+                      width: 52,
+                      height: 52,
+                      padding: 0,
+                      background: 'transparent',
+                      border: `1px solid rgba(94, 102, 35, 0.25)`,
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                      overflow: 'hidden',
+                      display: 'block'
+                    }}
+                  >
+                    <ImageBg url={p.images[0]} style={{ width: '100%', height: '100%' }} />
+                  </button>
+                  {/* зона удаления — 26x26 для пальца, иконка × визуально 14px */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      togglePendant(id)
+                    }}
+                    aria-label={`Убрать подвеску: ${p.title}`}
+                    style={{
+                      position: 'absolute',
+                      top: -10,
+                      right: -10,
+                      width: 26,
+                      height: 26,
+                      padding: 0,
+                      borderRadius: '50%',
+                      background: '#fff',
+                      border: '1px solid rgba(0,0,0,0.15)',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#666',
+                      fontSize: 14,
+                      lineHeight: 1
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
               )
             })}
             <div style={{

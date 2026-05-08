@@ -1183,7 +1183,6 @@ const CartModal = ({
   products,
   onUpdateCart,
   onRemovePendant,
-  onOpenConstructor,
   onClose,
   onCheckout
 }: {
@@ -1191,7 +1190,6 @@ const CartModal = ({
   products: Product[]
   onUpdateCart: (key: string, delta: number) => void
   onRemovePendant: (compositeId: string, pendantId: string) => void
-  onOpenConstructor: () => void
   onClose: () => void
   onCheckout: () => void
 }) => {
@@ -1242,12 +1240,53 @@ const CartModal = ({
                 if (it.kind === 'constructor') {
                   const composite = it.cartItem
                   const canRemovePendant = composite.pendants.length > 1
+                  const visiblePendants = composite.pendants.slice(0, 3)
+                  const overflowPendants = composite.pendants.length - visiblePendants.length
                   return (
                     <div key={composite.id} className="cart-item">
-                      <div
-                        className="cart-item__image"
-                        style={{ backgroundImage: composite.base.image ? `url(${composite.base.image})` : undefined }}
-                      />
+                      <div style={{ display: 'flex', gap: 4, flexShrink: 0, alignItems: 'stretch' }}>
+                        <div
+                          className="cart-item__image"
+                          style={{
+                            backgroundImage: composite.base.image ? `url(${composite.base.image})` : undefined,
+                            margin: 0
+                          }}
+                        />
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, justifyContent: 'flex-start' }}>
+                          {visiblePendants.map(p => (
+                            <div
+                              key={p.id}
+                              style={{
+                                width: 26,
+                                height: 26,
+                                borderRadius: 3,
+                                backgroundImage: p.image ? `url(${p.image})` : undefined,
+                                backgroundSize: 'cover',
+                                backgroundPosition: 'center',
+                                backgroundColor: '#f0f0f0',
+                                border: '1px solid #e8e8e8'
+                              }}
+                              title={p.title}
+                            />
+                          ))}
+                          {overflowPendants > 0 && (
+                            <div style={{
+                              width: 26,
+                              height: 26,
+                              borderRadius: 3,
+                              background: '#f4f4f4',
+                              border: '1px solid #e8e8e8',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: 10,
+                              color: '#888'
+                            }}>
+                              +{overflowPendants}
+                            </div>
+                          )}
+                        </div>
+                      </div>
                       <div className="cart-item__info">
                         <h3 className="cart-item__title">{TYPE_TITLES[composite.type]} на заказ</h3>
                         <p style={{ fontSize: 12, color: '#666', margin: '4px 0' }}>
@@ -1356,23 +1395,6 @@ const CartModal = ({
                 )
               })}
             </div>
-            <button
-              type="button"
-              onClick={onOpenConstructor}
-              style={{
-                margin: '8px 0',
-                padding: 10,
-                width: '100%',
-                background: 'transparent',
-                border: '1px dashed #c8cae8',
-                color: '#3942b8',
-                borderRadius: 8,
-                cursor: 'pointer',
-                fontSize: 13
-              }}
-            >
-              + Собрать ещё одно украшение
-            </button>
             
             <div className="cart-modal__footer">
               <div className="cart-modal__total">
@@ -1615,21 +1637,28 @@ export default function App() {
     }
 
     setCart(prev => {
-      const existing = prev.find(item =>
+      const matches = (item: CartItem) =>
         item.kind === 'regular' ? item.slug === key : item.id === key
-      )
-      if (!existing) return prev
 
-      // для regular ограничиваем по stock; для композита — без ограничения
+      const existing = prev.find(matches)
+
+      // нет такого item в корзине → если delta>0, добавляем как обычный товар (композиты добавляются через addComposite)
+      if (!existing) {
+        if (delta < 0) return prev
+        const product = products.find(p => p.slug === key)
+        if (!product) return prev
+        const maxQuantity = product.stock !== undefined ? product.stock : 999
+        const qty = Math.min(maxQuantity, Math.max(1, delta))
+        return [...prev, { kind: 'regular', slug: key, quantity: qty }]
+      }
+
+      // лимит для regular из stock; для композита — без ограничения
       let maxQuantity = 999
       if (existing.kind === 'regular') {
         const product = products.find(p => p.slug === existing.slug)
         if (!product) return prev
         maxQuantity = product.stock !== undefined ? product.stock : 999
       }
-
-      const matches = (item: CartItem) =>
-        item.kind === 'regular' ? item.slug === key : item.id === key
 
       if (delta < 0) {
         if (existing.quantity === 0) return prev
@@ -2116,10 +2145,6 @@ export default function App() {
           products={products}
           onUpdateCart={updateCart}
           onRemovePendant={removePendantFromComposite}
-          onOpenConstructor={() => {
-            setCartOpen(false)
-            setSelectedCategory(CONSTRUCTOR_CATEGORY_KEY)
-          }}
           onClose={() => setCartOpen(false)}
           onCheckout={handleCheckoutStart}
         />
