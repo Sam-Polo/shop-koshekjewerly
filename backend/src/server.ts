@@ -2,6 +2,8 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import pino from 'pino';
+import fs from 'node:fs';
+import path from 'node:path';
 import rateLimit from 'express-rate-limit';
 import { fetchProductsFromSheet } from './sheets.js';
 import { listProducts, upsertProducts, decreaseProductStock } from './store.js';
@@ -353,36 +355,72 @@ app.post('/api/promocodes/validate', async (req, res) => {
   }
 });
 
-// отправка сообщения через Telegram Bot API
+// фиксируем неотправленные TG-уведомления для ручного разбора
+function recordFailedTgNotification(entry: { chatId: string | number; text: string; error?: string; status?: number }) {
+  try {
+    const file = path.join(process.cwd(), 'failed-tg-notifications.json')
+    let arr: any[] = []
+    if (fs.existsSync(file)) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(file, 'utf8'))
+        if (Array.isArray(parsed)) arr = parsed
+      } catch {}
+    }
+    arr.push({ timestamp: new Date().toISOString(), ...entry })
+    if (arr.length > 1000) arr = arr.slice(-1000)
+    fs.writeFileSync(file, JSON.stringify(arr, null, 2), 'utf8')
+  } catch (e: any) {
+    logger.error({ error: e?.message }, 'не удалось записать failed-tg-notifications.json')
+  }
+}
+
+// отправка сообщения через Telegram Bot API: 3 попытки 1/3/9с, на финальном фейле — лог + файл.
+// 4xx (кроме 429) считаем финальной ошибкой нашего запроса и не ретраим.
 async function sendTelegramMessage(chatId: string | number, text: string) {
   const token = process.env.TG_BOT_TOKEN
   if (!token) {
     logger.warn('TG_BOT_TOKEN не задан, сообщение не отправлено')
     return false
   }
-  
-  try {
-    const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text,
-        parse_mode: 'HTML'
+
+  const RETRY_DELAYS_MS = [1000, 3000, 9000]
+  let lastError: string | undefined
+  let lastStatus: number | undefined
+
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' })
       })
-    })
-    
-    if (!response.ok) {
-      const error = await response.text()
-      logger.error({ error }, 'ошибка отправки сообщения в telegram')
-      return false
+
+      if (response.ok) return true
+
+      const errorText = await response.text().catch(() => '')
+      lastError = errorText || `HTTP ${response.status}`
+      lastStatus = response.status
+
+      // 4xx (кроме 429) ретраить бесполезно — это ошибка нашего запроса
+      if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+        logger.error({ chatId, status: response.status, error: errorText }, 'TG sendMessage: финальная 4xx, ретрая не будет')
+        recordFailedTgNotification({ chatId, text, error: lastError, status: lastStatus })
+        return false
+      }
+    } catch (e: any) {
+      lastError = e?.message || 'unknown'
     }
-    
-    return true
-  } catch (e: any) {
-    logger.error({ error: e?.message }, 'ошибка отправки сообщения в telegram')
-    return false
+
+    if (attempt < RETRY_DELAYS_MS.length) {
+      const delay = RETRY_DELAYS_MS[attempt]
+      logger.warn({ attempt: attempt + 1, error: lastError, delayMs: delay }, 'TG sendMessage: повтор')
+      await new Promise<void>(r => setTimeout(r, delay))
+    }
   }
+
+  logger.error({ chatId, error: lastError, status: lastStatus }, 'TG sendMessage: все попытки исчерпаны')
+  recordFailedTgNotification({ chatId, text, error: lastError, status: lastStatus })
+  return false
 }
 
 // отправка сообщения через MAX Bot API

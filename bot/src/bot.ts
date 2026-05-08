@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'node:fs';
 import { setDefaultResultOrder } from 'node:dns';
+import { tgFetch, proxyDispatcher } from './proxy.js';
 
 // предпочитаем ipv4: помогает избежать зависаний на ipv6 у некоторых хостингов
 setDefaultResultOrder('ipv4first');
@@ -25,7 +26,11 @@ if (token.length < 20) {
 
 console.log(`[bot] токен загружен, длина: ${token.length} символов`)
 
-const bot = new Bot(token);
+const bot = new Bot(token, proxyDispatcher ? {
+  client: {
+    baseFetchConfig: { dispatcher: proxyDispatcher } as any
+  }
+} : undefined);
 
 const WEBAPP_URL = process.env.TG_WEBAPP_URL ?? 'http://localhost:5173';
 // URL бэкенда для keep-alive
@@ -239,7 +244,7 @@ async function sendMessage(
         payload.video = media.fileId
       }
       
-      const response = await fetch(`https://api.telegram.org/bot${token}/${endpoint}`, {
+      const response = await tgFetch(`https://api.telegram.org/bot${token}/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -258,7 +263,7 @@ async function sendMessage(
         return { success: false, error: 'empty_message' }
       }
       
-      const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      const response = await tgFetch(`https://api.telegram.org/bot${token}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
