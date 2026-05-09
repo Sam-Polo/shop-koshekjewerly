@@ -22,6 +22,10 @@ export type Base = {
   limit_necklace?: number | null
   limit_earrings?: number | null
   limit_bracelet?: number | null
+  /** Артикул компонента (отправляется менеджеру в заказе) */
+  article?: string
+  /** Текст бейджа на карточке (НОВИНКА, ХИТ и т.п.) */
+  badge_text?: string
   active: boolean
   order: number
 }
@@ -31,6 +35,7 @@ const HEADERS = [
   'id', 'title', 'description', 'images', 'price',
   'for_necklace', 'for_earrings', 'for_bracelet',
   'limit_necklace', 'limit_earrings', 'limit_bracelet',
+  'article', 'badge_text',
   'active', 'order'
 ]
 
@@ -46,7 +51,7 @@ async function ensureBasesSheet(sheets: any, sheetId: string): Promise<void> {
     })
     await sheets.spreadsheets.values.update({
       spreadsheetId: sheetId,
-      range: `${SHEET_NAME}!A1:M1`,
+      range: `${SHEET_NAME}!A1:O1`,
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: [HEADERS] }
     })
@@ -71,7 +76,7 @@ export async function fetchBasesFromSheet(sheetId: string): Promise<Base[]> {
   const sheets = google.sheets({ version: 'v4', auth })
 
   try {
-    const range = `${SHEET_NAME}!A1:M1000`
+    const range = `${SHEET_NAME}!A1:O1000`
     const res = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range })
     const rows = res.data.values ?? []
 
@@ -109,6 +114,8 @@ export async function fetchBasesFromSheet(sheetId: string): Promise<Base[]> {
         limit_necklace: parseLimit(get('limit_necklace')),
         limit_earrings: parseLimit(get('limit_earrings')),
         limit_bracelet: parseLimit(get('limit_bracelet')),
+        article: get('article') || undefined,
+        badge_text: get('badge_text') || undefined,
         active: parseBool(get('active')),
         order: Number.isFinite(order) ? order : i
       })
@@ -143,6 +150,8 @@ export async function saveBasesToSheet(sheetId: string, items: Base[]): Promise<
       it.limit_necklace == null ? '' : it.limit_necklace,
       it.limit_earrings == null ? '' : it.limit_earrings,
       it.limit_bracelet == null ? '' : it.limit_bracelet,
+      it.article || '',
+      it.badge_text || '',
       it.active ? 'true' : 'false',
       i
     ])
@@ -150,7 +159,7 @@ export async function saveBasesToSheet(sheetId: string, items: Base[]): Promise<
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: sheetId,
-    range: `${SHEET_NAME}!A1:M${values.length}`,
+    range: `${SHEET_NAME}!A1:O${values.length}`,
     valueInputOption: 'USER_ENTERED',
     requestBody: { values }
   })
@@ -159,7 +168,7 @@ export async function saveBasesToSheet(sheetId: string, items: Base[]): Promise<
     try {
       await sheets.spreadsheets.values.clear({
         spreadsheetId: sheetId,
-        range: `${SHEET_NAME}!A${values.length + 1}:M1000`
+        range: `${SHEET_NAME}!A${values.length + 1}:O1000`
       })
     } catch (e: any) {
       logger.debug({ error: e?.message }, 'очистка лишних строк bases')

@@ -105,6 +105,8 @@ router.put('/', async (req, res) => {
         limit_necklace: for_necklace ? sanitizeLimit(b.limit_necklace) : null,
         limit_earrings: for_earrings ? sanitizeLimit(b.limit_earrings) : null,
         limit_bracelet: for_bracelet ? sanitizeLimit(b.limit_bracelet) : null,
+        article: typeof b.article === 'string' ? b.article.trim() || undefined : undefined,
+        badge_text: typeof b.badge_text === 'string' ? b.badge_text.trim() || undefined : undefined,
         active: b.active !== false,
         order: i
       })

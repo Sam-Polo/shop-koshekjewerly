@@ -93,6 +93,10 @@ router.put('/', async (req, res) => {
         for_necklace,
         for_earrings,
         for_bracelet,
+        article: typeof p.article === 'string' ? p.article.trim() || undefined : undefined,
+        badge_text: typeof p.badge_text === 'string' ? p.badge_text.trim() || undefined : undefined,
+        // removable по умолчанию true (съёмная)
+        removable: p.removable !== false,
         active: p.active !== false,
         order: i
       })

@@ -13,6 +13,8 @@ export type ConstructorBase = {
   price: number
   /** 0 = без ограничения, N>0 = максимум подвесок */
   limit: number
+  article?: string
+  badge_text?: string
 }
 
 export type ConstructorPendant = {
@@ -21,6 +23,10 @@ export type ConstructorPendant = {
   description?: string
   images: string[]
   price: number
+  article?: string
+  badge_text?: string
+  /** Если false — лимит подвесок в сборке становится 2 (перебивает базовый лимит) */
+  removable?: boolean
 }
 
 export type ConstructorComposite = {
@@ -262,15 +268,46 @@ export default function Constructor({
     setDetail(null)
   }
 
-  const limit = selectedBase?.limit ?? 1
-  const reachedLimit = limit > 0 && selectedPendantIds.length >= limit
+  // эффективный лимит для текущего набора подвесок:
+  // если в выбранных есть не-съёмная — макс 2 (перебивает базовый лимит)
+  // иначе — base.limit (0 = без ограничения = Infinity)
+  const baseLimit = selectedBase?.limit ?? 1
+  const computeEffectiveLimit = (selection: string[]): number => {
+    const hasNonRemovable = selection.some(id => {
+      const p = pendants.find(x => x.id === id)
+      return p && p.removable === false
+    })
+    if (hasNonRemovable) return 2
+    return baseLimit > 0 ? baseLimit : Infinity
+  }
+  const effectiveLimitNow = computeEffectiveLimit(selectedPendantIds)
+  const reachedLimit = selectedPendantIds.length >= effectiveLimitNow
+
+  // лимит, отображаемый в шапке: 2 если хотя бы одна не-съёмная в наличии,
+  // иначе base.limit. Это даёт юзеру представление о пределе ещё до выбора.
+  const headerLimit = (() => {
+    const anyNonRemovable = pendants.some(p => p.removable === false)
+    if (anyNonRemovable) return 2
+    return baseLimit
+  })()
 
   const togglePendant = (id: string) => {
     setSelectedPendantIds(prev => {
       if (prev.includes(id)) return prev.filter(x => x !== id)
-      if (limit > 0 && prev.length >= limit) return prev
-      return [...prev, id]
+      // проверяем что добавление этой подвески не превысит эффективный лимит
+      const next = [...prev, id]
+      const cap = computeEffectiveLimit(next)
+      if (next.length > cap) return prev
+      return next
     })
+  }
+
+  // для конкретной подвески: можно ли её сейчас выбрать (не превысит ли лимит после добавления)
+  const canAddPendant = (id: string): boolean => {
+    if (selectedPendantIds.includes(id)) return true // снять — всегда можно
+    const next = [...selectedPendantIds, id]
+    const cap = computeEffectiveLimit(next)
+    return next.length <= cap
   }
 
   const totalPrice = (() => {
@@ -346,7 +383,7 @@ export default function Constructor({
         {step === 'pendants' && 'Шаг 2: Добавь подвеску, одну или несколько'}
       </h2>
 
-      {step === 'pendants' && limit > 0 && (
+      {step === 'pendants' && headerLimit > 0 && (
         <p style={{
           textAlign: 'center',
           margin: '0 16px 16px',
@@ -354,8 +391,8 @@ export default function Constructor({
           color: '#666',
           fontFamily: 'inherit'
         }}>
-          Можно выбрать до {limit}{' '}
-          {limit === 1 ? 'подвески' : limit < 5 ? 'подвесок' : 'подвесок'}
+          Можно выбрать до {headerLimit}{' '}
+          {headerLimit === 1 ? 'подвески' : 'подвесок'}
         </p>
       )}
 
@@ -426,9 +463,12 @@ export default function Constructor({
                     key={b.id}
                     className="product-card"
                     onClick={() => setDetail({ kind: 'base', data: b })}
-                    style={{ cursor: 'pointer' }}
+                    style={{ cursor: 'pointer', position: 'relative' }}
                   >
                     <div className="product-card__image-wrapper">
+                      {b.badge_text && (
+                        <div className="product-card__badge">{b.badge_text}</div>
+                      )}
                       <ImageWithLoader src={b.images[0]} className="product-card__image" />
                     </div>
                     <div className="product-card__info">
@@ -462,7 +502,9 @@ export default function Constructor({
               <div className="products-grid" style={{ padding: '0 16px' }}>
                 {pendants.map(p => {
                   const selected = selectedPendantIds.includes(p.id)
-                  const disabled = !selected && reachedLimit
+                  // подвеску нельзя выбрать если её добавление превысит эффективный лимит
+                  // (учитывает не-съёмные → лимит 2). reachedLimit оставлен для общего случая.
+                  const disabled = !selected && (reachedLimit || !canAddPendant(p.id))
                   return (
                     <div
                       key={p.id}
@@ -477,12 +519,14 @@ export default function Constructor({
                         transition: 'opacity 0.2s, outline-color 0.2s'
                       }}
                     >
-                      {selected && (
-                        <div className="product-card__badge" style={{ background: BADGE_COLOR }}>
-                          выбрано
-                        </div>
-                      )}
                       <div className="product-card__image-wrapper">
+                        {selected ? (
+                          <div className="product-card__badge" style={{ background: BADGE_COLOR }}>
+                            выбрано
+                          </div>
+                        ) : p.badge_text ? (
+                          <div className="product-card__badge">{p.badge_text}</div>
+                        ) : null}
                         <ImageWithLoader src={p.images[0]} className="product-card__image" />
                       </div>
                       <div className="product-card__info">

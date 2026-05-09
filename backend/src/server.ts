@@ -258,6 +258,8 @@ app.get('/api/constructor/bases', (req, res) => {
     description: b.description,
     images: b.images,
     price: b.price,
+    article: b.article,
+    badge_text: b.badge_text,
     // нормализуем лимит: null → 1 (дефолт), 0 → без ограничения, N → максимум
     limit: effectiveLimit(b, type)
   }))
@@ -275,7 +277,10 @@ app.get('/api/constructor/pendants', (req, res) => {
     title: p.title,
     description: p.description,
     images: p.images,
-    price: p.price
+    price: p.price,
+    article: p.article,
+    badge_text: p.badge_text,
+    removable: p.removable
   }))
   res.json({ pendants })
 });
@@ -665,12 +670,6 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
           throw new Error('Конструктор: нужно выбрать минимум одну подвеску')
         }
 
-        // лимит: 0 = без ограничения, иначе максимум подвесок
-        const limit = effectiveLimit(base, type)
-        if (limit > 0 && pendantIds.length > limit) {
-          throw new Error(`Конструктор: превышен лимит подвесок (${pendantIds.length}/${limit})`)
-        }
-
         const allPendants = getCachedPendants()
         const pendantsResolved = pendantIds.map((pid: string) => {
           const p = allPendants.find(x => x.id === pid && x.active)
@@ -685,9 +684,23 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
           return p
         })
 
+        // лимит: если в сборке есть не-съёмная — макс 2 (правило перебивает базовый лимит).
+        // иначе используем base.limit (0 = без ограничения).
+        const hasNonRemovable = pendantsResolved.some(p => !p.removable)
+        const baseLimit = effectiveLimit(base, type)
+        if (hasNonRemovable) {
+          if (pendantsResolved.length > 2) {
+            throw new Error(`Конструктор: с не-съёмной подвеской допускается максимум 2 подвески (выбрано ${pendantsResolved.length})`)
+          }
+        } else if (baseLimit > 0 && pendantsResolved.length > baseLimit) {
+          throw new Error(`Конструктор: превышен лимит подвесок (${pendantsResolved.length}/${baseLimit})`)
+        }
+
         const compositePrice = base.price + pendantsResolved.reduce((s, p) => s + p.price, 0)
-        const pendantTitles = pendantsResolved.map(p => p.title).join(', ')
-        const compositeTitle = `${TYPE_TITLES[type]} на заказ: ${base.title} + ${pendantTitles}`
+        // в названии для менеджера — артикулы в скобках, чтобы их сразу видеть в сообщении
+        const fmt = (title: string, art?: string) => art ? `${title} (арт: ${art})` : title
+        const pendantTitles = pendantsResolved.map(p => fmt(p.title, p.article)).join(', ')
+        const compositeTitle = `${TYPE_TITLES[type]} на заказ: ${fmt(base.title, base.article)} + ${pendantTitles}`
 
         return {
           slug: `composer-${base.id}-${pendantsResolved.map(p => p.id).join('-')}`,

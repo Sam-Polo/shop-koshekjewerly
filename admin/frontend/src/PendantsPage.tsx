@@ -30,6 +30,9 @@ type Pendant = {
   for_necklace: boolean
   for_earrings: boolean
   for_bracelet: boolean
+  article?: string
+  badge_text?: string
+  removable: boolean
   active: boolean
   order: number
 }
@@ -43,6 +46,9 @@ type FormData = {
   for_necklace: boolean
   for_earrings: boolean
   for_bracelet: boolean
+  article: string
+  badge_text: string
+  removable: boolean
   active: boolean
 }
 
@@ -121,6 +127,9 @@ const emptyForm = (): FormData => ({
   for_necklace: false,
   for_earrings: false,
   for_bracelet: false,
+  article: '',
+  badge_text: '',
+  removable: true,
   active: true
 })
 
@@ -170,6 +179,9 @@ function PendantsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
       for_necklace: p.for_necklace,
       for_earrings: p.for_earrings,
       for_bracelet: p.for_bracelet,
+      article: p.article || '',
+      badge_text: p.badge_text || '',
+      removable: p.removable,
       active: p.active
     })
     setIsModalOpen(true)
@@ -215,6 +227,9 @@ function PendantsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
       for_necklace,
       for_earrings,
       for_bracelet,
+      article: formData.article.trim() || undefined,
+      badge_text: formData.badge_text.trim() || undefined,
+      removable: formData.removable,
       active: formData.active,
       order: editingPendant?.order ?? pendants.length
     }
@@ -385,11 +400,32 @@ function PendantsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
 
             <div className="form-group">
               <label>Описание</label>
-              <input
-                type="text"
+              <textarea
                 value={formData.description}
                 onChange={e => setFormData(p => ({ ...p, description: e.target.value }))}
-                placeholder="Краткое описание"
+                placeholder={'Описание подвески.\n\nМожно несколько абзацев с пустыми строками.'}
+                rows={5}
+                style={{ resize: 'vertical', minHeight: 120, fontFamily: 'inherit' }}
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Артикул</label>
+              <input
+                type="text"
+                value={formData.article}
+                onChange={e => setFormData(p => ({ ...p, article: e.target.value }))}
+                placeholder="0001"
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Бейдж (текст плашки на карточке)</label>
+              <input
+                type="text"
+                value={formData.badge_text}
+                onChange={e => setFormData(p => ({ ...p, badge_text: e.target.value }))}
+                placeholder="НОВИНКА / ХИТ / СКИДКА"
               />
             </div>
 
@@ -506,6 +542,43 @@ function PendantsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
                   )
                 })}
               </div>
+            </div>
+
+            <div className="form-group">
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  cursor: 'pointer',
+                  fontWeight: 500,
+                  color: '#333',
+                  userSelect: 'none',
+                  margin: 0
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={formData.removable}
+                  onChange={e => setFormData(p => ({ ...p, removable: e.target.checked }))}
+                  style={{
+                    width: 18,
+                    height: 18,
+                    margin: 0,
+                    padding: 0,
+                    border: '1px solid #ccc',
+                    borderRadius: 3,
+                    cursor: 'pointer',
+                    accentColor: '#3942b8',
+                    flexShrink: 0,
+                    boxShadow: 'none'
+                  }}
+                />
+                <span>Съёмная подвеска</span>
+              </label>
+              <small style={{ color: '#888', fontSize: 12, marginTop: 4 }}>
+                Если выключено — это не‑съёмная подвеска, и при добавлении в сборку лимит подвесок становится 2 (перебивает лимит основы).
+              </small>
             </div>
 
             <div className="form-group">

@@ -34,6 +34,8 @@ type Base = {
   limit_necklace: number | null
   limit_earrings: number | null
   limit_bracelet: number | null
+  article?: string
+  badge_text?: string
   active: boolean
   order: number
 }
@@ -51,6 +53,8 @@ type FormData = {
   limit_necklace: string
   limit_earrings: string
   limit_bracelet: string
+  article: string
+  badge_text: string
   active: boolean
 }
 
@@ -132,6 +136,8 @@ const emptyForm = (): FormData => ({
   limit_necklace: '',
   limit_earrings: '',
   limit_bracelet: '',
+  article: '',
+  badge_text: '',
   active: true
 })
 
@@ -184,6 +190,8 @@ function BasesPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }) {
       limit_necklace: b.limit_necklace == null ? '' : String(b.limit_necklace),
       limit_earrings: b.limit_earrings == null ? '' : String(b.limit_earrings),
       limit_bracelet: b.limit_bracelet == null ? '' : String(b.limit_bracelet),
+      article: b.article || '',
+      badge_text: b.badge_text || '',
       active: b.active
     })
     setIsModalOpen(true)
@@ -213,6 +221,8 @@ function BasesPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }) {
         limit_necklace: b.for_necklace ? b.limit_necklace : null,
         limit_earrings: b.for_earrings ? b.limit_earrings : null,
         limit_bracelet: b.for_bracelet ? b.limit_bracelet : null,
+        article: b.article,
+        badge_text: b.badge_text,
         active: b.active
       }))
       await api.saveBases(payload)
@@ -254,6 +264,8 @@ function BasesPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }) {
       limit_necklace: for_necklace ? parseLimitInput(formData.limit_necklace) : null,
       limit_earrings: for_earrings ? parseLimitInput(formData.limit_earrings) : null,
       limit_bracelet: for_bracelet ? parseLimitInput(formData.limit_bracelet) : null,
+      article: formData.article.trim() || undefined,
+      badge_text: formData.badge_text.trim() || undefined,
       active: formData.active,
       order: editingBase?.order ?? bases.length
     }
@@ -424,11 +436,32 @@ function BasesPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }) {
 
             <div className="form-group">
               <label>Описание</label>
-              <input
-                type="text"
+              <textarea
                 value={formData.description}
                 onChange={e => setFormData(p => ({ ...p, description: e.target.value }))}
-                placeholder="Краткое описание"
+                placeholder={'Описание основы.\n\nМожно несколько абзацев с пустыми строками.'}
+                rows={5}
+                style={{ resize: 'vertical', minHeight: 120, fontFamily: 'inherit' }}
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Артикул</label>
+              <input
+                type="text"
+                value={formData.article}
+                onChange={e => setFormData(p => ({ ...p, article: e.target.value }))}
+                placeholder="0001"
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Бейдж (текст плашки на карточке)</label>
+              <input
+                type="text"
+                value={formData.badge_text}
+                onChange={e => setFormData(p => ({ ...p, badge_text: e.target.value }))}
+                placeholder="НОВИНКА / ХИТ / СКИДКА"
               />
             </div>
 

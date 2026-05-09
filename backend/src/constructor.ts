@@ -22,6 +22,8 @@ export type Base = {
   limit_necklace: number | null
   limit_earrings: number | null
   limit_bracelet: number | null
+  article?: string
+  badge_text?: string
   active: boolean
   order: number
 }
@@ -35,6 +37,10 @@ export type Pendant = {
   for_necklace: boolean
   for_earrings: boolean
   for_bracelet: boolean
+  article?: string
+  badge_text?: string
+  /** Съёмная или нет. Если в сборку добавлены не-съёмные — лимит подвесок становится 2. */
+  removable: boolean
   active: boolean
   order: number
 }
@@ -106,6 +112,8 @@ export async function fetchBasesFromSheet(sheetId: string): Promise<Base[]> {
         limit_necklace: parseLimit(get('limit_necklace')),
         limit_earrings: parseLimit(get('limit_earrings')),
         limit_bracelet: parseLimit(get('limit_bracelet')),
+        article: get('article') || undefined,
+        badge_text: get('badge_text') || undefined,
         active: parseBool(get('active')),
         order: parseInt(get('order'), 10) || i
       })
@@ -142,6 +150,7 @@ export async function fetchPendantsFromSheet(sheetId: string): Promise<Pendant[]
       if (!id) continue
 
       const imagesRaw = get('images') || get('image')
+      const removableRaw = String(rows[i][idx('removable')] ?? '').trim().toLowerCase()
       out.push({
         id,
         title: get('title') || id,
@@ -151,6 +160,10 @@ export async function fetchPendantsFromSheet(sheetId: string): Promise<Pendant[]
         for_necklace: parseBool(get('for_necklace')),
         for_earrings: parseBool(get('for_earrings')),
         for_bracelet: parseBool(get('for_bracelet')),
+        article: get('article') || undefined,
+        badge_text: get('badge_text') || undefined,
+        // back-compat: пустая ячейка считается «съёмной» (true)
+        removable: removableRaw === '' ? true : (removableRaw === 'true' || removableRaw === '1' || removableRaw === 'yes' || removableRaw === 'да'),
         active: parseBool(get('active')),
         order: parseInt(get('order'), 10) || i
       })

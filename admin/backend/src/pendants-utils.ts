@@ -13,6 +13,12 @@ export type Pendant = {
   for_necklace: boolean
   for_earrings: boolean
   for_bracelet: boolean
+  /** Артикул компонента (отправляется менеджеру в заказе) */
+  article?: string
+  /** Текст бейджа на карточке */
+  badge_text?: string
+  /** Съёмная (true, по умолчанию) или нет. Если в сборку добавлены не‑съёмные подвески — лимит 2 на сборку. */
+  removable: boolean
   active: boolean
   order: number
 }
@@ -21,6 +27,7 @@ const SHEET_NAME = 'pendants'
 const HEADERS = [
   'id', 'title', 'description', 'images', 'price',
   'for_necklace', 'for_earrings', 'for_bracelet',
+  'article', 'badge_text', 'removable',
   'active', 'order'
 ]
 
@@ -36,7 +43,7 @@ async function ensurePendantsSheet(sheets: any, sheetId: string): Promise<void> 
     })
     await sheets.spreadsheets.values.update({
       spreadsheetId: sheetId,
-      range: `${SHEET_NAME}!A1:J1`,
+      range: `${SHEET_NAME}!A1:M1`,
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: [HEADERS] }
     })
@@ -49,12 +56,19 @@ function parseBool(v: any): boolean {
   return s === 'true' || s === '1' || s === 'yes' || s === 'да'
 }
 
+// removable: пустая ячейка для back-compat = считаем съёмной (true)
+function parseRemovable(v: any): boolean {
+  const s = String(v ?? '').trim().toLowerCase()
+  if (s === '') return true
+  return s === 'true' || s === '1' || s === 'yes' || s === 'да'
+}
+
 export async function fetchPendantsFromSheet(sheetId: string): Promise<Pendant[]> {
   const auth = getAuthFromEnv()
   const sheets = google.sheets({ version: 'v4', auth })
 
   try {
-    const range = `${SHEET_NAME}!A1:J1000`
+    const range = `${SHEET_NAME}!A1:M1000`
     const res = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range })
     const rows = res.data.values ?? []
 
@@ -88,6 +102,9 @@ export async function fetchPendantsFromSheet(sheetId: string): Promise<Pendant[]
         for_necklace: parseBool(get('for_necklace')),
         for_earrings: parseBool(get('for_earrings')),
         for_bracelet: parseBool(get('for_bracelet')),
+        article: get('article') || undefined,
+        badge_text: get('badge_text') || undefined,
+        removable: parseRemovable(get('removable')),
         active: parseBool(get('active')),
         order: Number.isFinite(order) ? order : i
       })
@@ -119,6 +136,9 @@ export async function savePendantsToSheet(sheetId: string, items: Pendant[]): Pr
       it.for_necklace ? 'true' : 'false',
       it.for_earrings ? 'true' : 'false',
       it.for_bracelet ? 'true' : 'false',
+      it.article || '',
+      it.badge_text || '',
+      it.removable ? 'true' : 'false',
       it.active ? 'true' : 'false',
       i
     ])
@@ -126,7 +146,7 @@ export async function savePendantsToSheet(sheetId: string, items: Pendant[]): Pr
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: sheetId,
-    range: `${SHEET_NAME}!A1:J${values.length}`,
+    range: `${SHEET_NAME}!A1:M${values.length}`,
     valueInputOption: 'USER_ENTERED',
     requestBody: { values }
   })
@@ -135,7 +155,7 @@ export async function savePendantsToSheet(sheetId: string, items: Pendant[]): Pr
     try {
       await sheets.spreadsheets.values.clear({
         spreadsheetId: sheetId,
-        range: `${SHEET_NAME}!A${values.length + 1}:J1000`
+        range: `${SHEET_NAME}!A${values.length + 1}:M1000`
       })
     } catch (e: any) {
       logger.debug({ error: e?.message }, 'очистка лишних строк pendants')
