@@ -1262,6 +1262,9 @@ const CartModal = ({
                             margin: 0,
                             padding: 0,
                             border: 'none',
+                            outline: 'none',
+                            appearance: 'none',
+                            WebkitAppearance: 'none',
                             cursor: 'pointer'
                           }}
                         />
@@ -1279,7 +1282,10 @@ const CartModal = ({
                                   minWidth: 0,
                                   aspectRatio: '1 / 1',
                                   padding: 0,
-                                  border: '1px solid rgba(94, 102, 35, 0.25)',
+                                  border: 'none',
+                                  outline: 'none',
+                                  appearance: 'none',
+                                  WebkitAppearance: 'none',
                                   borderRadius: 3,
                                   background: p.image
                                     ? `center / cover no-repeat url(${p.image})`
@@ -1295,7 +1301,7 @@ const CartModal = ({
                                 minWidth: 0,
                                 aspectRatio: '1 / 1',
                                 background: '#f4f4f4',
-                                border: '1px solid #e8e8e8',
+                                border: 'none',
                                 borderRadius: 3,
                                 display: 'flex',
                                 alignItems: 'center',
