@@ -2757,6 +2757,58 @@
   flex-wrap: wrap;
 }
 
+.constructor-toolbar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.constructor-toolbar input,
+.constructor-toolbar select {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  background: #fff;
+}
+
+.constructor-toolbar input {
+  flex: 1;
+  min-width: 200px;
+}
+
+.constructor-toolbar select {
+  min-width: 180px;
+}
+
+.constructor-toolbar input:focus,
+.constructor-toolbar select:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.constructor-empty-filter {
+  text-align: center;
+  padding: 24px;
+  color: #888;
+  font-size: 14px;
+}
+
+@keyframes article-shimmer {
+  0% { background-position: -200px 0; }
+  100% { background-position: 200px 0; }
+}
+
+.article-loading {
+  background: linear-gradient(90deg, #f5f5f5 0px, #eaeaea 60px, #f5f5f5 120px);
+  background-size: 600px 100%;
+  animation: article-shimmer 1.4s linear infinite;
+}
+
 @media (max-width: 600px) {
   .constructor-type-row {
     grid-template-columns: 1fr;

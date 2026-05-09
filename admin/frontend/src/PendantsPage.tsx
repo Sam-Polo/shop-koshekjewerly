@@ -84,18 +84,24 @@ function typeBadges(p: Pendant): string {
 
 function SortablePendantRow({
   pendant,
+  dndDisabled = false,
   onEdit,
   onDelete
 }: {
   pendant: Pendant
+  dndDisabled?: boolean
   onEdit: () => void
   onDelete: () => void
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: pendant.id })
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: pendant.id, disabled: dndDisabled })
   const style = { transform: CSS.Transform.toString(transform), transition }
   return (
     <tr ref={setNodeRef} style={style} className={isDragging ? 'dragging' : ''}>
-      <td><span className="drag-handle" {...attributes} {...listeners}>⋮⋮</span></td>
+      <td>
+        {!dndDisabled && (
+          <span className="drag-handle" {...attributes} {...listeners}>⋮⋮</span>
+        )}
+      </td>
       <td>
         <div
           className="category-row-preview"
@@ -107,6 +113,7 @@ function SortablePendantRow({
         />
       </td>
       <td>{pendant.title}</td>
+      <td>{pendant.article || '—'}</td>
       <td>{pendant.price} ₽</td>
       <td>{typeBadges(pendant)}</td>
       <td>{pendant.active ? 'да' : 'нет'}</td>
@@ -142,7 +149,26 @@ function PendantsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
   const [editingPendant, setEditingPendant] = useState<Pendant | null>(null)
   const [formData, setFormData] = useState<FormData>(emptyForm())
   const [uploading, setUploading] = useState(false)
+  const [articleLoading, setArticleLoading] = useState(false)
+  const articleEditedByUserRef = useRef(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [typeFilter, setTypeFilter] = useState<'all' | 'necklace' | 'earrings' | 'bracelet'>('all')
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const filteredPendants = (() => {
+    const q = searchQuery.trim().toLowerCase()
+    return pendants.filter(p => {
+      if (typeFilter !== 'all') {
+        if (typeFilter === 'necklace' && !p.for_necklace) return false
+        if (typeFilter === 'earrings' && !p.for_earrings) return false
+        if (typeFilter === 'bracelet' && !p.for_bracelet) return false
+      }
+      if (!q) return true
+      const haystack = [p.title, p.article || '', String(p.price)].join(' ').toLowerCase()
+      return haystack.includes(q)
+    })
+  })()
+  const isFiltered = searchQuery.trim() !== '' || typeFilter !== 'all'
 
   useEffect(() => { load() }, [])
 
@@ -164,13 +190,17 @@ function PendantsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
 
   const handleAdd = async () => {
     setEditingPendant(null)
+    articleEditedByUserRef.current = false
     setFormData(emptyForm())
     setIsModalOpen(true)
+    setArticleLoading(true)
     try {
       const article = await api.getNextArticle()
-      setFormData(prev => ({ ...prev, article }))
+      setFormData(prev => articleEditedByUserRef.current ? prev : { ...prev, article })
     } catch (e: any) {
       console.warn('не удалось получить следующий артикул:', e?.message)
+    } finally {
+      setArticleLoading(false)
     }
   }
 
@@ -336,9 +366,34 @@ function PendantsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
         <p className="categories-hint">
           Подвески — компоненты конструктора украшений. Привязываются к одному или нескольким типам украшений (колье, серьги, браслет). Лимит количества подвесок задаётся на основе.
         </p>
+
+        {pendants.length > 0 && (
+          <div className="constructor-toolbar">
+            <input
+              type="text"
+              placeholder="Поиск: артикул, название, цена…"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+            />
+            <select
+              value={typeFilter}
+              onChange={e => setTypeFilter(e.target.value as any)}
+            >
+              <option value="all">Все типы</option>
+              <option value="necklace">Колье</option>
+              <option value="earrings">Серьги</option>
+              <option value="bracelet">Браслет</option>
+            </select>
+          </div>
+        )}
+
         {pendants.length === 0 ? (
           <div className="empty-state">
             <p>Нет подвесок. Добавьте первую.</p>
+          </div>
+        ) : filteredPendants.length === 0 ? (
+          <div className="constructor-empty-filter">
+            Ничего не найдено по текущему фильтру.
           </div>
         ) : (
           <div className="categories-table-wrapper">
@@ -348,6 +403,7 @@ function PendantsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
                   <th></th>
                   <th>Фото</th>
                   <th>Название</th>
+                  <th>Артикул</th>
                   <th>Цена</th>
                   <th>Типы</th>
                   <th>Активна</th>
@@ -355,10 +411,24 @@ function PendantsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
                 </tr>
               </thead>
               <tbody>
-                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                  <SortableContext items={pendants.map(p => p.id)} strategy={verticalListSortingStrategy}>
-                    {pendants.map(p => (
-                      <SortablePendantRow key={p.id} pendant={p} onEdit={() => handleEdit(p)} onDelete={() => handleDeleteClick(p)} />
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={isFiltered ? () => {} : handleDragEnd}
+                >
+                  <SortableContext
+                    items={filteredPendants.map(p => p.id)}
+                    strategy={verticalListSortingStrategy}
+                    disabled={isFiltered}
+                  >
+                    {filteredPendants.map(p => (
+                      <SortablePendantRow
+                        key={p.id}
+                        pendant={p}
+                        dndDisabled={isFiltered}
+                        onEdit={() => handleEdit(p)}
+                        onDelete={() => handleDeleteClick(p)}
+                      />
                     ))}
                   </SortableContext>
                 </DndContext>
@@ -416,12 +486,16 @@ function PendantsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
             </div>
 
             <div className="form-group">
-              <label>Артикул</label>
+              <label>Артикул {articleLoading && <small style={{ color: '#888', fontWeight: 400 }}>· подгружаем следующий…</small>}</label>
               <input
                 type="text"
+                className={articleLoading && !formData.article ? 'article-loading' : ''}
                 value={formData.article}
-                onChange={e => setFormData(p => ({ ...p, article: e.target.value }))}
-                placeholder="0001"
+                onChange={e => {
+                  articleEditedByUserRef.current = true
+                  setFormData(p => ({ ...p, article: e.target.value }))
+                }}
+                placeholder={articleLoading ? 'Подгружаем артикул…' : '0001'}
               />
             </div>
 

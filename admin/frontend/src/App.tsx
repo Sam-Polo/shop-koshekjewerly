@@ -1685,28 +1685,29 @@ function ProductFormModal({
   showToast: (message: string, type: 'success' | 'error') => void
 }) {
   const isEdit = !!product
-  
-  // получение следующего артикула
-  const getNextArticle = (): string => {
+
+  // локальный fallback на случай если API упадёт: max+1 только среди товаров.
+  // используется как мгновенная подстановка пока приходит точный ответ от backend
+  // (который учитывает товары + основы + подвески).
+  const getLocalFallbackArticle = (): string => {
     const articles = products
       .map(p => p.article)
       .filter(Boolean)
       .map(article => parseArticle(article || ''))
       .filter((num): num is number => num !== null)
-    
-    if (articles.length === 0) {
-      return formatArticle(1)
-    }
-    
-    const maxArticle = Math.max(...articles)
-    return formatArticle(maxArticle + 1)
+    if (articles.length === 0) return formatArticle(1)
+    return formatArticle(Math.max(...articles) + 1)
   }
 
   const defaultDescription = '• материал...\n• длина...'
-  const nextArticle = !isEdit ? getNextArticle() : ''
-  
+  const fallbackArticle = !isEdit ? getLocalFallbackArticle() : ''
+
+  const [articleLoading, setArticleLoading] = useState(!isEdit)
+  const articleEditedByUserRef = useRef(false)
+
   const [formData, setFormData] = useState<Partial<Product> & { categories?: string[] }>(() => {
-    const initialArticle = product?.article || nextArticle
+    // при создании поле остаётся пустым во время загрузки — placeholder покажет shimmer
+    const initialArticle = product?.article || ''
     const initialTitle = product?.title || ''
     const initialSlug = product?.slug || (initialTitle && initialArticle ? generateSlug(initialTitle, initialArticle) : '')
     const initialCategories = product?.categories ?? (product?.category ? [product.category] : [])
@@ -1725,6 +1726,26 @@ function ProductFormModal({
       images: product?.images || []
     }
   })
+
+  // подгружаем актуальный артикул при создании (max+1 среди ВСЕХ товаров, основ и подвесок)
+  useEffect(() => {
+    if (isEdit) return
+    let cancelled = false
+    api.getNextArticle()
+      .then(article => {
+        if (cancelled || articleEditedByUserRef.current) return
+        setFormData(prev => prev.article ? prev : { ...prev, article })
+      })
+      .catch((e: any) => {
+        // fallback: локальный max+1 только по товарам, чтобы пользователь не остался с пустым полем
+        if (cancelled || articleEditedByUserRef.current) return
+        console.warn('не удалось получить следующий артикул, fallback на локальный:', e?.message)
+        setFormData(prev => prev.article ? prev : { ...prev, article: fallbackArticle })
+      })
+      .finally(() => { if (!cancelled) setArticleLoading(false) })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // обновляем slug при изменении названия или артикула (только при добавлении)
   useEffect(() => {
@@ -2062,19 +2083,23 @@ function ProductFormModal({
             </div>
             
             <div className="form-group">
-              <label>Артикул {isEdit ? '(авто)' : '*'}</label>
+              <label>
+                Артикул {isEdit ? '(авто)' : '*'}
+                {articleLoading && !isEdit && <small style={{ color: '#888', fontWeight: 400 }}> · подгружаем следующий…</small>}
+              </label>
               <input
                 type="text"
                 value={formData.article || ''}
                 onChange={(e) => {
+                  articleEditedByUserRef.current = true
                   const value = e.target.value.replace(/\D/g, '').slice(0, 4)
                   handleChange('article', value)
                 }}
                 disabled={isEdit}
                 required={!isEdit}
-                placeholder="0081"
+                placeholder={articleLoading && !isEdit ? 'Подгружаем артикул…' : '0081'}
                 pattern="\d{4}"
-                className="readonly-input"
+                className={`readonly-input${articleLoading && !isEdit && !formData.article ? ' article-loading' : ''}`}
               />
               {errors.article && <small style={{ color: '#dc3545' }}>{errors.article}</small>}
             </div>

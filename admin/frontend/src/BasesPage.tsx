@@ -90,18 +90,24 @@ function typeBadges(b: Base): string {
 
 function SortableBaseRow({
   base,
+  dndDisabled = false,
   onEdit,
   onDelete
 }: {
   base: Base
+  dndDisabled?: boolean
   onEdit: () => void
   onDelete: () => void
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: base.id })
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: base.id, disabled: dndDisabled })
   const style = { transform: CSS.Transform.toString(transform), transition }
   return (
     <tr ref={setNodeRef} style={style} className={isDragging ? 'dragging' : ''}>
-      <td><span className="drag-handle" {...attributes} {...listeners}>⋮⋮</span></td>
+      <td>
+        {!dndDisabled && (
+          <span className="drag-handle" {...attributes} {...listeners}>⋮⋮</span>
+        )}
+      </td>
       <td>
         <div
           className="category-row-preview"
@@ -113,6 +119,7 @@ function SortableBaseRow({
         />
       </td>
       <td>{base.title}</td>
+      <td>{base.article || '—'}</td>
       <td>{base.price} ₽</td>
       <td>{typeBadges(base)}</td>
       <td>{base.active ? 'да' : 'нет'}</td>
@@ -150,7 +157,30 @@ function BasesPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }) {
   const [editingBase, setEditingBase] = useState<Base | null>(null)
   const [formData, setFormData] = useState<FormData>(emptyForm())
   const [uploading, setUploading] = useState(false)
+  const [articleLoading, setArticleLoading] = useState(false)
+  const articleEditedByUserRef = useRef(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [typeFilter, setTypeFilter] = useState<'all' | 'necklace' | 'earrings' | 'bracelet'>('all')
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const filteredBases = (() => {
+    const q = searchQuery.trim().toLowerCase()
+    return bases.filter(b => {
+      if (typeFilter !== 'all') {
+        if (typeFilter === 'necklace' && !b.for_necklace) return false
+        if (typeFilter === 'earrings' && !b.for_earrings) return false
+        if (typeFilter === 'bracelet' && !b.for_bracelet) return false
+      }
+      if (!q) return true
+      const haystack = [
+        b.title,
+        b.article || '',
+        String(b.price)
+      ].join(' ').toLowerCase()
+      return haystack.includes(q)
+    })
+  })()
+  const isFiltered = searchQuery.trim() !== '' || typeFilter !== 'all'
 
   useEffect(() => { load() }, [])
 
@@ -172,15 +202,18 @@ function BasesPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }) {
 
   const handleAdd = async () => {
     setEditingBase(null)
+    articleEditedByUserRef.current = false
     setFormData(emptyForm())
     setIsModalOpen(true)
-    // авто-подстановка следующего артикула (max+1 среди товаров, основ и подвесок)
+    setArticleLoading(true)
     try {
       const article = await api.getNextArticle()
-      setFormData(prev => ({ ...prev, article }))
+      // если пользователь успел руками что-то ввести в поле артикула — не перезаписываем
+      setFormData(prev => articleEditedByUserRef.current ? prev : { ...prev, article })
     } catch (e: any) {
-      // молча игнорируем — поле останется пустым, юзер сможет ввести руками
       console.warn('не удалось получить следующий артикул:', e?.message)
+    } finally {
+      setArticleLoading(false)
     }
   }
 
@@ -374,9 +407,34 @@ function BasesPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }) {
         <p className="categories-hint">
           Основы — компоненты конструктора украшений. У каждой основы задаётся лимит количества подвесок для каждого типа украшения, к которому она привязана. Лимит «0» = без ограничения, пусто = по умолчанию (1 подвеска).
         </p>
+
+        {bases.length > 0 && (
+          <div className="constructor-toolbar">
+            <input
+              type="text"
+              placeholder="Поиск: артикул, название, цена…"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+            />
+            <select
+              value={typeFilter}
+              onChange={e => setTypeFilter(e.target.value as any)}
+            >
+              <option value="all">Все типы</option>
+              <option value="necklace">Колье</option>
+              <option value="earrings">Серьги</option>
+              <option value="bracelet">Браслет</option>
+            </select>
+          </div>
+        )}
+
         {bases.length === 0 ? (
           <div className="empty-state">
             <p>Нет основ. Добавьте первую.</p>
+          </div>
+        ) : filteredBases.length === 0 ? (
+          <div className="constructor-empty-filter">
+            Ничего не найдено по текущему фильтру.
           </div>
         ) : (
           <div className="categories-table-wrapper">
@@ -386,6 +444,7 @@ function BasesPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }) {
                   <th></th>
                   <th>Фото</th>
                   <th>Название</th>
+                  <th>Артикул</th>
                   <th>Цена</th>
                   <th>Типы</th>
                   <th>Активна</th>
@@ -393,10 +452,24 @@ function BasesPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }) {
                 </tr>
               </thead>
               <tbody>
-                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                  <SortableContext items={bases.map(b => b.id)} strategy={verticalListSortingStrategy}>
-                    {bases.map(b => (
-                      <SortableBaseRow key={b.id} base={b} onEdit={() => handleEdit(b)} onDelete={() => handleDeleteClick(b)} />
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={isFiltered ? () => {} : handleDragEnd}
+                >
+                  <SortableContext
+                    items={filteredBases.map(b => b.id)}
+                    strategy={verticalListSortingStrategy}
+                    disabled={isFiltered}
+                  >
+                    {filteredBases.map(b => (
+                      <SortableBaseRow
+                        key={b.id}
+                        base={b}
+                        dndDisabled={isFiltered}
+                        onEdit={() => handleEdit(b)}
+                        onDelete={() => handleDeleteClick(b)}
+                      />
                     ))}
                   </SortableContext>
                 </DndContext>
@@ -454,12 +527,16 @@ function BasesPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }) {
             </div>
 
             <div className="form-group">
-              <label>Артикул</label>
+              <label>Артикул {articleLoading && <small style={{ color: '#888', fontWeight: 400 }}>· подгружаем следующий…</small>}</label>
               <input
                 type="text"
+                className={articleLoading && !formData.article ? 'article-loading' : ''}
                 value={formData.article}
-                onChange={e => setFormData(p => ({ ...p, article: e.target.value }))}
-                placeholder="0001"
+                onChange={e => {
+                  articleEditedByUserRef.current = true
+                  setFormData(p => ({ ...p, article: e.target.value }))
+                }}
+                placeholder={articleLoading ? 'Подгружаем артикул…' : '0001'}
               />
             </div>
 
