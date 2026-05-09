@@ -37,6 +37,7 @@ import settingsRoutes from './routes/settings.js'
 import categoriesRoutes from './routes/categories.js'
 import basesRoutes from './routes/bases.js'
 import pendantsRoutes from './routes/pendants.js'
+import articlesRoutes from './routes/articles.js'
 
 app.use('/api/auth', authRoutes)
 app.use('/api/products', productRoutes)
@@ -46,6 +47,7 @@ app.use('/api/settings', settingsRoutes)
 app.use('/api/categories', categoriesRoutes)
 app.use('/api/bases', basesRoutes)
 app.use('/api/pendants', pendantsRoutes)
+app.use('/api/articles', articlesRoutes)
 
 app.listen(PORT, () => {
   logger.info(`Админ-панель бэкенд запущен на порту ${PORT}`)

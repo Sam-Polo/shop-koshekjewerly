@@ -170,10 +170,18 @@ function BasesPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }) {
 
   const handleLogout = () => { removeToken(); window.location.reload() }
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     setEditingBase(null)
     setFormData(emptyForm())
     setIsModalOpen(true)
+    // авто-подстановка следующего артикула (max+1 среди товаров, основ и подвесок)
+    try {
+      const article = await api.getNextArticle()
+      setFormData(prev => ({ ...prev, article }))
+    } catch (e: any) {
+      // молча игнорируем — поле останется пустым, юзер сможет ввести руками
+      console.warn('не удалось получить следующий артикул:', e?.message)
+    }
   }
 
   const handleEdit = (b: Base) => {

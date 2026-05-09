@@ -162,10 +162,16 @@ function PendantsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
 
   const handleLogout = () => { removeToken(); window.location.reload() }
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     setEditingPendant(null)
     setFormData(emptyForm())
     setIsModalOpen(true)
+    try {
+      const article = await api.getNextArticle()
+      setFormData(prev => ({ ...prev, article }))
+    } catch (e: any) {
+      console.warn('не удалось получить следующий артикул:', e?.message)
+    }
   }
 
   const handleEdit = (p: Pendant) => {

@@ -249,6 +249,12 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ pendants })
     })
+  },
+
+  // следующий доступный артикул (max+1 среди товаров, основ и подвесок)
+  async getNextArticle(): Promise<string> {
+    const data = await fetchWithAuth('/api/articles/next')
+    return data.next
   }
 }
 
