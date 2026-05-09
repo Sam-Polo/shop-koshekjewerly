@@ -83,7 +83,7 @@ export async function fetchBasesFromSheet(sheetId: string): Promise<Base[]> {
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: sheetId,
-      range: 'bases!A1:M1000'
+      range: 'bases!A1:O1000'
     })
     const rows = res.data.values ?? []
     if (rows.length < 2) return []
@@ -133,7 +133,7 @@ export async function fetchPendantsFromSheet(sheetId: string): Promise<Pendant[]
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: sheetId,
-      range: 'pendants!A1:J1000'
+      range: 'pendants!A1:M1000'
     })
     const rows = res.data.values ?? []
     if (rows.length < 2) return []
