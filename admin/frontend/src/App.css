@@ -2959,32 +2959,32 @@
 }
 
 .stat-kpi-card {
-  background: white;
-  border-radius: 12px;
-  padding: 1.5rem 1.75rem;
-  border: 1px solid #ececf0;
-  transition: border-color 0.15s, transform 0.15s;
+  background: #ffffff;
+  border-radius: 10px;
+  padding: 1.25rem 1.5rem;
+  border: 1px solid #eee;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .stat-kpi-card:hover {
-  border-color: #d8d8e0;
-  transform: translateY(-1px);
+  border-color: rgba(212, 128, 224, 0.4);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
 }
 
 .stat-kpi-title {
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #8a8a96;
-  margin-bottom: 0.75rem;
+  letter-spacing: 0.05em;
+  color: #bf9243;
+  margin-bottom: 0.5rem;
   font-weight: 500;
 }
 
 .stat-kpi-value {
-  font-size: 2rem;
-  font-weight: 700;
-  color: #1a1a2e;
-  letter-spacing: -0.02em;
+  font-size: 1.85rem;
+  font-weight: 600;
+  color: #222;
   line-height: 1.1;
 }
 
