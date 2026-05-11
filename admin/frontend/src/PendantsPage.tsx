@@ -338,6 +338,8 @@ function PendantsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
           <button className="nav-btn" onClick={() => onNavigate?.('promocodes')}>Промокоды</button>
           <button className="nav-btn" onClick={() => onNavigate?.('categories')}>Категории</button>
           <button className="nav-btn active" onClick={() => onNavigate?.('bases')}>Конструктор</button>
+          <button className="nav-btn" onClick={() => onNavigate?.('statistics')}>Статистика</button>
+          <button className="nav-btn" onClick={() => onNavigate?.('customers')}>Клиенты</button>
         </div>
         <div className="header-actions">
           <button className="btn btn-add" onClick={handleAdd}>+ Добавить подвеску</button>

@@ -5,6 +5,8 @@ import PromocodesPage from './PromocodesPage'
 import CategoriesPage from './CategoriesPage'
 import BasesPage, { type AdminPage } from './BasesPage'
 import PendantsPage from './PendantsPage'
+import StatisticsPage from './StatisticsPage'
+import CustomersPage from './CustomersPage'
 import {
   DndContext,
   closestCenter,
@@ -588,6 +590,18 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
             onClick={() => onNavigate?.('bases')}
           >
             Конструктор
+          </button>
+          <button
+            className="nav-btn"
+            onClick={() => onNavigate?.('statistics')}
+          >
+            Статистика
+          </button>
+          <button
+            className="nav-btn"
+            onClick={() => onNavigate?.('customers')}
+          >
+            Клиенты
           </button>
         </div>
         <button onClick={handleLogout} className="logout-btn">
@@ -2251,6 +2265,10 @@ export default function App() {
           <BasesPage onNavigate={handlePageChange} />
         ) : currentPage === 'pendants' ? (
           <PendantsPage onNavigate={handlePageChange} />
+        ) : currentPage === 'statistics' ? (
+          <StatisticsPage onNavigate={handlePageChange} />
+        ) : currentPage === 'customers' ? (
+          <CustomersPage onNavigate={handlePageChange} />
         ) : (
           <ProductsList onNavigate={handlePageChange} />
         )}

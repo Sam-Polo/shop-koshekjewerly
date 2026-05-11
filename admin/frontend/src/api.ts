@@ -255,6 +255,42 @@ export const api = {
   async getNextArticle(): Promise<string> {
     const data = await fetchWithAuth('/api/articles/next')
     return data.next
+  },
+
+  // ── статистика, заказы, клиенты ──────────────────────────────────────────
+  async getOrders(params: { from?: string; to?: string; platform?: string; category?: string; search?: string; hasNote?: string } = {}) {
+    const qs = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => { if (v) qs.set(k, v) })
+    const suffix = qs.toString() ? `?${qs.toString()}` : ''
+    return fetchWithAuth(`/api/orders${suffix}`)
+  },
+
+  async updateOrderNote(orderId: string, note: string) {
+    return fetchWithAuth(`/api/orders/${encodeURIComponent(orderId)}/note`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note })
+    })
+  },
+
+  async getCustomers(search?: string) {
+    const suffix = search ? `?search=${encodeURIComponent(search)}` : ''
+    return fetchWithAuth(`/api/customers${suffix}`)
+  },
+
+  async getCustomerOrders(id: string) {
+    return fetchWithAuth(`/api/customers/${encodeURIComponent(id)}/orders`)
+  },
+
+  async getStats(params: { from?: string; to?: string; platform?: string; category?: string } = {}) {
+    const qs = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => { if (v) qs.set(k, v) })
+    const suffix = qs.toString() ? `?${qs.toString()}` : ''
+    return fetchWithAuth(`/api/stats${suffix}`)
+  },
+
+  async getStatsCategories() {
+    return fetchWithAuth('/api/stats/categories')
   }
 }
 

@@ -8,6 +8,7 @@ import rateLimit from 'express-rate-limit';
 import { fetchProductsFromSheet } from './sheets.js';
 import { listProducts, upsertProducts, decreaseProductStock } from './store.js';
 import { createOrder, getOrder, updateOrderStatus, type OrderStatus, type Platform } from './orders.js';
+import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets } from './orders-sheet.js';
 import { generatePaymentUrl, verifyResultSignature } from './robokassa.js';
 import { fetchPromocodesFromSheet, loadPromocodes, findPromocode, validatePromocode, listPromocodes } from './promocodes.js';
 import { fetchOrdersSettingsFromSheet } from './settings.js';
@@ -838,6 +839,9 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
       total,
       clientTotal: orderData.total // логируем что прислал клиент для сравнения
     }, 'заказ создан с пересчитанными ценами на бэкенде, ожидает оплаты')
+
+    // fire-and-forget запись в Google Sheets (orders + order_items)
+    appendOrderToSheet(order).catch(() => {})
     
     // генерируем URL для оплаты
     const webappUrl = process.env.TG_WEBAPP_URL || 'https://sam-polo.github.io/shop-koshekjewerly'
@@ -978,8 +982,11 @@ app.post('/api/robokassa/result', express.urlencoded({ extended: true }), async 
         return res.status(400).send('ERROR')
       }
       
-      updateOrderStatus(orderId, 'paid')
-      
+      const updatedOrder = updateOrderStatus(orderId, 'paid')
+      if (updatedOrder) {
+        updateOrderStatusInSheet(orderId, 'paid', updatedOrder.updatedAt).catch(() => {})
+      }
+
       // уменьшаем stock товаров после успешной оплаты
       for (const item of order.orderData.items) {
         // получаем товар до уменьшения для логирования
@@ -1056,7 +1063,10 @@ const handleFailUrl = (req: express.Request, res: express.Response) => {
 
   if (InvId) {
     const orderId = `ORD-${InvId}`
-    updateOrderStatus(orderId, 'failed')
+    const updatedOrder = updateOrderStatus(orderId, 'failed')
+    if (updatedOrder) {
+      updateOrderStatusInSheet(orderId, 'failed', updatedOrder.updatedAt).catch(() => {})
+    }
     logger.info({ InvId, orderId, platform }, 'статус заказа обновлен на failed')
   }
 
@@ -1137,6 +1147,11 @@ app.listen(port, async () => {
   await importProducts();
   await importPromocodes();
   await importConstructor();
+
+  // создаём листы для заказов, если их нет
+  ensureOrderSheets().catch((e: any) => {
+    logger.warn({ error: e?.message }, 'не удалось подготовить листы orders/order_items')
+  });
 
   // периодический импорт (по умолчанию каждые 10 минут)
   const intervalMinutes = Number(process.env.IMPORT_INTERVAL_MINUTES ?? 10);
