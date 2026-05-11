@@ -126,9 +126,9 @@ function NavBar({ active, onNavigate, onLogout }: { active: 'statistics' | 'cust
   )
 }
 
-function KpiCard({ title, value, accent }: { title: string; value: string; accent?: string }) {
+function KpiCard({ title, value }: { title: string; value: string }) {
   return (
-    <div className="stat-kpi-card" style={accent ? { borderLeftColor: accent } : undefined}>
+    <div className="stat-kpi-card">
       <div className="stat-kpi-title">{title}</div>
       <div className="stat-kpi-value">{value}</div>
     </div>
@@ -263,9 +263,9 @@ function OverviewTab({ stats, loading }: { stats: StatsResponse | null; loading:
   return (
     <div className="stat-overview">
       <div className="stat-kpi-row">
-        <KpiCard title="Выручка" value={fmtMoney(stats.kpi.revenue)} accent="#43e97b" />
-        <KpiCard title="Заказов" value={String(stats.kpi.ordersCount)} accent="#4facfe" />
-        <KpiCard title="Средний чек" value={fmtMoney(stats.kpi.avgCheck)} accent="#f093fb" />
+        <KpiCard title="Выручка" value={fmtMoney(stats.kpi.revenue)} />
+        <KpiCard title="Заказов" value={String(stats.kpi.ordersCount)} />
+        <KpiCard title="Средний чек" value={fmtMoney(stats.kpi.avgCheck)} />
       </div>
       <div className="stat-grid-2">
         <LineChart data={stats.timeline} valueKey="revenue" color="#667eea" label="Выручка по дням" />
