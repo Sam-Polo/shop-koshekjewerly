@@ -3048,7 +3048,12 @@
 .stat-bar-fill {
   height: 100%;
   border-radius: 6px;
-  transition: width 0.4s ease;
+  opacity: 0.55;
+  transition: width 0.4s ease, opacity 0.15s;
+}
+
+.stat-bar-row:hover .stat-bar-fill {
+  opacity: 0.75;
 }
 
 .stat-bar-value {
@@ -3056,18 +3061,17 @@
   inset: 0;
   display: flex;
   align-items: center;
-  padding: 0 0.6rem;
-  font-size: 0.8rem;
-  color: #222;
-  font-weight: 500;
-  mix-blend-mode: difference;
-  color: white;
+  padding: 0 0.7rem;
+  font-size: 0.82rem;
+  color: #1a1a2e;
+  font-weight: 600;
 }
 
 .stat-bar-sub {
-  opacity: 0.75;
+  opacity: 0.65;
   font-weight: 400;
   margin-left: 0.4rem;
+  color: #444;
 }
 
 .stat-donut-row {
