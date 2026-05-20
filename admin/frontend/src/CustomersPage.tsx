@@ -11,6 +11,7 @@ type Customer = {
   customerChatId: string
   platform: string
   ordersCount: number
+  paidOrdersCount: number
   totalSpent: number
   firstOrderAt: string
   lastOrderAt: string
@@ -77,8 +78,8 @@ function CustomerModal({ customer, onClose }: { customer: Customer; onClose: () 
 
         <div className="stat-customer-summary">
           <div><span className="stat-muted">Платформа</span><span>{platformLabel(customer.platform)}</span></div>
-          <div><span className="stat-muted">Заказов</span><span>{customer.ordersCount}</span></div>
-          <div><span className="stat-muted">Сумма</span><span><strong>{fmtMoney(customer.totalSpent)}</strong></span></div>
+          <div><span className="stat-muted">Заказов</span><span>{customer.ordersCount}{customer.ordersCount !== customer.paidOrdersCount ? ` (оплачено ${customer.paidOrdersCount})` : ''}</span></div>
+          <div><span className="stat-muted">Потрачено</span><span><strong>{fmtMoney(customer.totalSpent)}</strong></span></div>
           <div><span className="stat-muted">Первый</span><span>{fmtDateTime(customer.firstOrderAt)}</span></div>
           <div><span className="stat-muted">Последний</span><span>{fmtDateTime(customer.lastOrderAt)}</span></div>
         </div>
@@ -189,7 +190,7 @@ export default function CustomersPage({ onNavigate }: { onNavigate?: (page: Admi
                 <th>Контакты</th>
                 <th>Платформа</th>
                 <th>Заказов</th>
-                <th>Сумма</th>
+                <th>Потрачено</th>
                 <th>Последний</th>
                 <th></th>
               </tr>
@@ -203,7 +204,12 @@ export default function CustomersPage({ onNavigate }: { onNavigate?: (page: Admi
                     {c.username && <div className="stat-muted">{c.username}</div>}
                   </td>
                   <td>{platformLabel(c.platform)}</td>
-                  <td>{c.ordersCount}</td>
+                  <td>
+                    {c.ordersCount}
+                    {c.ordersCount !== c.paidOrdersCount && (
+                      <span className="stat-muted"> ({c.paidOrdersCount} опл.)</span>
+                    )}
+                  </td>
                   <td><strong>{fmtMoney(c.totalSpent)}</strong></td>
                   <td>{fmtDateTime(c.lastOrderAt)}</td>
                   <td><button className="btn">Открыть</button></td>

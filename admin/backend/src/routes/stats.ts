@@ -30,7 +30,9 @@ router.get('/', async (req, res) => {
     const fromTs = from ? parseTs(from) : 0
     const toTs = to ? parseTs(to) : Number.MAX_SAFE_INTEGER
 
+    // в статистику попадают только оплаченные заказы (pending/failed/cancelled не учитываем)
     const filtered = all.filter(o => {
+      if (o.status !== 'paid') return false
       const t = parseTs(o.createdAt)
       if (t < fromTs || t > toTs) return false
       if (platform && o.platform !== platform) return false

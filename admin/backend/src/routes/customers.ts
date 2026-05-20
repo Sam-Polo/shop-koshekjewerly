@@ -16,6 +16,7 @@ export type CustomerAggregate = {
   customerChatId: string
   platform: string
   ordersCount: number
+  paidOrdersCount: number
   totalSpent: number
   firstOrderAt: string
   lastOrderAt: string
@@ -48,8 +49,8 @@ function aggregate(orders: FullOrder[]): CustomerAggregate[] {
     list.sort((a, b) => parseTs(a.createdAt) - parseTs(b.createdAt))
     const first = list[0]
     const last = list[list.length - 1]
-    // считаем только оплаченные для total — нет, юзер просил «все заказы без статусов»
-    const totalSpent = list.reduce((s, o) => s + o.total, 0)
+    // потраченная сумма — только по оплаченным заказам; ordersCount — все обращения клиента
+    const totalSpent = list.reduce((s, o) => s + (o.status === 'paid' ? o.total : 0), 0)
     out.push({
       id: key,
       fullName: last.fullName || first.fullName,
@@ -58,6 +59,7 @@ function aggregate(orders: FullOrder[]): CustomerAggregate[] {
       customerChatId: last.customerChatId || first.customerChatId,
       platform: last.platform,
       ordersCount: list.length,
+      paidOrdersCount: list.filter(o => o.status === 'paid').length,
       totalSpent,
       firstOrderAt: first.createdAt,
       lastOrderAt: last.createdAt,
