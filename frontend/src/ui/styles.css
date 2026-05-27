@@ -236,6 +236,7 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
   font-family: 'Forum', serif;
   font-weight: 400;
   letter-spacing: 0.5px;
+  text-transform: uppercase;
   pointer-events: none;
   line-height: 1.4;
 }
