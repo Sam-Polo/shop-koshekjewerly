@@ -414,36 +414,41 @@ const ProductModal = ({
           )}
           
           <div className="product-modal__cart-controls">
-            <div className="cart-controls__quantity">
-              <button 
-                className="quantity-btn" 
-                onClick={handleDecrease}
-                disabled={quantity <= 1}
-              >
-                −
+            {product.stock !== undefined && product.stock === 0 ? (
+              <button className="btn btn--out-of-stock" disabled>
+                временно нет в наличии
               </button>
-              <span className="quantity-value">{quantity}</span>
-              <button 
-                className="quantity-btn" 
-                onClick={handleIncrease}
-                disabled={!canIncrease}
-              >
-                +
-              </button>
-            </div>
-            {availableQuantity === 0 && (
-              <p className="cart-controls__error">Товар закончился</p>
+            ) : (
+              <>
+                <div className="cart-controls__quantity">
+                  <button
+                    className="quantity-btn"
+                    onClick={handleDecrease}
+                    disabled={quantity <= 1}
+                  >
+                    −
+                  </button>
+                  <span className="quantity-value">{quantity}</span>
+                  <button
+                    className="quantity-btn"
+                    onClick={handleIncrease}
+                    disabled={!canIncrease}
+                  >
+                    +
+                  </button>
+                </div>
+                {!canAddToCart && quantity > availableQuantity && availableQuantity > 0 && (
+                  <p className="cart-controls__error">Доступно только {availableQuantity} шт.</p>
+                )}
+                <button
+                  className={`btn btn--add-to-cart ${addedState ? 'added' : ''}`}
+                  onClick={handleAddToCart}
+                  disabled={!canAddToCart || isAdding || addedState}
+                >
+                  {isAdding ? 'Добавляем...' : addedState ? 'Добавлено ✓' : 'Добавить в корзину'}
+                </button>
+              </>
             )}
-            {!canAddToCart && quantity > availableQuantity && availableQuantity > 0 && (
-              <p className="cart-controls__error">Доступно только {availableQuantity} шт.</p>
-            )}
-            <button 
-              className={`btn btn--add-to-cart ${addedState ? 'added' : ''}`}
-              onClick={handleAddToCart}
-              disabled={!canAddToCart || isAdding || addedState}
-            >
-              {isAdding ? 'Добавляем...' : addedState ? 'Добавлено ✓' : 'Добавить в корзину'}
-            </button>
           </div>
         </div>
       </div>
@@ -2064,7 +2069,7 @@ export default function App() {
                     <motion.div
                       key={product.slug}
                       className={`product-card${outOfStock ? ' product-card--out-of-stock' : ''}`}
-                      onClick={outOfStock ? undefined : () => setSelectedProduct(product)}
+                      onClick={() => setSelectedProduct(product)}
                       variants={itemVariants}
                     >
                       <div className="product-card__image-wrapper">

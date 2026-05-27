@@ -385,6 +385,21 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 .btn--add-to-cart:hover:not(:disabled) { background: #c069d0; }
 .btn--add-to-cart:active:not(:disabled) { transform: scale(0.98); }
 
+.btn--out-of-stock {
+  width: 100%;
+  background-color: #c8b8c4;
+  color: #fff;
+  border: none;
+  padding: 14px 24px;
+  font-size: 16px;
+  font-family: 'Forum', serif;
+  font-weight: 400;
+  letter-spacing: 0.3px;
+  border-radius: 0;
+  cursor: default;
+  opacity: 0.85;
+}
+
 /* корзина */
 .cart-button { position: fixed; bottom: 20px; right: 20px; width: 60px; height: 60px; border-radius: 50%; background: #d480e0; color: #fff; border: none; cursor: pointer; box-shadow: 0 4px 12px rgba(212, 128, 224, 0.3); z-index: 50; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
 .cart-button:hover { transform: scale(1.1); box-shadow: 0 6px 16px rgba(212, 128, 224, 0.4); }
