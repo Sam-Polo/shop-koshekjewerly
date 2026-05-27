@@ -455,6 +455,7 @@ export default function StatisticsPage({ onNavigate }: { onNavigate?: (page: Adm
   const [customTo, setCustomTo] = useState('')
   const [platform, setPlatform] = useState('')
   const [category, setCategory] = useState('')
+  const [status, setStatus] = useState('')
   const [search, setSearch] = useState('')
   const [hasNote, setHasNote] = useState('')
 
@@ -491,11 +492,11 @@ export default function StatisticsPage({ onNavigate }: { onNavigate?: (page: Adm
   useEffect(() => {
     if (tab !== 'orders') return
     setOrdersLoading(true)
-    api.getOrders({ from: fromIso, to: toIso, platform, category, search, hasNote })
+    api.getOrders({ from: fromIso, to: toIso, platform, category, status, search, hasNote })
       .then(d => setOrders(d.orders || []))
       .catch(() => setOrders([]))
       .finally(() => setOrdersLoading(false))
-  }, [tab, fromIso, toIso, platform, category, search, hasNote])
+  }, [tab, fromIso, toIso, platform, category, status, search, hasNote])
 
   const handleLogout = () => { removeToken(); window.location.reload() }
 
@@ -549,6 +550,16 @@ export default function StatisticsPage({ onNavigate }: { onNavigate?: (page: Adm
         </div>
         {tab === 'orders' && (
           <>
+            <div className="stat-filter-group">
+              <label>Статус</label>
+              <select value={status} onChange={e => setStatus(e.target.value)}>
+                <option value="">Все</option>
+                <option value="paid">Оплачен</option>
+                <option value="pending">Не оплачен</option>
+                <option value="failed">Ошибка оплаты</option>
+                <option value="cancelled">Отменён</option>
+              </select>
+            </div>
             <div className="stat-filter-group stat-filter-grow">
               <label>Поиск</label>
               <input type="text" placeholder="имя, телефон, артикул, номер..." value={search} onChange={e => setSearch(e.target.value)} />
@@ -563,8 +574,8 @@ export default function StatisticsPage({ onNavigate }: { onNavigate?: (page: Adm
             </div>
           </>
         )}
-        {(preset !== '30' || platform || category || search || hasNote) && (
-          <button className="stat-reset" onClick={() => { setPreset('30'); setPlatform(''); setCategory(''); setSearch(''); setHasNote(''); setCustomFrom(''); setCustomTo('') }}>Сбросить</button>
+        {(preset !== '30' || platform || category || status || search || hasNote) && (
+          <button className="stat-reset" onClick={() => { setPreset('30'); setPlatform(''); setCategory(''); setStatus(''); setSearch(''); setHasNote(''); setCustomFrom(''); setCustomTo('') }}>Сбросить</button>
         )}
       </div>
 

@@ -2058,11 +2058,13 @@ export default function App() {
                   initial="hidden"
                   animate="visible"
                 >
-                  {filteredProducts.map(product => (
+                  {filteredProducts.map(product => {
+                    const outOfStock = product.stock !== undefined && product.stock === 0
+                    return (
                     <motion.div
                       key={product.slug}
-                      className="product-card"
-                      onClick={() => setSelectedProduct(product)}
+                      className={`product-card${outOfStock ? ' product-card--out-of-stock' : ''}`}
+                      onClick={outOfStock ? undefined : () => setSelectedProduct(product)}
                       variants={itemVariants}
                     >
                       <div className="product-card__image-wrapper">
@@ -2070,9 +2072,14 @@ export default function App() {
                           src={product.images && product.images.length > 0 ? product.images[0] : ''}
                           alt={product.title}
                         />
-                        {product.badge_text && (
+                        {product.badge_text && !outOfStock && (
                           <div className="product-card__badge">
                             {product.badge_text}
+                          </div>
+                        )}
+                        {outOfStock && (
+                          <div className="product-card__oos-badge">
+                            временно нет в наличии
                           </div>
                         )}
                       </div>
@@ -2090,7 +2097,7 @@ export default function App() {
                         </div>
           </div>
                     </motion.div>
-                  ))}
+                  )})}
                 </motion.div>
               )}
             </motion.section>

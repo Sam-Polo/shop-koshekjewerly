@@ -813,6 +813,11 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
                                   {product.badge_text}
                                 </div>
                               )}
+                              {product.stock !== undefined && product.stock === 0 && (
+                                <div className="product-card-oos-badge">
+                                  нет в наличии
+                                </div>
+                              )}
                             </>
                           ) : (
                             <div className="no-image">Нет фото</div>

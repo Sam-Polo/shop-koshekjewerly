@@ -25,10 +25,10 @@ function matchesSearch(order: FullOrder, q: string): boolean {
   return hay.includes(needle)
 }
 
-// GET /api/orders?from=&to=&platform=&category=&search=&hasNote=
+// GET /api/orders?from=&to=&platform=&category=&status=&search=&hasNote=
 router.get('/', async (req, res) => {
   try {
-    const { from, to, platform, category, search, hasNote } = req.query as Record<string, string>
+    const { from, to, platform, category, status, search, hasNote } = req.query as Record<string, string>
     const all = await loadFullOrders()
 
     const fromTs = from ? parseTs(from) : 0
@@ -39,6 +39,7 @@ router.get('/', async (req, res) => {
       if (t < fromTs || t > toTs) return false
       if (platform && o.platform !== platform) return false
       if (category && !o.items.some(i => i.category === category)) return false
+      if (status && o.status !== status) return false
       if (hasNote === 'true' && !o.adminNote.trim()) return false
       if (hasNote === 'false' && o.adminNote.trim()) return false
       if (search && !matchesSearch(o, search)) return false

@@ -258,7 +258,7 @@ export const api = {
   },
 
   // ── статистика, заказы, клиенты ──────────────────────────────────────────
-  async getOrders(params: { from?: string; to?: string; platform?: string; category?: string; search?: string; hasNote?: string } = {}) {
+  async getOrders(params: { from?: string; to?: string; platform?: string; category?: string; status?: string; search?: string; hasNote?: string } = {}) {
     const qs = new URLSearchParams()
     Object.entries(params).forEach(([k, v]) => { if (v) qs.set(k, v) })
     const suffix = qs.toString() ? `?${qs.toString()}` : ''
