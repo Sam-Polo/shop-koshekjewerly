@@ -416,7 +416,7 @@ const ProductModal = ({
           <div className="product-modal__cart-controls">
             {product.stock !== undefined && product.stock === 0 ? (
               <button className="btn btn--out-of-stock" disabled>
-                временно нет в наличии
+                Временно нет в наличии
               </button>
             ) : (
               <>
