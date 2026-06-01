@@ -24,10 +24,18 @@ const STYLE_LABELS: Record<BannerStyle, string> = {
   neutral: 'Нейтральный',
 }
 
-const STYLE_PREVIEW: Record<BannerStyle, React.CSSProperties> = {
-  pink: { background: '#d65baf', color: '#fff' },
-  gold: { background: '#bf9243', color: '#fff' },
-  neutral: { background: '#fae3f6', color: 'rgba(0,0,0,0.8)', border: '1px solid rgba(214,91,175,0.3)' },
+// стили кнопок-пресетов (на светлом фоне карточки)
+const STYLE_CHIP: Record<BannerStyle, React.CSSProperties> = {
+  pink: { background: 'rgba(214,91,175,0.15)', color: '#b03a8e', border: '1px solid rgba(214,91,175,0.4)' },
+  gold: { background: 'rgba(191,146,67,0.15)', color: '#7a5c1e', border: '1px solid rgba(191,146,67,0.4)' },
+  neutral: { background: 'rgba(0,0,0,0.05)', color: '#555', border: '1px solid rgba(0,0,0,0.15)' },
+}
+
+// превью — имитируем тёмный hero-фон
+const STYLE_PREVIEW_STRIP: Record<BannerStyle, React.CSSProperties> = {
+  pink: { background: 'rgba(214,91,175,0.28)', border: '1px solid rgba(214,91,175,0.55)', color: '#fff' },
+  gold: { background: 'rgba(191,146,67,0.28)', border: '1px solid rgba(191,146,67,0.60)', color: '#fff' },
+  neutral: { background: 'rgba(255,255,255,0.10)', border: '1px solid rgba(255,255,255,0.28)', color: '#fff' },
 }
 
 function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }) {
@@ -254,7 +262,7 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
                       />
                       <span
                         className="settings-style-preview"
-                        style={STYLE_PREVIEW[style]}
+                        style={STYLE_CHIP[style]}
                       >
                         {STYLE_LABELS[style]}
                       </span>
@@ -285,15 +293,17 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
               </div>
               <p className="settings-hint">Даты необязательны. Если заданы — баннер скрывается автоматически вне диапазона.</p>
 
-              {/* превью */}
+              {/* превью на тёмном фоне — имитация hero */}
               {banner.bannerText && (
                 <div className="settings-banner-preview">
                   <p className="settings-label">Предпросмотр</p>
-                  <div
-                    className="settings-banner-preview-strip"
-                    style={STYLE_PREVIEW[banner.bannerStyle]}
-                  >
-                    {banner.bannerText}
+                  <div className="settings-banner-preview-bg">
+                    <div
+                      className="settings-banner-preview-strip"
+                      style={STYLE_PREVIEW_STRIP[banner.bannerStyle]}
+                    >
+                      {banner.bannerText}
+                    </div>
                   </div>
                 </div>
               )}

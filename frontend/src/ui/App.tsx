@@ -1998,19 +1998,19 @@ export default function App() {
 
   return (
     <>
-      {isBannerVisible && (
-        <div className={`app-banner app-banner--${bannerStyle}`}>
-          {bannerText}
-        </div>
-      )}
       <header className={`page-header ${headerImageLoaded ? 'image-loaded' : ''}`}>
-        <div 
+        <div
           className="page-header__background"
           style={{ backgroundImage: `url(${backgroundImage})` }}
         />
         <img src={logoImage} alt="KOSHEK logo" className={`header-logo ${logoImageLoaded ? 'image-loaded' : ''}`} />
         <h1 className="page-header__title">KOSHEK</h1>
         <p className="page-header__text">Girls выбирают KOSHEK и бриллианты.</p>
+        {isBannerVisible && (
+          <div className={`app-banner app-banner--${bannerStyle}`}>
+            {bannerText}
+          </div>
+        )}
         {ordersClosed && (
           <div className="page-header__orders-closed">
             <p className="page-header__orders-closed-text">

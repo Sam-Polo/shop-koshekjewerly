@@ -3545,3 +3545,11 @@
 
 .settings-save-btn:hover:not(:disabled) { background: #5e3a84; }
 .settings-save-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.settings-banner-preview-bg {
+  background: rgba(0,0,0,0.6);
+  border-radius: 6px;
+  padding: 20px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

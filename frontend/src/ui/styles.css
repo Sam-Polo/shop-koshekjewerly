@@ -73,33 +73,37 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 .page-header__orders-closed-text { margin: 0; font-size: 16px; line-height: 1.5; font-weight: 400; color: #ffffff; background: rgba(192, 121, 14, 0.3); padding: 12px 20px; border-radius: 0; border: none; }
 
 .app-banner {
-  position: sticky;
-  top: 0;
-  z-index: 200;
-  width: 100%;
-  padding: 12px 24px;
+  position: relative;
+  z-index: 2;
+  margin-top: 28px;
+  max-width: 480px;
+  width: calc(100% - 48px);
+  padding: 14px 24px;
   text-align: center;
   font-family: 'Forum', system-ui, sans-serif;
-  font-size: 14px;
-  line-height: 1.5;
-  letter-spacing: 0.03em;
+  font-size: 15px;
+  line-height: 1.55;
+  letter-spacing: 0.04em;
   font-weight: 400;
+  color: #ffffff;
+  border-radius: 2px;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
 
 .app-banner--pink {
-  background: #d65baf;
-  color: #ffffff;
+  background: rgba(214, 91, 175, 0.28);
+  border: 1px solid rgba(214, 91, 175, 0.55);
 }
 
 .app-banner--gold {
-  background: #bf9243;
-  color: #ffffff;
+  background: rgba(191, 146, 67, 0.28);
+  border: 1px solid rgba(191, 146, 67, 0.60);
 }
 
 .app-banner--neutral {
-  background: #fae3f6;
-  color: rgba(0, 0, 0, 0.8);
-  border-bottom: 1px solid rgba(214, 91, 175, 0.25);
+  background: rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(255, 255, 255, 0.28);
 }
 
 .scroll-down-btn {
