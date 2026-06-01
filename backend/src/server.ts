@@ -394,11 +394,23 @@ function recordFailedTgNotification(entry: { chatId: string | number; text: stri
 
 // отправка сообщения через Telegram Bot API: 3 попытки 1/3/9с, на финальном фейле — лог + файл.
 // 4xx (кроме 429) считаем финальной ошибкой нашего запроса и не ретраим.
-async function sendTelegramMessage(chatId: string | number, text: string) {
+type SendResult = { ok: boolean; status?: number; errorDescription?: string }
+
+// извлекает description из ответа Telegram (JSON вида {"ok":false,"description":"..."})
+function extractTgDescription(raw: string | undefined): string | undefined {
+  if (!raw) return undefined
+  try {
+    const parsed = JSON.parse(raw)
+    if (parsed && typeof parsed.description === 'string') return parsed.description
+  } catch {}
+  return undefined
+}
+
+async function sendTelegramMessage(chatId: string | number, text: string): Promise<SendResult> {
   const token = process.env.TG_BOT_TOKEN
   if (!token) {
     logger.warn('TG_BOT_TOKEN не задан, сообщение не отправлено')
-    return false
+    return { ok: false, errorDescription: 'TG_BOT_TOKEN не задан' }
   }
 
   const RETRY_DELAYS_MS = [1000, 3000, 9000]
@@ -413,7 +425,7 @@ async function sendTelegramMessage(chatId: string | number, text: string) {
         body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' })
       })
 
-      if (response.ok) return true
+      if (response.ok) return { ok: true, status: response.status }
 
       const errorText = await response.text().catch(() => '')
       lastError = errorText || `HTTP ${response.status}`
@@ -423,7 +435,7 @@ async function sendTelegramMessage(chatId: string | number, text: string) {
       if (response.status >= 400 && response.status < 500 && response.status !== 429) {
         logger.error({ chatId, status: response.status, error: errorText }, 'TG sendMessage: финальная 4xx, ретрая не будет')
         recordFailedTgNotification({ chatId, text, error: lastError, status: lastStatus })
-        return false
+        return { ok: false, status: lastStatus, errorDescription: extractTgDescription(errorText) ?? lastError }
       }
     } catch (e: any) {
       lastError = e?.message || 'unknown'
@@ -438,15 +450,15 @@ async function sendTelegramMessage(chatId: string | number, text: string) {
 
   logger.error({ chatId, error: lastError, status: lastStatus }, 'TG sendMessage: все попытки исчерпаны')
   recordFailedTgNotification({ chatId, text, error: lastError, status: lastStatus })
-  return false
+  return { ok: false, status: lastStatus, errorDescription: extractTgDescription(lastError) ?? lastError }
 }
 
 // отправка сообщения через MAX Bot API
-async function sendMaxMessage(chatId: string | number, text: string) {
+async function sendMaxMessage(chatId: string | number, text: string): Promise<SendResult> {
   const token = process.env.MAX_BOT_TOKEN
   if (!token) {
     logger.warn('MAX_BOT_TOKEN не задан, сообщение не отправлено')
-    return false
+    return { ok: false, errorDescription: 'MAX_BOT_TOKEN не задан' }
   }
 
   try {
@@ -462,13 +474,13 @@ async function sendMaxMessage(chatId: string | number, text: string) {
     if (!response.ok) {
       const error = await response.text()
       logger.error({ error }, 'ошибка отправки сообщения в MAX')
-      return false
+      return { ok: false, status: response.status, errorDescription: error || `HTTP ${response.status}` }
     }
 
-    return true
+    return { ok: true, status: response.status }
   } catch (e: any) {
     logger.error({ error: e?.message }, 'ошибка отправки сообщения в MAX')
-    return false
+    return { ok: false, errorDescription: e?.message || 'unknown' }
   }
 }
 
@@ -593,23 +605,50 @@ ${order.orderData.comments ? `Комментарии: ${escapeHtml(order.orderDa
   const managerChatId = isMax ? process.env.MAX_MANAGER_CHAT_ID : process.env.TG_MANAGER_CHAT_ID
 
   // отправляем покупателю если есть chat_id
+  // фиксируем результат, чтобы при провале алертнуть менеджера со всеми данными заказа
+  let customerDelivery: SendResult = { ok: false, errorDescription: 'chat_id покупателя не найден в initData' }
   if (order.customerChatId) {
-    await sendPlatformMessage(order.customerChatId, customerMessage)
+    customerDelivery = await sendPlatformMessage(order.customerChatId, customerMessage)
   } else {
     logger.warn({ platform: order.platform }, 'chat_id покупателя не найден, сообщение покупателю не отправлено')
   }
 
+  // классифицируем причину провала для менеджера в человеческом виде
+  // chat not found / bot was blocked / user is deactivated → юзер ни разу не открывал чат с ботом
+  // или удалил/заблокировал. Прочие случаи — общая формулировка.
+  function describeCustomerFailure(r: SendResult): string {
+    const desc = (r.errorDescription || '').toLowerCase()
+    if (desc.includes('chat not found') || desc.includes("bot can't initiate") || desc.includes('bot was blocked') || desc.includes('user is deactivated')) {
+      return 'не начат диалог с ботом, не смогли отправить сообщение покупателю'
+    }
+    if (desc.includes('chat_id покупателя не найден')) {
+      return 'chat_id покупателя не найден (мини-апп открыт без initData)'
+    }
+    return 'не удалось доставить сообщение покупателю'
+  }
+
+  // финальный текст для менеджера: если покупатель не получил — добавляем шапку с причиной
+  let managerOutgoing = managerMessage
+  if (!customerDelivery.ok) {
+    const reason = describeCustomerFailure(customerDelivery)
+    const techLine = customerDelivery.status || customerDelivery.errorDescription
+      ? `\nДетали: ${customerDelivery.status ? `HTTP ${customerDelivery.status}` : ''}${customerDelivery.status && customerDelivery.errorDescription ? ' — ' : ''}${customerDelivery.errorDescription ? escapeHtml(customerDelivery.errorDescription) : ''}`
+      : ''
+    managerOutgoing = `⚠️ <b>ПОКУПАТЕЛЬ НЕ ПОЛУЧИЛ УВЕДОМЛЕНИЕ</b>\nПричина: ${reason}${techLine}\nСвяжитесь с покупателем по телефону!\n\n` + managerMessage
+  }
+
   // отправляем менеджеру
+  let managerDelivery: SendResult = { ok: false, errorDescription: 'MANAGER_CHAT_ID не задан' }
   if (managerChatId) {
-    if (order.customerChatId !== managerChatId) {
-      await sendPlatformMessage(managerChatId, managerMessage)
-    } else {
-      await sendPlatformMessage(managerChatId, managerMessage)
+    managerDelivery = await sendPlatformMessage(managerChatId, managerOutgoing)
+    if (order.customerChatId === managerChatId) {
       logger.info('покупатель является менеджером, отправлено второе сообщение')
     }
   } else {
     logger.warn({ platform: order.platform }, `MANAGER_CHAT_ID не задан, сообщение менеджеру не отправлено`)
   }
+
+  return { customer: customerDelivery, manager: managerDelivery }
 }
 
 // оформление заказа (создаем заказ и возвращаем URL для оплаты)
@@ -976,24 +1015,32 @@ app.post('/api/robokassa/result', express.urlencoded({ extended: true }), async 
       currentStatus: order.status 
     }, 'заказ найден, проверяем сумму')
     
-    // обновляем статус на оплачен
-    if (order.status === 'pending') {
+    // обновляем статус на оплачен.
+    // 'pending' — нормальный случай.
+    // 'failed'  — Fail URL ошибочно опередил Result URL (юзер закрыл вкладку, превьювер
+    //             мессенджера разогрел fail-ссылку и т.п.). Result URL авторитативен,
+    //             поэтому подтверждённую оплату обрабатываем и при failed.
+    if (order.status === 'pending' || order.status === 'failed') {
+      if (order.status === 'failed') {
+        logger.warn({ InvId, orderId }, 'заказ ранее помечен failed, но Робокасса подтвердила оплату — обрабатываем как paid')
+      }
+
       // проверяем что сумма от Робокассы совпадает с суммой заказа (защита от подмены)
       const robokassaAmount = parseFloat(OutSum)
       const orderAmount = order.orderData.total
-      
+
       // сравниваем с точностью до копеек (0.01)
       if (Math.abs(robokassaAmount - orderAmount) > 0.01) {
-        logger.error({ 
-          InvId, 
+        logger.error({
+          InvId,
           orderId,
-          robokassaAmount, 
-          orderAmount, 
+          robokassaAmount,
+          orderAmount,
           difference: Math.abs(robokassaAmount - orderAmount)
         }, 'сумма от Робокассы не совпадает с суммой заказа')
         return res.status(400).send('ERROR')
       }
-      
+
       const updatedOrder = updateOrderStatus(orderId, 'paid')
       if (updatedOrder) {
         updateOrderStatusInSheet(orderId, 'paid', updatedOrder.updatedAt).catch(() => {})
@@ -1004,23 +1051,23 @@ app.post('/api/robokassa/result', express.urlencoded({ extended: true }), async 
         // получаем товар до уменьшения для логирования
         const productBefore = listProducts().find(p => p.slug === item.slug)
         const stockBefore = productBefore?.stock
-        
+
         const success = decreaseProductStock(item.slug, item.quantity)
-        
+
         // получаем товар после уменьшения для проверки
         const productAfter = listProducts().find(p => p.slug === item.slug)
         const stockAfter = productAfter?.stock
-        
+
         if (!success) {
-          logger.warn({ 
-            slug: item.slug, 
+          logger.warn({
+            slug: item.slug,
             quantity: item.quantity,
             stockBefore,
             stockAfter
           }, 'не удалось уменьшить stock товара (возможно stock undefined или недостаточно)')
         } else {
-          logger.info({ 
-            slug: item.slug, 
+          logger.info({
+            slug: item.slug,
             quantity: item.quantity,
             stockBefore,
             stockAfter,
@@ -1028,11 +1075,23 @@ app.post('/api/robokassa/result', express.urlencoded({ extended: true }), async 
           }, 'stock товара уменьшен в памяти')
         }
       }
-      
-      // отправляем уведомления
-      await sendOrderNotifications(order)
-      
-      logger.info({ InvId, orderId, amount: robokassaAmount }, 'заказ оплачен, сумма проверена, уведомления отправлены')
+
+      // отправляем уведомления, фиксируем фактическую доставку
+      const delivery = await sendOrderNotifications(order)
+
+      logger.info({
+        InvId,
+        orderId,
+        amount: robokassaAmount,
+        customerDelivered: delivery?.customer?.ok ?? false,
+        customerError: delivery?.customer?.ok ? undefined : delivery?.customer?.errorDescription,
+        managerDelivered: delivery?.manager?.ok ?? false,
+        managerError: delivery?.manager?.ok ? undefined : delivery?.manager?.errorDescription
+      }, 'заказ оплачен, сумма проверена')
+
+      if (delivery && !delivery.customer.ok) {
+        logger.warn({ InvId, orderId, reason: delivery.customer.errorDescription }, 'уведомление покупателю не доставлено — менеджеру отправлен алерт со всеми данными заказа')
+      }
     }
     
     // Робокасса ожидает ответ "OK<InvId>"
@@ -1068,18 +1127,17 @@ app.get('/api/robokassa/success', handleSuccessUrl);
 app.post('/api/robokassa/success', express.urlencoded({ extended: true }), handleSuccessUrl);
 
 // обработчик для Fail URL (поддерживает GET и POST)
+// ВАЖНО: Fail URL — это просто браузерный редирект, он НЕ авторитативен.
+// Его дёргают краулеры превью мессенджеров, юзер при reload, при закрытии вкладки и т.п.
+// Реальный статус оплаты определяет только Result URL (с проверкой подписи Робокассы).
+// Поэтому здесь мы НЕ меняем статус заказа, только редиректим юзера обратно в мини-апп.
 const handleFailUrl = (req: express.Request, res: express.Response) => {
   const InvId = req.query.InvId || req.body?.InvId
   const shpPlatform = (req.query.Shp_platform || req.body?.Shp_platform) as string | undefined
   const platform: Platform = shpPlatform === 'max' ? 'max' : 'telegram'
 
   if (InvId) {
-    const orderId = `ORD-${InvId}`
-    const updatedOrder = updateOrderStatus(orderId, 'failed')
-    if (updatedOrder) {
-      updateOrderStatusInSheet(orderId, 'failed', updatedOrder.updatedAt).catch(() => {})
-    }
-    logger.info({ InvId, orderId, platform }, 'статус заказа обновлен на failed')
+    logger.info({ InvId, platform }, 'Fail URL: редирект пользователя в мини-апп (статус заказа не меняем)')
   }
 
   const deepLink = buildPaymentReturnLink(platform, InvId, 'fail')

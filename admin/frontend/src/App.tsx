@@ -7,6 +7,7 @@ import BasesPage, { type AdminPage } from './BasesPage'
 import PendantsPage from './PendantsPage'
 import StatisticsPage from './StatisticsPage'
 import CustomersPage from './CustomersPage'
+import SettingsPage from './SettingsPage'
 import {
   DndContext,
   closestCenter,
@@ -201,14 +202,9 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
   const [reorderedProductsByCategory, setReorderedProductsByCategory] = useState<Record<string, Product[]>>({})
   const [isSavingProductsOrder, setIsSavingProductsOrder] = useState(false)
   const [showScrollTop, setShowScrollTop] = useState(false)
-  const [ordersClosed, setOrdersClosed] = useState(false)
-  const [ordersCloseDate, setOrdersCloseDate] = useState<string>('')
-  const [isOrdersSettingsModalOpen, setIsOrdersSettingsModalOpen] = useState(false)
-  const [isSavingOrdersSettings, setIsSavingOrdersSettings] = useState(false)
 
   useEffect(() => {
     loadProducts()
-    loadOrdersSettings()
     loadCategories()
   }, [])
 
@@ -219,62 +215,6 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
       setCategories(list)
     } catch (err: any) {
       console.error('Ошибка загрузки категорий:', err)
-    }
-  }
-
-  const loadOrdersSettings = async () => {
-    try {
-      const settings = await api.getOrdersSettings()
-      setOrdersClosed(settings.ordersClosed || false)
-      setOrdersCloseDate(settings.closeDate || '')
-    } catch (error: any) {
-      console.error('Ошибка загрузки настроек заказов:', error)
-    }
-  }
-
-  const handleToggleOrdersStatus = () => {
-    if (ordersClosed) {
-      // если заказы закрыты - открываем простое подтверждающее окно
-      setIsOrdersSettingsModalOpen(true)
-    } else {
-      // если заказы открыты - открываем модальное окно с полем для даты
-      setIsOrdersSettingsModalOpen(true)
-    }
-  }
-
-  const handleOpenOrders = async () => {
-    try {
-      setIsSavingOrdersSettings(true)
-      await api.updateOrdersSettings({
-        ordersClosed: false,
-        closeDate: undefined // очищаем дату при открытии
-      })
-      // перезагружаем настройки из API, чтобы синхронизировать состояние
-      await loadOrdersSettings()
-      setIsOrdersSettingsModalOpen(false)
-      setToast({ message: 'Заказы открыты', type: 'success' })
-    } catch (error: any) {
-      setToast({ message: error.message || 'Ошибка открытия заказов', type: 'error' })
-    } finally {
-      setIsSavingOrdersSettings(false)
-    }
-  }
-
-  const handleSaveOrdersSettings = async () => {
-    try {
-      setIsSavingOrdersSettings(true)
-      await api.updateOrdersSettings({
-        ordersClosed: true,
-        closeDate: ordersCloseDate || undefined
-      })
-      // перезагружаем настройки из API, чтобы синхронизировать состояние
-      await loadOrdersSettings()
-      setIsOrdersSettingsModalOpen(false)
-      setToast({ message: 'Заказы закрыты', type: 'success' })
-    } catch (error: any) {
-      setToast({ message: error.message || 'Ошибка сохранения настроек', type: 'error' })
-    } finally {
-      setIsSavingOrdersSettings(false)
     }
   }
 
@@ -603,6 +543,12 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
           >
             Клиенты
           </button>
+          <button
+            className="nav-btn"
+            onClick={() => onNavigate?.('settings')}
+          >
+            Настройки
+          </button>
         </div>
         <button onClick={handleLogout} className="logout-btn">
           Выйти
@@ -712,9 +658,6 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
           <div className="toolbar-actions">
             {!isReorderProductsMode ? (
               <>
-                <button onClick={handleToggleOrdersStatus} className="btn-orders-status">
-                  {ordersClosed ? 'Открыть заказы' : 'Закрыть заказы'}
-                </button>
                 <button onClick={handleStartReorderProducts} className="btn-reorder-products">
                   Порядок товаров
                 </button>
@@ -960,84 +903,6 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
         />
       )}
 
-      {isOrdersSettingsModalOpen && (
-        <OrdersSettingsModal
-          ordersClosed={ordersClosed}
-          closeDate={ordersCloseDate}
-          onClose={() => setIsOrdersSettingsModalOpen(false)}
-          onSave={ordersClosed ? handleOpenOrders : handleSaveOrdersSettings}
-          isSaving={isSavingOrdersSettings}
-          onCloseDateChange={setOrdersCloseDate}
-        />
-      )}
-    </div>
-  )
-}
-
-// модальное окно для управления статусом заказов
-function OrdersSettingsModal({
-  ordersClosed,
-  closeDate,
-  onClose,
-  onSave,
-  isSaving,
-  onCloseDateChange
-}: {
-  ordersClosed: boolean
-  closeDate: string
-  onClose: () => void
-  onSave: () => void
-  isSaving: boolean
-  onCloseDateChange: (date: string) => void
-}) {
-  // если заказы закрыты - показываем простое подтверждающее окно для открытия
-  if (ordersClosed) {
-    return (
-      <div className="modal-overlay" onClick={onClose}>
-        <div className="modal-content" onClick={e => e.stopPropagation()}>
-          <button className="modal-close" onClick={onClose}>&times;</button>
-          <h2>Открыть заказы</h2>
-          <p style={{ marginBottom: '1.5rem' }}>Вы уверены, что хотите открыть заказы?</p>
-          <div className="modal-actions">
-            <button className="btn btn-primary" onClick={onSave} disabled={isSaving}>
-              {isSaving ? 'Открытие...' : 'Да, открыть заказы'}
-            </button>
-            <button className="btn btn-secondary" onClick={onClose} disabled={isSaving}>
-              Отмена
-            </button>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // если заказы открыты - показываем модальное окно с полем для даты закрытия
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={e => e.stopPropagation()}>
-        <button className="modal-close" onClick={onClose}>&times;</button>
-        <h2>Закрыть заказы</h2>
-        <div className="form-group">
-          <label htmlFor="close-date">Дата закрытия (для информационного сообщения):</label>
-          <input
-            type="date"
-            id="close-date"
-            value={closeDate}
-            onChange={(e) => onCloseDateChange(e.target.value)}
-            className="form-input"
-            min={new Date().toISOString().split('T')[0]}
-          />
-          <p className="form-hint">Дата нужна только для информационного сообщения пользователям. Открытие/закрытие происходит вручную.</p>
-        </div>
-        <div className="modal-actions">
-          <button className="btn btn-primary" onClick={onSave} disabled={isSaving}>
-            {isSaving ? 'Сохранение...' : 'Закрыть заказы'}
-          </button>
-          <button className="btn btn-secondary" onClick={onClose} disabled={isSaving}>
-            Отмена
-          </button>
-        </div>
-      </div>
     </div>
   )
 }
@@ -2274,6 +2139,8 @@ export default function App() {
           <StatisticsPage onNavigate={handlePageChange} />
         ) : currentPage === 'customers' ? (
           <CustomersPage onNavigate={handlePageChange} />
+        ) : currentPage === 'settings' ? (
+          <SettingsPage onNavigate={handlePageChange} />
         ) : (
           <ProductsList onNavigate={handlePageChange} />
         )}

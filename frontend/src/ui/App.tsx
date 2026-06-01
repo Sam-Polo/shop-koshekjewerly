@@ -1554,6 +1554,11 @@ export default function App() {
   const [ordersClosed, setOrdersClosed] = useState(false)
   const [ordersCloseDate, setOrdersCloseDate] = useState<string | undefined>(undefined)
   const [ordersClosedModalOpen, setOrdersClosedModalOpen] = useState(false)
+  const [bannerEnabled, setBannerEnabled] = useState(false)
+  const [bannerText, setBannerText] = useState('')
+  const [bannerStyle, setBannerStyle] = useState<'pink' | 'gold' | 'neutral'>('neutral')
+  const [bannerDateFrom, setBannerDateFrom] = useState<string | undefined>(undefined)
+  const [bannerDateTo, setBannerDateTo] = useState<string | undefined>(undefined)
   const mainContentRef = useRef<HTMLElement>(null)
   const productsTitleRef = useRef<HTMLHeadingElement>(null)
   
@@ -1613,28 +1618,31 @@ export default function App() {
     loadCategories()
   }, [])
 
-  // загрузка статуса заказов
+  // загрузка статуса заказов и баннера
   useEffect(() => {
-    const loadOrdersStatus = async () => {
+    const loadSettings = async () => {
       try {
         const apiUrl = import.meta.env.VITE_API_URL || '/api'
         const url = apiUrl.endsWith('/api') ? `${apiUrl}/settings/orders-status` : `${apiUrl}/api/settings/orders-status`
-        console.log('[mini-app] загрузка статуса заказов из', url)
         const response = await fetch(url)
         if (response.ok) {
           const data = await response.json()
-          console.log('[mini-app] получены настройки заказов:', data)
           setOrdersClosed(data.ordersClosed || false)
           setOrdersCloseDate(data.closeDate)
-          console.log('[mini-app] ordersClosed установлен в:', data.ordersClosed || false)
-        } else {
-          console.error('[mini-app] ошибка ответа при загрузке статуса заказов:', response.status, response.statusText)
+
+          if (data.banner) {
+            setBannerEnabled(data.banner.bannerEnabled || false)
+            setBannerText(data.banner.bannerText || '')
+            setBannerStyle(data.banner.bannerStyle || 'neutral')
+            setBannerDateFrom(data.banner.bannerDateFrom)
+            setBannerDateTo(data.banner.bannerDateTo)
+          }
         }
       } catch (error) {
-        console.error('[mini-app] ошибка загрузки статуса заказов:', error)
+        console.error('[mini-app] ошибка загрузки настроек:', error)
       }
     }
-    loadOrdersStatus()
+    loadSettings()
   }, [])
 
   // управление корзиной с проверкой stock и статуса заказов.
@@ -1979,8 +1987,22 @@ export default function App() {
     visible: { y: 0, opacity: 1 },
   }
 
+  // баннер показываем если включён и текущая дата входит в диапазон (если задан)
+  const isBannerVisible = (() => {
+    if (!bannerEnabled || !bannerText.trim()) return false
+    const today = new Date().toISOString().split('T')[0]
+    if (bannerDateFrom && today < bannerDateFrom) return false
+    if (bannerDateTo && today > bannerDateTo) return false
+    return true
+  })()
+
   return (
     <>
+      {isBannerVisible && (
+        <div className={`app-banner app-banner--${bannerStyle}`}>
+          {bannerText}
+        </div>
+      )}
       <header className={`page-header ${headerImageLoaded ? 'image-loaded' : ''}`}>
         <div 
           className="page-header__background"

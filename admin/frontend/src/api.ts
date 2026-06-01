@@ -212,6 +212,25 @@ export const api = {
     })
   },
 
+  // настройки баннера
+  async getBannerSettings() {
+    return fetchWithAuth('/api/settings/banner')
+  },
+
+  async updateBannerSettings(banner: {
+    bannerEnabled: boolean
+    bannerText: string
+    bannerStyle: 'pink' | 'gold' | 'neutral'
+    bannerDateFrom?: string
+    bannerDateTo?: string
+  }) {
+    return fetchWithAuth('/api/settings/banner', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(banner)
+    })
+  },
+
   // категории
   async getCategories() {
     return fetchWithAuth('/api/categories')
