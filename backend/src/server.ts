@@ -128,6 +128,10 @@ async function importOrdersSettings() {
   }
 }
 
+// Render держит сервис за своим load balancer'ом — без trust proxy
+// req.ip = адрес прокси (::1) и весь трафик считается одним IP в rate limiter'е
+app.set('trust proxy', 1);
+
 app.use(express.json({ limit: '1mb' }));
 
 // настройка CORS - разрешаем запросы от TG и MAX мини-аппов
@@ -155,15 +159,23 @@ app.use(cors({
 // rate limiting для защиты от DDoS и брутфорса
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 минут
-  max: 100, // максимум 100 запросов с одного IP за 15 минут
+  max: 300, // максимум 300 запросов с одного IP за 15 минут
   message: { error: 'too_many_requests' },
   standardHeaders: true,
   legacyHeaders: false,
+  // health-check и доверенные внутренние запросы ботов не должны выжигать бюджет
+  // (бот пингает /health каждые 5 минут + опрашивает /api/pending-users)
+  skip: (req: express.Request) => {
+    if (req.path === '/health') return true
+    const botSecret = process.env.BOT_API_SECRET
+    if (botSecret && req.query.secret === botSecret) return true
+    return false
+  },
   handler: (req: express.Request, res: express.Response) => {
-    logger.warn({ 
-      ip: req.ip, 
+    logger.warn({
+      ip: req.ip,
       path: req.path,
-      method: req.method 
+      method: req.method
     }, 'rate limit превышен')
     res.status(429).json({ error: 'too_many_requests' })
   }
