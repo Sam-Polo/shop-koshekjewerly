@@ -17,6 +17,7 @@ type OrdersSettings = {
   ordersClosed: boolean
   closeDate: string
   assemblyMessage: string
+  priorityOrderEnabled: boolean
 }
 
 const STYLE_LABELS: Record<BannerStyle, string> = {
@@ -61,6 +62,7 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
     ordersClosed: false,
     closeDate: '',
     assemblyMessage: '',
+    priorityOrderEnabled: true,
   })
   const [ordersLoading, setOrdersLoading] = useState(true)
   const [ordersSaving, setOrdersSaving] = useState(false)
@@ -103,6 +105,7 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
         ordersClosed: data.ordersClosed || false,
         closeDate: data.closeDate || '',
         assemblyMessage: data.assemblyMessage || '',
+        priorityOrderEnabled: data.priorityOrderEnabled !== false,
       })
     } catch (err: any) {
       showToast(err.message || 'Ошибка загрузки статуса заказов', 'error')
@@ -136,6 +139,7 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
         ordersClosed: orders.ordersClosed,
         closeDate: orders.closeDate || undefined,
         assemblyMessage: orders.assemblyMessage || undefined,
+        priorityOrderEnabled: orders.priorityOrderEnabled,
       })
       showToast(orders.ordersClosed ? 'Заказы закрыты' : 'Заказы открыты', 'success')
     } catch (err: any) {
@@ -203,6 +207,23 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
                 />
                 <p className="settings-hint">Отображается в мини-приложении как «до&nbsp;[дата]»</p>
               </div>
+
+              <label className="settings-toggle-row">
+                <span className="settings-toggle-label">
+                  Приоритетный заказ
+                  <span className={`settings-status-badge ${orders.priorityOrderEnabled ? 'badge-open' : 'badge-closed'}`}>
+                    {orders.priorityOrderEnabled ? 'Включён' : 'Выключен'}
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  className="settings-toggle-input"
+                  checked={orders.priorityOrderEnabled}
+                  onChange={e => setOrders(prev => ({ ...prev, priorityOrderEnabled: e.target.checked }))}
+                />
+                <span className="settings-toggle-slider" />
+              </label>
+              <p className="settings-hint" style={{ marginTop: '-0.75rem' }}>При выключении плашка «Приоритетный заказ» полностью скрывается в форме оформления заказа.</p>
 
               <div className="settings-field">
                 <label className="settings-label">Сообщение о сроке сборки (в уведомлении бота)</label>

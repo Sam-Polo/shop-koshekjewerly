@@ -727,6 +727,7 @@ const CheckoutForm = ({
   cartTotal,
   cart,
   products,
+  priorityOrderEnabled = true,
   onBack,
   onSubmit
 }: {
@@ -734,6 +735,7 @@ const CheckoutForm = ({
   cartTotal: number
   cart: CartItem[]
   products: Product[]
+  priorityOrderEnabled?: boolean
   onBack: () => void
   onSubmit: (data: any) => void
 }) => {
@@ -822,7 +824,7 @@ const CheckoutForm = ({
   const subtotal = cartTotal + deliveryCost
   const subtotalAfterDiscount = Math.max(0, subtotal - promocodeDiscount)
   const priorityFee =
-    priorityOrder && subtotalAfterDiscount > 0
+    priorityOrderEnabled && priorityOrder && subtotalAfterDiscount > 0
       ? Math.round(subtotalAfterDiscount * 0.3)
       : 0
   const total = subtotalAfterDiscount + priorityFee
@@ -1096,7 +1098,7 @@ const CheckoutForm = ({
           {errors.comments && <span className="checkout-form__error">{errors.comments}</span>}
         </label>
 
-        <div className="checkout-form__priority-wrap" ref={priorityAnchorRef}>
+        {priorityOrderEnabled && <div className="checkout-form__priority-wrap" ref={priorityAnchorRef}>
           <div className="checkout-form__priority">
             <div className="checkout-form__priority-row">
               <span className="checkout-form__priority-label">Приоритетный заказ</span>
@@ -1147,7 +1149,7 @@ const CheckoutForm = ({
               </div>
             </>
           )}
-        </div>
+        </div>}
       </div>
 
       <div className="checkout-form__summary">
@@ -1559,6 +1561,7 @@ export default function App() {
   const [bannerStyle, setBannerStyle] = useState<'pink' | 'gold' | 'neutral'>('neutral')
   const [bannerDateFrom, setBannerDateFrom] = useState<string | undefined>(undefined)
   const [bannerDateTo, setBannerDateTo] = useState<string | undefined>(undefined)
+  const [priorityOrderEnabled, setPriorityOrderEnabled] = useState(true)
   const mainContentRef = useRef<HTMLElement>(null)
   const productsTitleRef = useRef<HTMLHeadingElement>(null)
   
@@ -1637,6 +1640,8 @@ export default function App() {
             setBannerDateFrom(data.banner.bannerDateFrom)
             setBannerDateTo(data.banner.bannerDateTo)
           }
+          // отсутствие ключа = включено (обратная совместимость)
+          setPriorityOrderEnabled(data.priorityOrderEnabled !== false)
         }
       } catch (error) {
         console.error('[mini-app] ошибка загрузки настроек:', error)
@@ -2215,6 +2220,7 @@ export default function App() {
                 cartTotal={cartTotalPrice}
                 cart={cart}
                 products={products}
+                priorityOrderEnabled={priorityOrderEnabled}
                 onBack={() => setCheckoutStep('region')}
                 onSubmit={handleCheckoutSubmit}
               />

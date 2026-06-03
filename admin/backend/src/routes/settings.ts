@@ -62,7 +62,7 @@ router.put('/orders-status', async (req, res) => {
       return res.status(500).json({ error: 'GOOGLE_SHEET_ID not configured' })
     }
 
-    const { ordersClosed, closeDate, assemblyMessage } = req.body
+    const { ordersClosed, closeDate, assemblyMessage, priorityOrderEnabled } = req.body
 
     if (typeof ordersClosed !== 'boolean') {
       return res.status(400).json({ error: 'ordersClosed must be a boolean' })
@@ -83,7 +83,8 @@ router.put('/orders-status', async (req, res) => {
     await saveOrdersSettingsToSheet(sheetId, {
       ordersClosed,
       closeDate: closeDate || undefined,
-      assemblyMessage: assemblyMessage || undefined
+      assemblyMessage: assemblyMessage || undefined,
+      priorityOrderEnabled: priorityOrderEnabled !== false
     })
     logger.info('настройки заказов сохранены')
 
