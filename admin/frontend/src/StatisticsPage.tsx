@@ -87,6 +87,18 @@ function fmtDateTime(s: string): string {
   return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
+// "2026-05-12" → "12.05"
+function fmtDayShort(isoDate: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate)
+  return m ? `${m[3]}.${m[2]}` : isoDate
+}
+
+// "2026-05-12" → "12.05.2026"
+function fmtDayFull(isoDate: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate)
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : isoDate
+}
+
 function platformLabel(p: string): string {
   if (p === 'max') return 'MAX'
   if (p === 'telegram') return 'Telegram'
@@ -172,11 +184,11 @@ function LineChart({ data, valueKey, color, label }: { data: { date: string; rev
         <path d={path} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
         {data.map((d, i) => (
           <circle key={i} cx={xFor(i)} cy={yFor(d[valueKey])} r="3" fill={color}>
-            <title>{`${d.date}: ${valueKey === 'revenue' ? fmtMoney(d.revenue) : d.orders + ' заказ(ов)'}`}</title>
+            <title>{`${fmtDayFull(d.date)}: ${valueKey === 'revenue' ? fmtMoney(d.revenue) : d.orders + ' заказ(ов)'}`}</title>
           </circle>
         ))}
         {data.map((d, i) => i % xLabelEvery === 0 ? (
-          <text key={i} x={xFor(i)} y={H - 10} textAnchor="middle" fontSize="11" fill="#888">{d.date.slice(5)}</text>
+          <text key={i} x={xFor(i)} y={H - 10} textAnchor="middle" fontSize="11" fill="#888">{fmtDayShort(d.date)}</text>
         ) : null)}
       </svg>
     </div>
