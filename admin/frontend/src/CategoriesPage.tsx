@@ -191,7 +191,20 @@ function CategoriesPage({
     const next = categories.map((cat) =>
       cat.key === c.key ? { ...cat, active: cat.active === false ? true : false } : cat
     )
-    await saveCategories(next)
+    setCategories(next)
+    try {
+      await api.saveCategories(next.map(({ key, title, description, image, image_position, active }) => ({
+        key,
+        title,
+        description: description || undefined,
+        image,
+        image_position: image_position || 'center',
+        active: active !== false
+      })))
+    } catch (error: any) {
+      setCategories(categories)
+      showToast(error.message || 'Ошибка сохранения', 'error')
+    }
   }
 
   const handleDeleteConfirm = async () => {
