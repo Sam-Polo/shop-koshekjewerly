@@ -990,6 +990,41 @@ bot.api.setChatMenuButton({
   console.warn('[bot] ошибка при настройке кнопки меню:', error?.message || error);
 });
 
+// глобальный error handler grammy.
+// БЕЗ него любая неперехваченная ошибка хендлера приводит к "No error handler was set! Stopping bot",
+// после чего long-polling останавливается и бот перестаёт отвечать ВСЕМ — пока pm2 не перезапустит.
+// Транзиентные ошибки TG API (403 blocked / 400 chat not found / сетевые) — нормальная часть жизни бота,
+// логируем их и продолжаем. Всё остальное логируем как ошибку, но процесс не валим.
+bot.catch((err) => {
+  const e = err.error as any
+  const updateId = err.ctx?.update?.update_id
+  const userId = err.ctx?.from?.id
+  const description: string | undefined = e?.description
+  const errorCode: number | undefined = e?.error_code
+  const method: string | undefined = e?.method
+
+  // Telegram API «юзер недоступен» — не наша вина, не шумим в error.log
+  const isUnreachable =
+    (errorCode === 403 && /blocked|deactivated|kicked/i.test(description ?? '')) ||
+    (errorCode === 400 && /chat not found/i.test(description ?? ''))
+
+  if (isUnreachable) {
+    console.warn(`[bot.catch] юзер ${userId} недоступен (${method}: ${description}) — апдейт ${updateId} пропущен`)
+    return
+  }
+
+  // сетевые/прокси-ошибки — то же самое: логируем как warn, бот продолжает работать
+  const cause = e?.cause || e
+  const code: string | undefined = cause?.code || cause?.name
+  if (code && /ECONN|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|UND_ERR|SocketError|ConnectTimeout|fetch failed/i.test(String(code) + ' ' + String(cause?.message ?? ''))) {
+    console.warn(`[bot.catch] сетевая ошибка в апдейте ${updateId} (${code}): ${cause?.message ?? e?.message}`)
+    return
+  }
+
+  // всё прочее — реальная ошибка, в error.log, но НЕ роняем бота
+  console.error(`[bot.catch] необработанная ошибка в апдейте ${updateId} от юзера ${userId}:`, e)
+})
+
 bot.start();
 
 

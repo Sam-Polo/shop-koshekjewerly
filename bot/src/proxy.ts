@@ -1,16 +1,7 @@
-import { ProxyAgent, fetch as undiciFetch } from 'undici'
+import { Dispatcher, ProxyAgent, fetch as undiciFetch } from 'undici'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-
-const proxyUrl = process.env.TG_PROXY_URL?.trim()
-export const proxyDispatcher = proxyUrl ? new ProxyAgent(proxyUrl) : undefined
-
-if (proxyUrl) {
-  console.log(`[proxy] TG-запросы пойдут через прокси: ${maskProxy(proxyUrl)}`)
-} else {
-  console.log('[proxy] TG_PROXY_URL не задан — прямые запросы к api.telegram.org')
-}
 
 function maskProxy(url: string): string {
   try {
@@ -19,6 +10,143 @@ function maskProxy(url: string): string {
   } catch {
     return '***'
   }
+}
+
+// определяет, является ли ошибка сетевой/прокси (для решения о фейловере на резервный прокси).
+// HTTP-ответы любого кода — НЕ сетевые ошибки: значит запрос дошёл до TG, ответ валиден, не ретраим.
+function isNetworkError(err: any): boolean {
+  if (!err) return false
+  const code: string | undefined = err.code || err.cause?.code
+  const name: string | undefined = err.name || err.cause?.name
+  const message: string = String(err.message ?? '') + ' ' + String(err.cause?.message ?? '')
+
+  const codes = new Set([
+    'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND',
+    'EHOSTUNREACH', 'ENETUNREACH', 'EPIPE',
+    'UND_ERR_SOCKET', 'UND_ERR_CONNECT_TIMEOUT',
+    'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT',
+  ])
+  if (code && codes.has(code)) return true
+
+  const names = new Set([
+    'ConnectTimeoutError', 'SocketError', 'HeadersTimeoutError', 'BodyTimeoutError',
+  ])
+  if (name && names.has(name)) return true
+
+  if (/fetch failed|socket hang up|network is unreachable/i.test(message)) return true
+  return false
+}
+
+// Dispatcher с резервным прокси.
+// Каждый запрос сначала идёт через primary. Если primary отдаёт сетевую ошибку
+// (а не HTTP-ответ) — повторяем тот же запрос через backup. HTTP-ответы (включая 4xx/5xx)
+// не считаются сбоем прокси — это валидный ответ от Telegram, его не надо обходить.
+// Если backup не задан — поведение идентично обычному ProxyAgent (без фейловера).
+// duck-typed dispatcher: undici fetch вызывает только .dispatch().
+// Класс не extends Dispatcher специально — у undici overload'ы destroy() с callback,
+// которые не дружат с async/Promise-сигнатурой; приводим к Dispatcher на экспорте.
+class FailoverProxyDispatcher {
+  private primary: ProxyAgent
+  private backup: ProxyAgent | null
+
+  constructor(primaryUrl: string, backupUrl: string | null) {
+    this.primary = new ProxyAgent(primaryUrl)
+    this.backup = backupUrl ? new ProxyAgent(backupUrl) : null
+  }
+
+  dispatch(opts: any, handler: any): boolean {
+    const backup = this.backup
+    if (!backup) {
+      return this.primary.dispatch(opts, handler)
+    }
+
+    // защита от повторного вызова терминальных методов оригинального handler'а,
+    // если ошибка пришла уже после того как часть ответа была отдана наверх.
+    let responseStarted = false
+    let switchedToBackup = false
+
+    const wrapped: any = {
+      onConnect: (abort: any) => handler.onConnect?.(abort),
+      onUpgrade: handler.onUpgrade
+        ? (statusCode: number, headers: any, socket: any) => {
+            responseStarted = true
+            return handler.onUpgrade(statusCode, headers, socket)
+          }
+        : undefined,
+      onResponseStarted: handler.onResponseStarted
+        ? () => {
+            responseStarted = true
+            return handler.onResponseStarted()
+          }
+        : undefined,
+      onHeaders: (statusCode: number, headers: any, resume: () => void, statusText: string) => {
+        responseStarted = true
+        return handler.onHeaders?.(statusCode, headers, resume, statusText) ?? true
+      },
+      onData: (chunk: Buffer) => handler.onData?.(chunk) ?? true,
+      onComplete: (trailers: any) => handler.onComplete?.(trailers),
+      onBodySent: handler.onBodySent ? (...args: any[]) => handler.onBodySent(...args) : undefined,
+      onError: (err: Error) => {
+        if (!switchedToBackup && !responseStarted && isNetworkError(err)) {
+          switchedToBackup = true
+          console.warn(`[proxy] primary упал (${(err as any).code ?? err.name ?? err.message}), переключаюсь на резервный прокси`)
+          try {
+            // на backup передаём ОРИГИНАЛЬНЫЙ handler — wrapped уже отыграл свою роль
+            backup.dispatch(opts, handler)
+            return
+          } catch (e: any) {
+            return handler.onError?.(e)
+          }
+        }
+        return handler.onError?.(err)
+      },
+    }
+
+    try {
+      return this.primary.dispatch(opts, wrapped)
+    } catch (e: any) {
+      // синхронный отказ primary (например, dispatcher уже закрыт) — пробуем backup
+      if (!switchedToBackup && isNetworkError(e)) {
+        switchedToBackup = true
+        console.warn(`[proxy] primary упал синхронно (${e.code ?? e.message}), переключаюсь на резервный прокси`)
+        try {
+          return backup.dispatch(opts, handler)
+        } catch (e2: any) {
+          handler.onError?.(e2)
+          return false
+        }
+      }
+      handler.onError?.(e)
+      return false
+    }
+  }
+
+  async close(): Promise<void> {
+    const tasks: Promise<void>[] = [this.primary.close()]
+    if (this.backup) tasks.push(this.backup.close())
+    await Promise.allSettled(tasks)
+  }
+
+  async destroy(err: Error | null = null): Promise<void> {
+    const tasks: Promise<void>[] = [this.primary.destroy(err)]
+    if (this.backup) tasks.push(this.backup.destroy(err))
+    await Promise.allSettled(tasks)
+  }
+}
+
+const proxyUrl = process.env.TG_PROXY_URL?.trim()
+const proxyUrlBackup = process.env.TG_PROXY_URL_BACKUP?.trim() || null
+
+export const proxyDispatcher: Dispatcher | undefined = proxyUrl
+  ? (new FailoverProxyDispatcher(proxyUrl, proxyUrlBackup) as unknown as Dispatcher)
+  : undefined
+
+if (proxyUrl && proxyUrlBackup) {
+  console.log(`[proxy] TG-запросы: primary=${maskProxy(proxyUrl)}, backup=${maskProxy(proxyUrlBackup)} (backup используется только при сетевом сбое primary)`)
+} else if (proxyUrl) {
+  console.log(`[proxy] TG-запросы пойдут через прокси: ${maskProxy(proxyUrl)} (резервный прокси не задан — установите TG_PROXY_URL_BACKUP для автофейловера)`)
+} else {
+  console.log('[proxy] TG_PROXY_URL не задан — прямые запросы к api.telegram.org')
 }
 
 const __filename = fileURLToPath(import.meta.url)
