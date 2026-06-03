@@ -118,6 +118,7 @@ function NavBar({ active, onNavigate, onLogout }: { active: 'statistics' | 'cust
         {navBtn('bases', 'Конструктор')}
         {navBtn('statistics', 'Статистика', active === 'statistics')}
         {navBtn('customers', 'Клиенты', active === 'customers')}
+        {navBtn('settings', 'Настройки')}
       </div>
       <div className="header-actions">
         <button onClick={onLogout} className="logout-btn">Выйти</button>

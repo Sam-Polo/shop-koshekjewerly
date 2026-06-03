@@ -7,6 +7,7 @@ const logger = pino()
 export type OrdersSettings = {
   ordersClosed: boolean
   closeDate?: string
+  assemblyMessage?: string
 }
 
 export type BannerSettings = {
@@ -113,6 +114,8 @@ export async function fetchOrdersSettingsFromSheet(sheetId: string): Promise<Ord
         logger.info({ key, value, ordersClosed: settings.ordersClosed }, 'найдена настройка orders_closed')
       } else if (key === 'close_date') {
         if (originalValue) settings.closeDate = originalValue
+      } else if (key === 'assembly_message') {
+        if (originalValue) settings.assemblyMessage = originalValue
       }
     }
 
@@ -195,6 +198,7 @@ export async function saveOrdersSettingsToSheet(sheetId: string, settings: Order
 
     await upsertSettingRow(sheets, sheetId, rows, 'orders_closed', settings.ordersClosed ? 'true' : 'false')
     await upsertSettingRow(sheets, sheetId, rows, 'close_date', settings.closeDate || '')
+    await upsertSettingRow(sheets, sheetId, rows, 'assembly_message', settings.assemblyMessage || '')
 
     logger.info({ ordersClosed: settings.ordersClosed, closeDate: settings.closeDate }, 'настройки заказов сохранены')
   } catch (error: any) {

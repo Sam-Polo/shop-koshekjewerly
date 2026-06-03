@@ -304,6 +304,9 @@ function CategoriesPage({
           <button className="nav-btn" onClick={() => onNavigate?.('customers')}>
             Клиенты
           </button>
+          <button className="nav-btn" onClick={() => onNavigate?.('settings')}>
+            Настройки
+          </button>
         </div>
         <div className="header-actions">
           <button className="btn btn-add" onClick={handleAdd}>

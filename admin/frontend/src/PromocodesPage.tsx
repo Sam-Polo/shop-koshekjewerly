@@ -131,6 +131,12 @@ function PromocodesPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void
           >
             Клиенты
           </button>
+          <button
+            className="nav-btn"
+            onClick={() => onNavigate?.('settings')}
+          >
+            Настройки
+          </button>
         </div>
         <div className="header-actions">
           <button className="btn btn-add" onClick={() => setIsAddModalOpen(true)}>

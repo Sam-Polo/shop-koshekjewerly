@@ -527,7 +527,23 @@ function extractUserFromInitData(initData: string): { id: string | null; display
 
 
 // отправка уведомлений о заказе (вызывается после успешной оплаты)
+const DEFAULT_ASSEMBLY_MESSAGE = 'Ваш заказ будет отправлен в течении 3-5 дней, мы пришлем уведомление с трек номером для отслеживания. Благодарим за заказ 🤍'
+
 async function sendOrderNotifications(order: any) {
+  // читаем assembly_message из настроек (с фоллбэком на дефолтный текст)
+  let assemblyMessage = DEFAULT_ASSEMBLY_MESSAGE
+  try {
+    const sheetId = process.env.IMPORT_SHEET_ID
+    if (sheetId) {
+      const settings = await fetchOrdersSettingsFromSheet(sheetId)
+      if (settings.assemblyMessage) {
+        assemblyMessage = settings.assemblyMessage
+      }
+    }
+  } catch {
+    // при ошибке используем дефолтный текст
+  }
+
   // экранируем HTML для защиты от XSS
   // для покупателя: товар (арт: 0000) × 1 = 1 р.
   const itemsTextForCustomer = order.orderData.items.map((item: any) => {
@@ -560,7 +576,7 @@ ${itemsTextForCustomer}
 ${order.orderData.deliveryRegion === 'europe' ? '📍 Адрес доставки:' : '📍 Пункт СДЭК:'}
 ${escapeHtml(order.orderData.address)}
 
-Ваш заказ будет отправлен в течении 3-5 дней, мы пришлем уведомление с трек номером для отслеживания. Благодарим за заказ 🤍
+${assemblyMessage}
 
 💬 Для связи: @${(process.env.SUPPORT_USERNAME || 'semyonp88').replace('@', '')}
   `.trim()

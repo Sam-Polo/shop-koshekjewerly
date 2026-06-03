@@ -160,6 +160,7 @@ export default function CustomersPage({ onNavigate }: { onNavigate?: (page: Admi
           {navBtn('bases', 'Конструктор')}
           {navBtn('statistics', 'Статистика')}
           {navBtn('customers', 'Клиенты', true)}
+          {navBtn('settings', 'Настройки')}
         </div>
         <div className="header-actions">
           <button onClick={handleLogout} className="logout-btn">Выйти</button>

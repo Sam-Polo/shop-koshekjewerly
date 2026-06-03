@@ -12,6 +12,7 @@ export type BannerSettings = {
 export type OrdersSettings = {
   ordersClosed: boolean
   closeDate?: string
+  assemblyMessage?: string
   banner?: BannerSettings
 }
 
@@ -82,6 +83,10 @@ export async function fetchOrdersSettingsFromSheet(sheetId: string): Promise<Ord
       } else if (key === 'close_date') {
         if (originalValue) {
           settings.closeDate = originalValue
+        }
+      } else if (key === 'assembly_message') {
+        if (originalValue) {
+          settings.assemblyMessage = originalValue
         }
       } else if (key === 'banner_enabled') {
         hasBannerData = true

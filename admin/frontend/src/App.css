@@ -3553,3 +3553,74 @@
   align-items: center;
   justify-content: center;
 }
+/* ── адаптив: страница настроек ───────────────────── */
+@media (max-width: 768px) {
+  .settings-page {
+    padding: 1rem;
+    max-width: 100%;
+  }
+
+  .settings-section {
+    margin-bottom: 2rem;
+  }
+
+  .settings-card {
+    padding: 1.1rem;
+    gap: 1rem;
+  }
+
+  .settings-field-row {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .settings-save-btn {
+    width: 100%;
+    text-align: center;
+  }
+
+  .settings-style-grid {
+    gap: 0.5rem;
+  }
+
+  .settings-style-preview {
+    min-width: 90px;
+    padding: 7px 12px;
+    font-size: 0.8rem;
+  }
+
+  .settings-banner-preview-bg {
+    padding: 14px 10px;
+  }
+
+  .settings-banner-preview-strip {
+    font-size: 13px;
+    padding: 10px 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  .settings-section__title {
+    font-size: 1.05rem;
+  }
+
+  .settings-card {
+    padding: 0.9rem;
+  }
+
+  .settings-toggle-label {
+    font-size: 0.9rem;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+
+  .settings-style-grid {
+    flex-direction: column;
+  }
+
+  .settings-style-preview {
+    width: 100%;
+    min-width: unset;
+    justify-content: flex-start;
+  }
+}

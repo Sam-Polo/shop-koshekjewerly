@@ -16,6 +16,7 @@ type BannerSettings = {
 type OrdersSettings = {
   ordersClosed: boolean
   closeDate: string
+  assemblyMessage: string
 }
 
 const STYLE_LABELS: Record<BannerStyle, string> = {
@@ -59,6 +60,7 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
   const [orders, setOrders] = useState<OrdersSettings>({
     ordersClosed: false,
     closeDate: '',
+    assemblyMessage: '',
   })
   const [ordersLoading, setOrdersLoading] = useState(true)
   const [ordersSaving, setOrdersSaving] = useState(false)
@@ -100,6 +102,7 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
       setOrders({
         ordersClosed: data.ordersClosed || false,
         closeDate: data.closeDate || '',
+        assemblyMessage: data.assemblyMessage || '',
       })
     } catch (err: any) {
       showToast(err.message || 'Ошибка загрузки статуса заказов', 'error')
@@ -132,6 +135,7 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
       await api.updateOrdersSettings({
         ordersClosed: orders.ordersClosed,
         closeDate: orders.closeDate || undefined,
+        assemblyMessage: orders.assemblyMessage || undefined,
       })
       showToast(orders.ordersClosed ? 'Заказы закрыты' : 'Заказы открыты', 'success')
     } catch (err: any) {
@@ -198,6 +202,18 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
                   onChange={e => setOrders(prev => ({ ...prev, closeDate: e.target.value }))}
                 />
                 <p className="settings-hint">Отображается в мини-приложении как «до&nbsp;[дата]»</p>
+              </div>
+
+              <div className="settings-field">
+                <label className="settings-label">Сообщение о сроке сборки (в уведомлении бота)</label>
+                <textarea
+                  className="settings-textarea"
+                  rows={3}
+                  placeholder="Ваш заказ будет отправлен в течении 3-5 дней, мы пришлем уведомление с трек номером для отслеживания. Благодарим за заказ 🤍"
+                  value={orders.assemblyMessage}
+                  onChange={e => setOrders(prev => ({ ...prev, assemblyMessage: e.target.value }))}
+                />
+                <p className="settings-hint">Отправляется покупателю в Telegram/MAX после успешной оплаты. Если оставить пустым — используется стандартный текст.</p>
               </div>
 
               <button
