@@ -8,6 +8,7 @@ export type Category = {
   image: string
   image_position?: string
   order: number
+  active?: boolean
 }
 
 function getAuthFromEnv() {
@@ -33,7 +34,7 @@ export async function fetchCategoriesFromSheet(sheetId: string): Promise<Categor
   const sheets = google.sheets({ version: 'v4', auth })
 
   try {
-    const range = `${SHEET_NAME}!A1:F500`
+    const range = `${SHEET_NAME}!A1:G500`
     const res = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range })
     const rows = res.data.values ?? []
 
@@ -50,6 +51,9 @@ export async function fetchCategoriesFromSheet(sheetId: string): Promise<Categor
       const get = (n: string) => String(r[idx(n)] ?? '').trim()
       const key = get('key')
       if (!key) continue
+
+      const activeRaw = get('active')
+      if (activeRaw.toLowerCase() === 'false') continue
 
       const order = parseInt(get('order'), 10)
       categories.push({

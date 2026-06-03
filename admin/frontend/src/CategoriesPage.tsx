@@ -29,6 +29,7 @@ type Category = {
   image: string
   image_position?: string
   order: number
+  active?: boolean
 }
 
 const EditIcon = () => (
@@ -50,11 +51,13 @@ const TrashIcon = () => (
 function SortableCategoryRow({
   category,
   onEdit,
-  onDelete
+  onDelete,
+  onToggleActive
 }: {
   category: Category
   onEdit: () => void
   onDelete: () => void
+  onToggleActive: () => void
 }) {
   const {
     attributes,
@@ -65,9 +68,12 @@ function SortableCategoryRow({
     isDragging
   } = useSortable({ id: category.key })
 
+  const isActive = category.active !== false
+
   const style = {
     transform: CSS.Transform.toString(transform),
-    transition
+    transition,
+    opacity: isActive ? 1 : 0.5
   }
 
   return (
@@ -95,6 +101,12 @@ function SortableCategoryRow({
       </td>
       <td>{category.title}</td>
       <td>{category.description || '—'}</td>
+      <td>
+        <label className="toggle-switch" title={isActive ? 'Скрыть в мини-приложении' : 'Показать в мини-приложении'}>
+          <input type="checkbox" checked={isActive} onChange={onToggleActive} />
+          <span className="toggle-slider" />
+        </label>
+      </td>
       <td>
         <button type="button" className="btn-icon btn-edit" onClick={onEdit} title="Редактировать"><EditIcon /></button>
         <button type="button" className="btn-icon btn-delete" onClick={onDelete} title="Убрать из мини-приложения"><TrashIcon /></button>
@@ -175,6 +187,13 @@ function CategoriesPage({
     setDeleteConfirm(c)
   }
 
+  const handleToggleActive = async (c: Category) => {
+    const next = categories.map((cat) =>
+      cat.key === c.key ? { ...cat, active: cat.active === false ? true : false } : cat
+    )
+    await saveCategories(next)
+  }
+
   const handleDeleteConfirm = async () => {
     if (!deleteConfirm) return
     const key = deleteConfirm.key
@@ -185,12 +204,13 @@ function CategoriesPage({
 
   const saveCategories = async (list: Category[]) => {
     try {
-      await api.saveCategories(list.map(({ key, title, description, image, image_position }) => ({
+      await api.saveCategories(list.map(({ key, title, description, image, image_position, active }) => ({
         key,
         title,
         description: description || undefined,
         image,
-        image_position: image_position || 'center'
+        image_position: image_position || 'center',
+        active: active !== false
       })))
       setCategories(list)
       showToast('Категории сохранены', 'success')
@@ -354,6 +374,7 @@ function CategoriesPage({
                   <th>Ключ</th>
                   <th>Название</th>
                   <th>Описание</th>
+                  <th>Активна</th>
                   <th>Действия</th>
                 </tr>
               </thead>
@@ -366,6 +387,7 @@ function CategoriesPage({
                         category={category}
                         onEdit={() => handleEdit(category)}
                         onDelete={() => handleDeleteClick(category)}
+                        onToggleActive={() => handleToggleActive(category)}
                       />
                     ))}
                   </SortableContext>

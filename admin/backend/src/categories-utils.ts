@@ -11,10 +11,11 @@ export type Category = {
   image: string
   image_position?: string // например "50% 50%" или "center" для background-position
   order: number
+  active?: boolean
 }
 
 const SHEET_NAME = 'categories'
-const DEFAULT_HEADERS = ['key', 'title', 'description', 'image', 'image_position', 'order']
+const DEFAULT_HEADERS = ['key', 'title', 'description', 'image', 'image_position', 'order', 'active']
 
 // проверка/создание листа categories
 async function ensureCategoriesSheet(sheets: any, sheetId: string): Promise<void> {
@@ -35,7 +36,7 @@ async function ensureCategoriesSheet(sheets: any, sheetId: string): Promise<void
     })
     await sheets.spreadsheets.values.update({
       spreadsheetId: sheetId,
-      range: `${SHEET_NAME}!A1:F1`,
+      range: `${SHEET_NAME}!A1:G1`,
       valueInputOption: 'USER_ENTERED',
       requestBody: {
         values: [DEFAULT_HEADERS]
@@ -51,7 +52,7 @@ export async function fetchCategoriesFromSheet(sheetId: string): Promise<Categor
   const sheets = google.sheets({ version: 'v4', auth })
 
   try {
-    const range = `${SHEET_NAME}!A1:F500`
+    const range = `${SHEET_NAME}!A1:G500`
     const res = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range })
     const rows = res.data.values ?? []
 
@@ -72,13 +73,16 @@ export async function fetchCategoriesFromSheet(sheetId: string): Promise<Categor
       if (!key) continue
 
       const order = parseInt(get('order'), 10)
+      const activeRaw = get('active')
+      const active = activeRaw === '' || activeRaw.toLowerCase() !== 'false'
       categories.push({
         key,
         title: get('title') || key,
         description: get('description') || undefined,
         image: get('image') || '',
         image_position: get('image_position') || 'center',
-        order: Number.isFinite(order) ? order : i
+        order: Number.isFinite(order) ? order : i,
+        active
       })
     }
 
@@ -112,13 +116,14 @@ export async function saveCategoriesToSheet(
       c.description || '',
       c.image,
       c.image_position || 'center',
-      i
+      i,
+      c.active === false ? 'false' : 'true'
     ])
   ]
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: sheetId,
-    range: `${SHEET_NAME}!A1:F${values.length}`,
+    range: `${SHEET_NAME}!A1:G${values.length}`,
     valueInputOption: 'USER_ENTERED',
     requestBody: { values }
   })
@@ -128,7 +133,7 @@ export async function saveCategoriesToSheet(
     try {
       await sheets.spreadsheets.values.clear({
         spreadsheetId: sheetId,
-        range: `${SHEET_NAME}!A${values.length + 1}:F500`
+        range: `${SHEET_NAME}!A${values.length + 1}:G500`
       })
     } catch (e: any) {
       // если диапазон пуст — clear может вернуть ошибку, игнорируем

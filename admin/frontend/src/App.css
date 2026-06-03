@@ -2597,6 +2597,49 @@
   color: #dc3545;
 }
 
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 22px;
+  cursor: pointer;
+}
+
+.toggle-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: #ccc;
+  border-radius: 11px;
+  transition: background 0.2s;
+}
+
+.toggle-slider::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+
+.toggle-switch input:checked ~ .toggle-slider {
+  background: #28a745;
+}
+
+.toggle-switch input:checked ~ .toggle-slider::after {
+  transform: translateX(18px);
+}
+
 .empty-state {
   text-align: center;
   padding: 3rem;

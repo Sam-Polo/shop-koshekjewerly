@@ -236,7 +236,7 @@ export const api = {
     return fetchWithAuth('/api/categories')
   },
 
-  async saveCategories(categories: Array<{ key: string; title: string; description?: string; image: string; image_position?: string }>) {
+  async saveCategories(categories: Array<{ key: string; title: string; description?: string; image: string; image_position?: string; active?: boolean }>) {
     return fetchWithAuth('/api/categories', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },

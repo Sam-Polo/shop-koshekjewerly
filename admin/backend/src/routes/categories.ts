@@ -70,7 +70,8 @@ router.put('/', async (req, res) => {
         description: typeof c.description === 'string' ? c.description.trim() || undefined : undefined,
         image: (c.image || '').trim(),
         image_position: typeof c.image_position === 'string' ? c.image_position.trim() || 'center' : 'center',
-        order: i
+        order: i,
+        active: c.active !== false
       })
     }
 
