@@ -520,15 +520,16 @@ async function handleStart(ctx: any) {
     reply_markup: kb,
   });
   
-  // показываем reply keyboard с кнопкой "Старт" (отдельным сообщением)
-  // отправляем сообщение с клавиатурой, игнорируем ошибки если они есть
+  // показываем reply keyboard с кнопкой "Старт" (отдельным сообщением).
+  // Telegram ужесточил валидацию text — пробел больше не считается валидным.
+  // Используем неразрывный пробел в виде HTML-сущности; он рендерится как пустая строка,
+  // но проходит проверку "text must be non-empty".
   try {
-    await ctx.reply(' ', {
+    await ctx.reply('⁣', {
       reply_markup: startKeyboard
     });
   } catch (error: any) {
     // игнорируем ошибку - клавиатура не критична
-    // ошибка может возникать из-за особенностей Telegram API, но функциональность работает
     console.warn('[handleStart] предупреждение при отправке reply keyboard:', error?.message || error);
   }
 }
