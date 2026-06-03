@@ -2212,6 +2212,11 @@ export default function App() {
         <div className="modal-overlay" onClick={() => setCheckoutOpen(false)}>
           <div className="modal-content modal-content--checkout" onClick={e => e.stopPropagation()}>
             <button className="modal-close" onClick={() => setCheckoutOpen(false)}>&times;</button>
+            {isBannerVisible && (
+              <div className={`app-banner app-banner--inline app-banner--${bannerStyle}`}>
+                {bannerText}
+              </div>
+            )}
             {checkoutStep === 'region' ? (
               <DeliveryRegionSelector onSelect={handleDeliveryRegionSelect} />
             ) : deliveryRegion && (
