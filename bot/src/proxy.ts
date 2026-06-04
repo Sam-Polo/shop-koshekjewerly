@@ -60,9 +60,13 @@ class FailoverProxyDispatcher {
       return this.primary.dispatch(opts, handler)
     }
 
-    // защита от повторного вызова терминальных методов оригинального handler'а,
-    // если ошибка пришла уже после того как часть ответа была отдана наверх.
+    // Фейловер разрешаем ТОЛЬКО на фазе коннекта: пока не пошёл ответ (responseStarted)
+    // И пока не началась отправка тела (bodySent). Иначе при stream-теле (sendPhoto/sendVideo
+    // с файлом) поток уже частично прочитан, и повтор на backup отправит битое/пустое тело.
+    // Это покрывает главный реальный сценарий: primary-прокси недоступен → ошибка коннекта
+    // до отправки данных → уходим на backup.
     let responseStarted = false
+    let bodySent = false
     let switchedToBackup = false
 
     const wrapped: any = {
@@ -85,9 +89,12 @@ class FailoverProxyDispatcher {
       },
       onData: (chunk: Buffer) => handler.onData?.(chunk) ?? true,
       onComplete: (trailers: any) => handler.onComplete?.(trailers),
-      onBodySent: handler.onBodySent ? (...args: any[]) => handler.onBodySent(...args) : undefined,
+      onBodySent: (...args: any[]) => {
+        bodySent = true
+        return handler.onBodySent?.(...args)
+      },
       onError: (err: Error) => {
-        if (!switchedToBackup && !responseStarted && isNetworkError(err)) {
+        if (!switchedToBackup && !responseStarted && !bodySent && isNetworkError(err)) {
           switchedToBackup = true
           console.warn(`[proxy] primary упал (${(err as any).code ?? err.name ?? err.message}), переключаюсь на резервный прокси`)
           try {
