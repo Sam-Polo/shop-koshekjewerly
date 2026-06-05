@@ -533,10 +533,13 @@ async function handleStart(ctx: any) {
   if (chatId) {
     addUserChatId(chatId)
   }
-  
+
+  // WebApp-кнопки работают только в личке. В группах/каналах — молчим.
+  if (ctx.chat?.type !== 'private') return
+
   // проверяем параметры deep link (для возврата после оплаты)
   const startParam = ctx.match || ''
-  
+
   if (startParam.includes('order_') && startParam.includes('_success')) {
     // успешная оплата — подтверждаем и пробуем переотправить уведомление с деталями заказа
     const invId = startParam.replace('order_', '').replace('_success', '')
@@ -685,6 +688,10 @@ bot.on('message', async (ctx) => {
   // игнорируем сообщения из канала алертов (бот там участник, не должен отвечать)
   const errorChannelId = process.env.ERROR_CHANNEL_CHAT_ID?.trim()
   if (errorChannelId && ctx.chat?.id.toString() === errorChannelId) return
+
+  // GroupAnonymousBot (1087968824) — системный бот Telegram для анонимных постов в группе.
+  // Его chatId не является реальным пользователем — игнорируем полностью.
+  if (ctx.from?.id === 1087968824) return
 
   const chatId = ctx.from?.id
   const username = ctx.from?.username
