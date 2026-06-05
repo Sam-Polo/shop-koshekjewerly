@@ -309,12 +309,16 @@ async function handleSendTrack(ctx: any, orderId: string, trackingUrl: string): 
   const replyExtra = ctx.message?.message_id
     ? { reply_parameters: { message_id: ctx.message.message_id } }
     : {}
+  const abortCtrl = new AbortController()
+  const abortTimer = setTimeout(() => abortCtrl.abort(), 12_000)
   try {
     const resp = await fetch(`${BACKEND_URL}/api/orders/${orderId}/send-tracking`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({ trackingUrl })
+      body: JSON.stringify({ trackingUrl }),
+      signal: abortCtrl.signal
     })
+    clearTimeout(abortTimer)
     const respData = await resp.json().catch(() => ({})) as any
 
     if (resp.status === 409) {
@@ -338,7 +342,11 @@ async function handleSendTrack(ctx: any, orderId: string, trackingUrl: string): 
       await ctx.reply(`❌ Не удалось отправить трек по заказу ${orderId}.\nПричина: ${errMsg}`, replyExtra)
     }
   } catch (e: any) {
-    await ctx.reply(`❌ Ошибка связи с сервером: ${e?.message || 'неизвестная ошибка'}`, replyExtra)
+    clearTimeout(abortTimer)
+    const msg = e?.name === 'AbortError'
+      ? 'сервер не отвечает (таймаут). Попробуйте через минуту, когда бэкенд проснётся.'
+      : (e?.message || 'неизвестная ошибка')
+    await ctx.reply(`❌ Ошибка связи с сервером: ${msg}`, replyExtra)
   }
 }
 
@@ -1170,6 +1178,6 @@ async function sendStartupAlert() {
 
 sendStartupAlert()
 
-bot.start();
+bot.start({ drop_pending_updates: true });
 
 
