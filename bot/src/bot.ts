@@ -289,11 +289,11 @@ async function startBroadcast(ctx: any, chatId: string | number, data: Broadcast
     await ctx.reply(`✅ Рассылка завершена:\nОтправлено: ${sent}\nОшибок: ${failed}`)
 
     if (failed > 0 && failed > sent) {
-      sendAlert(`Рассылка завершена с большим числом ошибок: отправлено ${sent}, ошибок ${failed}`, { tag: 'broadcast', level: 'warn' }).catch(() => {})
+      sendAlert(`Рассылка завершена с большим числом ошибок: отправлено ${sent}, ошибок ${failed}`, { tag: 'broadcast', level: 'moderate', hint: 'больше половины получателей не получили сообщение', code: 'BROADCAST_HIGH_FAILURE_RATE' }).catch(() => {})
     }
   } catch (error: any) {
     console.error('[startBroadcast] ошибка:', error?.message)
-    sendAlert(`Рассылка упала: ${error?.message}`, { tag: 'broadcast', level: 'error' }).catch(() => {})
+    sendAlert(`Рассылка упала: ${error?.message}`, { tag: 'broadcast', level: 'high', hint: 'рассылка прервана из-за необработанной ошибки', code: 'BROADCAST_FATAL_ERROR' }).catch(() => {})
     await ctx.reply('❌ Ошибка при рассылке. Рассылка прервана.')
     broadcastData.delete(chatId)
   }
@@ -966,20 +966,20 @@ bot.catch((err) => {
   console.error(`[bot.catch] необработанная ошибка в апдейте ${updateId} от юзера ${userId}:`, e)
   sendAlert(
     `Необработанная ошибка в апдейте ${updateId ?? '?'} от юзера ${userId ?? '?'}: ${e?.description ?? e?.message ?? String(e)}`,
-    { tag: 'bot.catch', level: 'error' }
+    { tag: 'bot.catch', level: 'high', hint: 'бот получил апдейт, который не удалось обработать — проверьте логи', code: 'BOT_UPDATE_HANDLER_ERROR' }
   ).catch(() => {})
 })
 
 // глобальные обработчики необработанных ошибок — лучше знать, чем молчать
 process.on('uncaughtException', (err) => {
   console.error('[uncaughtException]', err)
-  sendAlert(`uncaughtException: ${err?.message ?? String(err)}`, { tag: 'process', level: 'error' }).catch(() => {})
+  sendAlert(`uncaughtException: ${err?.message ?? String(err)}`, { tag: 'process', level: 'critical', hint: 'непойманное исключение — процесс мог упасть или нестабилен', code: 'UNCAUGHT_EXCEPTION' }).catch(() => {})
 })
 
 process.on('unhandledRejection', (reason) => {
   const msg = reason instanceof Error ? reason.message : String(reason)
   console.error('[unhandledRejection]', reason)
-  sendAlert(`unhandledRejection: ${msg}`, { tag: 'process', level: 'error' }).catch(() => {})
+  sendAlert(`unhandledRejection: ${msg}`, { tag: 'process', level: 'critical', hint: 'необработанный Promise — возможна скрытая ошибка или утечка памяти', code: 'UNHANDLED_REJECTION' }).catch(() => {})
 })
 
 // стартовый self-check — в канал, чтобы видеть каждый перезапуск и состояние конфига

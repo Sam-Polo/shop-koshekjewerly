@@ -71,7 +71,7 @@ async function importProducts() {
   } catch (e: any) {
     logger.error({ error: e?.message }, 'ошибка импорта товаров');
     if (e?.message?.includes('429') || e?.message?.toLowerCase().includes('quota')) {
-      sendAlert(`Квота Google Sheets исчерпана при импорте товаров: ${e?.message}`, { tag: 'sheets', level: 'warn' }).catch(() => {})
+      sendAlert(`Квота Google Sheets исчерпана при импорте товаров: ${e?.message}`, { tag: 'sheets', level: 'moderate', hint: 'товары не обновятся до сброса квоты — возможно слишком частые импорты', code: 'SHEETS_QUOTA_EXCEEDED' }).catch(() => {})
     }
   }
 }
@@ -962,7 +962,7 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
     })
   } catch (e: any) {
     logger.error({ error: e?.message }, 'ошибка создания заказа')
-    sendAlert(`Ошибка создания заказа: ${e?.message}`, { tag: 'orders', level: 'error' }).catch(() => {})
+    sendAlert(`Ошибка создания заказа: ${e?.message}`, { tag: 'orders', level: 'high', hint: 'покупатель не смог оформить заказ — проверьте Robokassa и Sheets', code: 'ORDER_CREATE_FAILED' }).catch(() => {})
     res.status(500).json({ error: e?.message || 'order_failed' })
   }
 });
@@ -995,7 +995,7 @@ export async function processPaidOrder(
     }, 'processPaidOrder: сумма от Робокассы не совпадает с суммой заказа')
     sendAlert(
       `Несовпадение суммы! InvId: ${invId}, ожидалось ${orderAmount}₽, получено ${robokassaAmount}₽`,
-      { tag: 'robokassa', level: 'error' }
+      { tag: 'robokassa', level: 'high', hint: 'сумма от Robokassa не совпадает с заказом — нужна ручная проверка', code: 'AMOUNT_MISMATCH' }
     ).catch(() => {})
     return 'amount_mismatch'
   }
@@ -1034,7 +1034,7 @@ export async function processPaidOrder(
     logger.warn({ invId, orderId, reason: delivery.customer.errorDescription }, 'уведомление покупателю не доставлено — менеджеру отправлен алерт')
     sendAlert(
       `Уведомление покупателю не доставлено по заказу ${orderId}: ${delivery.customer.errorDescription ?? 'неизвестно'}`,
-      { tag: 'notification', level: 'warn' }
+      { tag: 'notification', level: 'low', hint: 'покупатель не получил подтверждение — возможно бот заблокирован или неверный chat_id', code: 'CUSTOMER_NOTIFICATION_FAILED' }
     ).catch(() => {})
   }
 
@@ -1079,7 +1079,7 @@ app.post('/api/robokassa/result', express.urlencoded({ extended: true }), async 
         hasSignature: !!SignatureValue,
         signatureLength: SignatureValue?.length
       }, 'неверная подпись от Робокассы')
-      sendAlert(`Неверная подпись Робокассы! InvId: ${InvId}, сумма: ${OutSum}₽`, { tag: 'robokassa', level: 'error' }).catch(() => {})
+      sendAlert(`Неверная подпись Робокассы! InvId: ${InvId}, сумма: ${OutSum}₽`, { tag: 'robokassa', level: 'critical', hint: 'возможно сменился пароль Robokassa или получен поддельный запрос', code: 'ROBOKASSA_SIGNATURE_INVALID' }).catch(() => {})
       return res.status(400).send('ERROR')
     }
 
@@ -1120,7 +1120,7 @@ app.post('/api/robokassa/result', express.urlencoded({ extended: true }), async 
       logger.error({ InvId, orderId }, 'заказ не найден и восстановить из Sheets не удалось')
       sendAlert(
         `Оплата получена, заказ не найден! InvId: ${InvId}, сумма: ${OutSum}₽. Восстановление из Sheets не удалось — свяжитесь с покупателем.`,
-        { tag: 'recovery', level: 'error' }
+        { tag: 'recovery', level: 'critical', hint: 'бэкенд перезапустился во время оплаты и заказ потерян — нужна ручная обработка', code: 'ORDER_RECOVERY_FAILED' }
       ).catch(() => {})
 
       const shpPlatform = additionalParams['Shp_platform'] as string | undefined
@@ -1149,7 +1149,7 @@ app.post('/api/robokassa/result', express.urlencoded({ extended: true }), async 
     res.send(`OK${InvId}`)
   } catch (e: any) {
     logger.error({ error: e?.message }, 'ошибка обработки callback от Робокассы')
-    sendAlert(`Ошибка обработки Result URL: ${e?.message}`, { tag: 'robokassa', level: 'error' }).catch(() => {})
+    sendAlert(`Ошибка обработки Result URL: ${e?.message}`, { tag: 'robokassa', level: 'high', hint: 'необработанное исключение при получении оплаты — возможна потеря заказа', code: 'RESULT_URL_EXCEPTION' }).catch(() => {})
     res.status(500).send('ERROR')
   }
 });
@@ -1280,7 +1280,7 @@ export async function checkPendingOrders(): Promise<void> {
           sendAlert(`✅ 1.2: ${order.orderId} оплачен (polling), обработан`, { tag: '1.2', level: 'info' }).catch(() => {})
         }
         if (result === 'amount_mismatch') {
-          sendAlert(`⚠️ 1.2: ${order.orderId} — расхождение суммы при polling`, { tag: '1.2', level: 'warn' }).catch(() => {})
+          sendAlert(`⚠️ 1.2: ${order.orderId} — расхождение суммы при polling`, { tag: '1.2', level: 'moderate', hint: 'сумма от Robokassa при опросе не совпала с заказом — нужна ручная проверка', code: 'POLLING_AMOUNT_MISMATCH' }).catch(() => {})
         }
       }
     } catch (e: any) {
@@ -1292,13 +1292,13 @@ export async function checkPendingOrders(): Promise<void> {
 // глобальные обработчики необработанных ошибок
 process.on('uncaughtException', (err) => {
   logger.error({ error: err?.message, stack: err?.stack }, 'uncaughtException')
-  sendAlert(`uncaughtException: ${err?.message}`, { tag: 'process', level: 'error' }).catch(() => {})
+  sendAlert(`uncaughtException: ${err?.message}`, { tag: 'process', level: 'critical', hint: 'непойманное исключение — процесс мог упасть или нестабилен', code: 'UNCAUGHT_EXCEPTION' }).catch(() => {})
 })
 
 process.on('unhandledRejection', (reason) => {
   const msg = reason instanceof Error ? reason.message : String(reason)
   logger.error({ reason: msg }, 'unhandledRejection')
-  sendAlert(`unhandledRejection: ${msg}`, { tag: 'process', level: 'error' }).catch(() => {})
+  sendAlert(`unhandledRejection: ${msg}`, { tag: 'process', level: 'critical', hint: 'необработанный Promise — возможна скрытая ошибка или утечка памяти', code: 'UNHANDLED_REJECTION' }).catch(() => {})
 })
 
 const port = Number(process.env.PORT ?? 4000);

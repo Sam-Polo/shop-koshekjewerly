@@ -59,17 +59,36 @@ async function _rawSend(text: string): Promise<void> {
   })
 }
 
-export type AlertLevel = 'error' | 'warn' | 'info'
+export type AlertLevel = 'critical' | 'high' | 'moderate' | 'low' | 'info'
 
 export interface AlertOptions {
   tag?: string
   level?: AlertLevel
+  hint?: string  // русское объяснение/предположение причины
+  code?: string  // краткое техническое название ошибки
 }
 
-const LEVEL_EMOJI: Record<AlertLevel, string> = {
-  error: '🔴',
-  warn: '🟡',
-  info: '🟢',
+const LEVEL_LABEL: Record<AlertLevel, string> = {
+  critical: '🔴 КРИТИЧЕСКИЙ',
+  high: '🟠 ВЫСОКИЙ',
+  moderate: '🟡 УМЕРЕННЫЙ',
+  low: '🔵 НИЗКИЙ',
+  info: '🟢 ИНФОРМАЦИЯ',
+}
+
+function buildMessage(text: string, opts: AlertOptions | undefined): string {
+  const level: AlertLevel = opts?.level ?? 'high'
+  const tagStr = opts?.tag ? ` · [${escapeHtml(opts.tag)}]` : ''
+  const ts = new Date().toISOString()
+  const lines: string[] = []
+  lines.push(`${LEVEL_LABEL[level]}${tagStr}`)
+  lines.push('')
+  lines.push(escapeHtml(text))
+  if (opts?.hint) lines.push(`<i>Вероятно: ${escapeHtml(opts.hint)}</i>`)
+  if (opts?.code) lines.push(`<code>${escapeHtml(opts.code)}</code>`)
+  lines.push('')
+  lines.push(`<i>${ts}</i>`)
+  return lines.join('\n')
 }
 
 /**
@@ -82,12 +101,10 @@ export async function sendAlert(text: string, opts?: AlertOptions): Promise<void
   try {
     refreshBucket()
 
-    const level: AlertLevel = opts?.level ?? 'error'
-    const tag = opts?.tag ? `[${escapeHtml(opts.tag)}] ` : ''
-    const ts = new Date().toISOString()
-    const full = `${LEVEL_EMOJI[level]} ${tag}${escapeHtml(text)}\n<i>${ts}</i>`
-
-    const hash = simpleHash(full.slice(0, 200))
+    const full = buildMessage(text, opts)
+    // хэшируем без временнóй метки, чтобы дедуп работал правильно
+    const hashInput = `${opts?.level ?? 'high'}|${opts?.tag ?? ''}|${text.slice(0, 150)}`
+    const hash = simpleHash(hashInput)
     const now = Date.now()
     const lastSent = dedupMap.get(hash)
     if (lastSent && now - lastSent < DEDUP_WINDOW_MS) {

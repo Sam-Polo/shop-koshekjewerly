@@ -84,6 +84,19 @@ describe('alerts (backend)', () => {
     expect(fetchMock.mock.calls.length).toBeLessThanOrEqual(20)
   })
 
+  it('включает hint и code в тело сообщения', async () => {
+    process.env.ERROR_CHANNEL_CHAT_ID = '-100123'
+    process.env.TG_BOT_TOKEN = 'test-token'
+
+    const { sendAlert } = await import('./alerts.js')
+    await sendAlert('тест', { level: 'critical', tag: 'robokassa', hint: 'причина проблемы', code: 'SOME_ERROR_CODE' })
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as any).body)
+    expect(body.text).toContain('🔴 КРИТИЧЕСКИЙ')
+    expect(body.text).toContain('Вероятно: причина проблемы')
+    expect(body.text).toContain('SOME_ERROR_CODE')
+  })
+
   it('не бросает если fetch упал', async () => {
     process.env.ERROR_CHANNEL_CHAT_ID = '-100123'
     process.env.TG_BOT_TOKEN = 'test-token'

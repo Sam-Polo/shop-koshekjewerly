@@ -109,6 +109,20 @@ describe('alerts', () => {
     expect(tgFetchMock.mock.calls.length).toBeLessThanOrEqual(MAX)
   })
 
+  it('включает hint и code в тело сообщения', async () => {
+    process.env.ERROR_CHANNEL_CHAT_ID = '-100123'
+    process.env.TG_BOT_TOKEN = 'test-token'
+
+    const { sendAlert } = await import('./alerts.js')
+    await sendAlert('тест', { level: 'critical', tag: 'process', hint: 'причина проблемы', code: 'UNCAUGHT_EXCEPTION' })
+
+    const [, opts] = tgFetchMock.mock.calls[0]
+    const body = JSON.parse((opts as any).body)
+    expect(body.text).toContain('🔴 КРИТИЧЕСКИЙ')
+    expect(body.text).toContain('Вероятно: причина проблемы')
+    expect(body.text).toContain('UNCAUGHT_EXCEPTION')
+  })
+
   it('не бросает исключение если tgFetch упал', async () => {
     process.env.ERROR_CHANNEL_CHAT_ID = '-100123'
     process.env.TG_BOT_TOKEN = 'test-token'
