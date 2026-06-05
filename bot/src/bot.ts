@@ -441,16 +441,39 @@ async function handleStart(ctx: any) {
   const startParam = ctx.match || ''
   
   if (startParam.includes('order_') && startParam.includes('_success')) {
-    // успешная оплата
-    const orderId = startParam.replace('order_', '').replace('_success', '')
+    // успешная оплата — подтверждаем и пробуем переотправить уведомление с деталями заказа
+    const invId = startParam.replace('order_', '').replace('_success', '')
+    const fullOrderId = `ORD-${invId}`
     const kb = new InlineKeyboard().webApp('Открыть магазин 🛍️', WEBAPP_URL)
+
     await ctx.reply(
       `✅ <b>Оплата успешна!</b>\n\n` +
-      `Ваш заказ <code>${orderId}</code> успешно оплачен.\n` +
-      `Информация о заказе отправлена вам и менеджеру.\n\n` +
-      `Спасибо за покупку! 💖`,
+      `Ваш заказ <code>${fullOrderId}</code> успешно оплачен.\n` +
+      `Ниже придёт сообщение с деталями заказа. 💖`,
       { parse_mode: 'HTML', reply_markup: kb }
     )
+
+    // пробуем (пере)отправить уведомление с деталями заказа через бэкенд
+    if (chatId && BACKEND_URL && process.env.TG_BOT_TOKEN) {
+      fetch(`${BACKEND_URL}/api/orders/${fullOrderId}/resend-notification`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.TG_BOT_TOKEN}`,
+        },
+        body: JSON.stringify({ chatId }),
+      }).then(async r => {
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({})) as any
+          // 404 = заказ пока в pending или не в памяти (нормально для Render sleep)
+          if (r.status !== 404 && r.status !== 400) {
+            console.warn(`[start] resend-notification: HTTP ${r.status}`, body?.error)
+          }
+        }
+      }).catch(e => {
+        console.warn('[start] resend-notification: ошибка сети', e?.message)
+      })
+    }
     return
   }
   

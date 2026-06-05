@@ -1207,6 +1207,69 @@ app.get('/api/robokassa/fail', handleFailUrl);
 // неудачная оплата (Fail URL) - POST (для совместимости)
 app.post('/api/robokassa/fail', express.urlencoded({ extended: true }), handleFailUrl);
 
+// повторная отправка уведомления покупателю (вызывается ботом после /start)
+// авторизация: Bearer = TG_BOT_TOKEN, чтобы эндпоинт не был публичным
+app.post('/api/orders/:orderId/resend-notification', express.json(), async (req, res) => {
+  const auth = req.headers.authorization
+  if (!auth || auth !== `Bearer ${process.env.TG_BOT_TOKEN}`) {
+    return res.status(401).json({ error: 'unauthorized' })
+  }
+
+  const { orderId } = req.params
+  const chatId = req.body?.chatId
+  if (!chatId) return res.status(400).json({ error: 'chatId required' })
+
+  const order = getOrder(orderId)
+  if (!order) return res.status(404).json({ error: 'order not found' })
+  if (order.status !== 'paid') return res.status(400).json({ error: 'order not paid' })
+
+  try {
+    let assemblyMessage = 'Ваш заказ будет отправлен в течении 3-5 дней, мы пришлем уведомление с трек номером для отслеживания. Благодарим за заказ 🤍'
+    const sheetId = process.env.IMPORT_SHEET_ID
+    if (sheetId) {
+      const settings = await getCachedOrdersSettings(sheetId).catch(() => null)
+      if (settings?.assemblyMessage) assemblyMessage = settings.assemblyMessage
+    }
+
+    const itemsText = order.orderData.items.map((item: any) => {
+      const art = item.article ? ` (арт: ${escapeHtml(item.article)})` : ''
+      return `• ${escapeHtml(item.title)}${art} × ${item.quantity} — ${item.price * item.quantity} ₽`
+    }).join('\n')
+
+    const priorityLine = order.orderData.priorityOrder && order.orderData.priorityFee
+      ? `\nПриоритетный заказ (+30%): ${order.orderData.priorityFee} ₽` : ''
+
+    const customerMessage = `
+🎉 <b>Ваш заказ оформлен!</b>
+
+Номер заказа: <code>${escapeHtml(order.orderId)}</code>
+
+Товары:
+${itemsText}
+
+Доставка: ${order.orderData.deliveryCost} ₽${priorityLine}
+Итого: ${order.orderData.total} ₽
+
+${order.orderData.deliveryRegion === 'europe' ? '📍 Адрес доставки:' : '📍 Пункт СДЭК:'}
+${escapeHtml(order.orderData.address)}
+
+${assemblyMessage}
+
+💬 Для связи: @${(process.env.SUPPORT_USERNAME || 'semyonp88').replace('@', '')}
+    `.trim()
+
+    const result = order.platform === 'max'
+      ? await sendMaxMessage(String(chatId), customerMessage)
+      : await sendTelegramMessage(String(chatId), customerMessage)
+
+    logger.info({ orderId, chatId, ok: result.ok }, 'resend-notification: результат')
+    res.json({ ok: result.ok, error: result.ok ? undefined : result.errorDescription })
+  } catch (e: any) {
+    logger.error({ orderId, error: e?.message }, 'resend-notification: ошибка')
+    res.status(500).json({ error: e?.message })
+  }
+})
+
 // ручной импорт (для тестов или форс-обновления)
 app.post('/admin/import/sheets', async (req, res) => {
   const key = req.header('x-admin-key');

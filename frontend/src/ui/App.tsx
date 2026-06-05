@@ -567,17 +567,31 @@ const PaymentRedirectModal = ({
   )
 }
 
-const OrderSuccessModal = ({ 
-  orderId, 
+const OrderSuccessModal = ({
+  orderId,
   paymentStatus,
-  onClose 
-}: { 
+  onClose
+}: {
   orderId?: string
   paymentStatus?: 'success' | 'fail' | null
-  onClose: () => void 
+  onClose: () => void
 }) => {
   const isSuccess = paymentStatus !== 'fail'
-  
+  const botUsername = import.meta.env.VITE_BOT_USERNAME || 'koshekjewerlybot'
+  // invId — числовой ID без префикса (для deep link к боту)
+  const invId = orderId?.replace(/^ORD-/, '') || orderId
+  // displayId — с префиксом ORD- для отображения
+  const displayId = invId ? `ORD-${invId}` : null
+
+  const handleOpenBot = () => {
+    const link = `https://t.me/${botUsername}?start=order_${invId}_success`
+    try {
+      WebApp.openTelegramLink(link)
+    } catch {
+      window.open(link, '_blank')
+    }
+  }
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content modal-content--success" onClick={e => e.stopPropagation()}>
@@ -586,29 +600,37 @@ const OrderSuccessModal = ({
           {isSuccess ? (
             <>
               <div className="order-success__icon">✓</div>
-              <h2 className="order-success__title">Оплата успешна!</h2>
-              <p className="order-success__text">
-                Спасибо за Ваш заказ! Информация отправлена Вам в Telegram, а также нашему менеджеру.
-              </p>
-              {orderId && (
-                <p className="order-success__id">Номер заказа: {orderId}</p>
+              <h2 className="order-success__title">Заказ оформлен!</h2>
+              {displayId && (
+                <p className="order-success__id">{displayId}</p>
               )}
+              <p className="order-success__text">
+                Оплата получена. Откройте бот, чтобы получить уведомление о&nbsp;заказе и&nbsp;быть на&nbsp;связи с&nbsp;менеджером.
+              </p>
+              <div className="order-success__actions">
+                <button className="btn order-success__button order-success__button--pink" onClick={handleOpenBot}>
+                  Открыть бот 📬
+                </button>
+                <button className="btn-text order-success__secondary" onClick={onClose}>
+                  Продолжить покупки
+                </button>
+              </div>
             </>
           ) : (
             <>
-              <div className="order-success__icon" style={{ background: '#d32f2f' }}>✕</div>
+              <div className="order-success__icon order-success__icon--fail">✕</div>
               <h2 className="order-success__title">Оплата не завершена</h2>
-              <p className="order-success__text">
-                К сожалению, произошла ошибка при оплате заказа. Попробуйте оформить заказ еще раз.
-              </p>
-              {orderId && (
-                <p className="order-success__id">Номер заказа: {orderId}</p>
+              {displayId && (
+                <p className="order-success__id">{displayId}</p>
               )}
+              <p className="order-success__text">
+                Платёж не прошёл или был отменён. Попробуйте оформить заказ снова.
+              </p>
+              <button className="btn btn--primary order-success__button" onClick={onClose}>
+                Закрыть
+              </button>
             </>
           )}
-          <button className="btn btn--primary order-success__button" onClick={onClose}>
-            Понятно
-          </button>
         </div>
       </div>
     </div>
@@ -1572,24 +1594,21 @@ export default function App() {
   // обработка возврата после оплаты
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search)
-    const orderIdFromUrl = urlParams.get('orderId')
+    // orderId — наш параметр (MAX/fallback), InvId — от Робокассы напрямую
+    const orderIdFromUrl = urlParams.get('orderId') || urlParams.get('InvId')
     const path = window.location.pathname
-    
-    // если вернулись со страницы успешной оплаты
+
     if (path.includes('/payment/success') && orderIdFromUrl) {
       setOrderId(orderIdFromUrl)
       setPaymentStatus('success')
       setOrderSuccessOpen(true)
-      // очищаем URL
       window.history.replaceState({}, '', window.location.pathname)
     }
-    
-    // если вернулись со страницы неудачной оплаты
+
     if (path.includes('/payment/fail') && orderIdFromUrl) {
       setOrderId(orderIdFromUrl)
       setPaymentStatus('fail')
       setOrderSuccessOpen(true)
-      // очищаем URL
       window.history.replaceState({}, '', window.location.pathname)
     }
   }, [])
