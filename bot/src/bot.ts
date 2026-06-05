@@ -1216,8 +1216,6 @@ async function sendStartupAlert() {
 
 sendStartupAlert()
 
-// drop_pending_updates сбрасывает накопленный стек апдейтов при рестарте
-// и внутри вызывает deleteWebhook (нет нужды делать это вручную отдельно)
-bot.start({ drop_pending_updates: true })
+bot.start()
 
 
