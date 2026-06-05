@@ -339,7 +339,9 @@ async function handleSendTrack(ctx: any, orderId: string, trackingUrl: string): 
   }
 }
 
-// /track ORD-XXXXX https://cdek.ru/... — для старых заказов или если бот перезапускался
+// /track — отправка трека покупателю. Два варианта:
+//   1) /track ORD-XXXXX https://cdek.ru/...  — явное указание (личка или группа)
+//   2) /track https://cdek.ru/...             — ответом на пост заказа (ORD берётся из текста поста)
 bot.command('track', async (ctx) => {
   const chatId = ctx.from?.id
   const username = ctx.from?.username
@@ -350,15 +352,36 @@ bot.command('track', async (ctx) => {
   }
 
   const args = (ctx.match || '').trim()
-  const match = args.match(/^(ORD-[\w-]+)\s+(https?:\/\/\S+)/)
-  if (!match) {
-    await ctx.reply('❌ Формат: /track ORD-XXXXX https://cdek.ru/...')
+
+  // вариант 1: /track ORD-XXXXX https://...
+  const fullMatch = args.match(/^(ORD-[\w-]+)\s+(https?:\/\/\S+)/)
+  if (fullMatch) {
+    const orderId = fullMatch[1]
+    const trackingUrl = fullMatch[2].replace(/[.,;!?)]+$/, '')
+    await handleSendTrack(ctx, orderId, trackingUrl)
     return
   }
 
-  const orderId = match[1]
-  const trackingUrl = match[2].replace(/[.,;!?)]+$/, '')
-  await handleSendTrack(ctx, orderId, trackingUrl)
+  // вариант 2: /track https://... отправленное как reply на пост заказа
+  const urlOnlyMatch = args.match(/^(https?:\/\/\S+)$/)
+  if (urlOnlyMatch && ctx.message?.reply_to_message) {
+    const repliedText = ctx.message.reply_to_message.text || ctx.message.reply_to_message.caption || ''
+    const orderIdMatch = repliedText.match(/ORD-[\w-]+/)
+    if (orderIdMatch) {
+      const trackingUrl = urlOnlyMatch[1].replace(/[.,;!?)]+$/, '')
+      await handleSendTrack(ctx, orderIdMatch[0], trackingUrl)
+      return
+    }
+    await ctx.reply('❌ Номер заказа ORD-XXXXX не найден в тексте поста. Используй: /track ORD-XXXXX https://cdek.ru/...')
+    return
+  }
+
+  await ctx.reply(
+    '❌ Формат команды:\n' +
+    '/track ORD-XXXXX https://cdek.ru/...\n\n' +
+    'или ответом на пост заказа:\n' +
+    '/track https://cdek.ru/...'
+  )
 })
 
 // команда рассылки
