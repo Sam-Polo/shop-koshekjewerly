@@ -1178,6 +1178,23 @@ async function sendStartupAlert() {
 
 sendStartupAlert()
 
-bot.start({ drop_pending_updates: true });
+// Диагностика и очистка вебхука перед long-polling.
+// Если вебхук задан — Telegram не шлёт апдейты через getUpdates, бот молчит.
+;(async () => {
+  try {
+    const wh = await bot.api.getWebhookInfo()
+    if (wh.url) {
+      console.warn(`[startup] ⚠️ WEBHOOK АКТИВЕН: ${wh.url} — удаляем перед long-polling`)
+      await bot.api.deleteWebhook({ drop_pending_updates: true })
+      console.log('[startup] вебхук удалён')
+    } else {
+      console.log('[startup] вебхук не задан ✓')
+    }
+  } catch (e: any) {
+    console.warn('[startup] ошибка при проверке вебхука:', e?.message)
+  }
+
+  bot.start({ drop_pending_updates: true })
+})()
 
 
