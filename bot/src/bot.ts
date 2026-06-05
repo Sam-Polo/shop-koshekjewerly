@@ -3,10 +3,10 @@ import { Bot, InlineKeyboard } from 'grammy';
 import { InputFile } from 'grammy';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import fs from 'node:fs';
 import { setDefaultResultOrder } from 'node:dns';
 import { tgFetch, proxyDispatcher } from './proxy.js'
 import { sendAlert } from './alerts.js';
+import { userChatIds, loadUserChatIds, saveUserChatIds, addUserChatId } from './user-store.js'
 
 // предпочитаем ipv4: помогает избежать зависаний на ipv6 у некоторых хостингов
 setDefaultResultOrder('ipv4first');
@@ -48,55 +48,8 @@ const CHANNEL_USERNAME = process.env.TG_CHANNEL_USERNAME || 'ecl1psetest';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// путь к файлу для хранения chat_id пользователей
-const USER_CHAT_IDS_FILE = path.join(__dirname, '..', 'user-chat-ids.json');
-
-// хранилище chat_id всех пользователей для рассылки
-const userChatIds = new Set<string | number>();
-
-// загружаем список chat_id из файла при запуске
-function loadUserChatIds(): Set<string | number> {
-  try {
-    if (fs.existsSync(USER_CHAT_IDS_FILE)) {
-      const data = fs.readFileSync(USER_CHAT_IDS_FILE, 'utf8');
-      const ids = JSON.parse(data);
-      if (Array.isArray(ids)) {
-        const set = new Set<string | number>();
-        ids.forEach(id => set.add(id));
-        console.log(`[loadUserChatIds] загружено ${set.size} chat_id из файла`);
-        return set;
-      }
-    }
-  } catch (error: any) {
-    console.warn('[loadUserChatIds] ошибка при загрузке файла:', error?.message);
-  }
-  return new Set<string | number>();
-}
-
-// сохраняем список chat_id в файл
-function saveUserChatIds(set: Set<string | number>) {
-  try {
-    const ids = Array.from(set);
-    fs.writeFileSync(USER_CHAT_IDS_FILE, JSON.stringify(ids, null, 2), 'utf8');
-    console.log(`[saveUserChatIds] сохранено ${ids.length} chat_id в файл`);
-  } catch (error: any) {
-    console.error('[saveUserChatIds] ошибка при сохранении файла:', error?.message);
-  }
-}
-
-// добавляем chat_id и сохраняем в файл
-function addUserChatId(chatId: string | number) {
-  if (!chatId) return
-  const wasNew = !userChatIds.has(chatId)
-  userChatIds.add(chatId)
-  if (wasNew) {
-    saveUserChatIds(userChatIds)
-  }
-}
-
 // инициализируем список при запуске
-const loadedIds = loadUserChatIds()
-loadedIds.forEach(id => userChatIds.add(id))
+loadUserChatIds()
 
 // проверка что пользователь - менеджер
 function isManager(chatId: string | number | undefined, username?: string): boolean {
@@ -941,7 +894,7 @@ async function syncPendingUsers() {
       if (!userChatIds.has(id)) { userChatIds.add(id); added++ }
     }
     if (added > 0) {
-      saveUserChatIds(userChatIds)
+      saveUserChatIds()
       console.log(`[sync-users] добавлено ${added} новых пользователей из мини-аппа`)
     }
   } catch (e: any) {
