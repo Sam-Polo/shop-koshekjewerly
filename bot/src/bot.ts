@@ -685,6 +685,11 @@ bot.callbackQuery(['broadcast_button_yes', 'broadcast_button_no', 'broadcast_can
 
 // обработка сообщений (рассылка или обычное сообщение)
 bot.on('message', async (ctx) => {
+  // временный диагностический лог — видим каждое входящее сообщение
+  if (ctx.chat?.type !== 'private') {
+    console.log('[msg-in]', ctx.chat?.type, 'from', ctx.from?.id, '|', (ctx.message.text || ctx.message.caption || '').slice(0, 60))
+  }
+
   // игнорируем сообщения из канала алертов (бот там участник, не должен отвечать)
   const errorChannelId = process.env.ERROR_CHANNEL_CHAT_ID?.trim()
   if (errorChannelId && ctx.chat?.id.toString() === errorChannelId) return
