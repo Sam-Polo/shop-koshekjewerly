@@ -44,8 +44,7 @@ const SUPPORT_USERNAME = process.env.SUPPORT_USERNAME;
 const MANAGER_CHAT_ID = process.env.TG_MANAGER_CHAT_ID;
 // канал для публикации поста с мини-приложением
 const CHANNEL_USERNAME = process.env.TG_CHANNEL_USERNAME || 'ecl1psetest';
-// канал куда идут посты о новых заказах (используется для отправки трека из комментариев)
-const ORDERS_CHANNEL_ID = process.env.TG_ORDERS_CHANNEL_ID?.trim() || ''
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -122,6 +121,10 @@ const waitingForButtonText = new Set<string | number>();
 const waitingForChannelPost = new Set<string | number>();
 const waitingForChannelButtonText = new Set<string | number>();
 const waitingForChannelContent = new Set<string | number>();
+
+// кэш авто-форвардов постов заказов из канала: "chatId:messageId" → orderId
+// нужен чтобы находить orderId по message_thread_id в комментариях
+const threadOrderCache = new Map<string, string>()
 
 type MediaAttachment = {
   type: 'photo' | 'video'
@@ -300,6 +303,63 @@ async function startBroadcast(ctx: any, chatId: string | number, data: Broadcast
     broadcastData.delete(chatId)
   }
 }
+
+// отправляет трек покупателю через бэкенд и отвечает менеджеру о результате
+async function handleSendTrack(ctx: any, orderId: string, trackingUrl: string): Promise<void> {
+  try {
+    const resp = await fetch(`${BACKEND_URL}/api/orders/${orderId}/send-tracking`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ trackingUrl })
+    })
+    const respData = await resp.json().catch(() => ({})) as any
+
+    if (resp.status === 409) {
+      await ctx.reply(`⚠️ Трек по заказу ${orderId} уже был отправлен покупателю ранее.`)
+      return
+    }
+
+    if (respData.ok) {
+      await ctx.reply(`✅ Трек отправлен покупателю по заказу ${orderId}.`)
+    } else {
+      let errMsg: string
+      if (respData.error === 'no_customer_chat_id') {
+        errMsg = 'покупатель не запускал бота — chat_id не сохранён. Свяжитесь по телефону.'
+      } else if (respData.error === 'order not found') {
+        errMsg = 'заказ не найден'
+      } else if (/chat not found|bot was blocked|user is deactivated/i.test(respData.error || '')) {
+        errMsg = 'покупатель заблокировал бота или не начинал диалог. Свяжитесь по телефону.'
+      } else {
+        errMsg = respData.error || 'неизвестная ошибка'
+      }
+      await ctx.reply(`❌ Не удалось отправить трек по заказу ${orderId}.\nПричина: ${errMsg}`)
+    }
+  } catch (e: any) {
+    await ctx.reply(`❌ Ошибка связи с сервером: ${e?.message || 'неизвестная ошибка'}`)
+  }
+}
+
+// /track ORD-XXXXX https://cdek.ru/... — для старых заказов или если бот перезапускался
+bot.command('track', async (ctx) => {
+  const chatId = ctx.from?.id
+  const username = ctx.from?.username
+
+  if (!isManager(chatId, username)) {
+    await ctx.reply('❌ У вас нет доступа к этой команде.')
+    return
+  }
+
+  const args = (ctx.match || '').trim()
+  const match = args.match(/^(ORD-[\w-]+)\s+(https?:\/\/\S+)/)
+  if (!match) {
+    await ctx.reply('❌ Формат: /track ORD-XXXXX https://cdek.ru/...')
+    return
+  }
+
+  const orderId = match[1]
+  const trackingUrl = match[2].replace(/[.,;!?)]+$/, '')
+  await handleSendTrack(ctx, orderId, trackingUrl)
+})
 
 // команда рассылки
 bot.command('broadcast', async (ctx) => {
@@ -592,59 +652,41 @@ bot.on('message', async (ctx) => {
     addUserChatId(chatId)
   }
 
+  // кэшируем авто-форварды постов заказов (channel → discussion group)
+  // это нужно чтобы по message_thread_id находить orderId без явного reply
+  if ((ctx.message as any).is_automatic_forward) {
+    const postText = ctx.message.text || ctx.message.caption || ''
+    const orderIdInPost = postText.match(/ORD-[\w-]+/)
+    if (orderIdInPost && ctx.chat?.id) {
+      threadOrderCache.set(`${ctx.chat.id}:${ctx.message.message_id}`, orderIdInPost[0])
+    }
+  }
+
   // ── CDEK-трек из комментария под постом заказа ──────────────────────────
-  // Менеджер вставляет информацию о посылке СДЭК в комментарий под постом заказа.
-  // Бот ловит ссылку cdek.ru, отправляет трек покупателю через бэкенд.
-  if (chatId && isManager(chatId, username) && ctx.message.reply_to_message) {
-    // если TG_ORDERS_CHANNEL_ID задан — принимаем трек только из discussion group этого канала
-    const forwardChatId = (ctx.message.reply_to_message as any).forward_from_chat?.id
-    const channelMismatch = ORDERS_CHANNEL_ID && forwardChatId && String(forwardChatId) !== ORDERS_CHANNEL_ID
+  if (chatId && isManager(chatId, username)) {
+    const trackMsgText = ctx.message.text || ''
+    const cdekLinkMatch = trackMsgText.match(/https?:\/\/(?:www\.)?cdek\.ru\/\S+/)
 
-    const repliedText = ctx.message.reply_to_message.text || ctx.message.reply_to_message.caption || ''
-    const orderIdMatch = repliedText.match(/ORD-[\w-]+/)
-    const msgText = ctx.message.text || ''
-    const cdekLinkMatch = msgText.match(/https?:\/\/(?:www\.)?cdek\.ru\/\S+/)
+    if (cdekLinkMatch) {
+      let orderId: string | undefined
 
-    if (orderIdMatch && cdekLinkMatch && !channelMismatch) {
-      const orderId = orderIdMatch[0]
-      // убираем пунктуацию с конца ссылки если есть
-      const trackingUrl = cdekLinkMatch[0].replace(/[.,;!?)]+$/, '')
-
-      try {
-        const resp = await fetch(`${BACKEND_URL}/api/orders/${orderId}/send-tracking`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify({ trackingUrl })
-        })
-        const respData = await resp.json().catch(() => ({})) as any
-
-        if (resp.status === 409) {
-          await ctx.reply(`⚠️ Трек по заказу ${orderId} уже был отправлен покупателю ранее.`)
-          return
-        }
-
-        if (respData.ok) {
-          await ctx.reply(`✅ Трек отправлен покупателю по заказу ${orderId}.`)
-        } else {
-          let errMsg: string
-          if (respData.error === 'no_customer_chat_id') {
-            errMsg = 'покупатель не запускал бота — chat_id не сохранён. Свяжитесь по телефону.'
-          } else if (respData.error === 'order not found') {
-            errMsg = 'заказ не найден'
-          } else if (/chat not found|bot was blocked|user is deactivated/i.test(respData.error || '')) {
-            errMsg = 'покупатель заблокировал бота или не начинал диалог. Свяжитесь по телефону.'
-          } else {
-            errMsg = respData.error || 'неизвестная ошибка'
-          }
-          await ctx.reply(`❌ Не удалось отправить трек по заказу ${orderId}.\nПричина: ${errMsg}`)
-        }
-      } catch (e: any) {
-        await ctx.reply(`❌ Ошибка связи с сервером при отправке трека: ${e?.message || 'неизвестная ошибка'}`)
+      // вариант 1: явный reply на пост заказа с ORD-XXXXX в тексте
+      if (ctx.message.reply_to_message) {
+        const repliedText = ctx.message.reply_to_message.text || ctx.message.reply_to_message.caption || ''
+        const m = repliedText.match(/ORD-[\w-]+/)
+        if (m) orderId = m[0]
       }
-      return
+
+      // вариант 2: комментарий в треде через "Комментировать" (без явного reply)
+      if (!orderId && ctx.message.message_thread_id && ctx.chat?.id) {
+        orderId = threadOrderCache.get(`${ctx.chat.id}:${ctx.message.message_thread_id}`)
+      }
+
+      if (orderId) {
+        const trackingUrl = cdekLinkMatch[0].replace(/[.,;!?)]+$/, '')
+        await handleSendTrack(ctx, orderId, trackingUrl)
+        return
+      }
     }
   }
 
