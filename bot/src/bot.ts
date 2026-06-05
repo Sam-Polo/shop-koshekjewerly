@@ -5,7 +5,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'node:fs';
 import { setDefaultResultOrder } from 'node:dns';
-import { tgFetch, proxyDispatcher } from './proxy.js';
+import { tgFetch, proxyDispatcher } from './proxy.js'
+import { sendAlert } from './alerts.js';
 
 // предпочитаем ipv4: помогает избежать зависаний на ipv6 у некоторых хостингов
 setDefaultResultOrder('ipv4first');
@@ -333,8 +334,13 @@ async function startBroadcast(ctx: any, chatId: string | number, data: Broadcast
     broadcastData.delete(chatId)
     
     await ctx.reply(`✅ Рассылка завершена:\nОтправлено: ${sent}\nОшибок: ${failed}`)
+
+    if (failed > 0 && failed > sent) {
+      sendAlert(`Рассылка завершена с большим числом ошибок: отправлено ${sent}, ошибок ${failed}`, { tag: 'broadcast', level: 'warn' }).catch(() => {})
+    }
   } catch (error: any) {
     console.error('[startBroadcast] ошибка:', error?.message)
+    sendAlert(`Рассылка упала: ${error?.message}`, { tag: 'broadcast', level: 'error' }).catch(() => {})
     await ctx.reply('❌ Ошибка при рассылке. Рассылка прервана.')
     broadcastData.delete(chatId)
   }
@@ -1024,7 +1030,47 @@ bot.catch((err) => {
 
   // всё прочее — реальная ошибка, в error.log, но НЕ роняем бота
   console.error(`[bot.catch] необработанная ошибка в апдейте ${updateId} от юзера ${userId}:`, e)
+  sendAlert(
+    `Необработанная ошибка в апдейте ${updateId ?? '?'} от юзера ${userId ?? '?'}: ${e?.description ?? e?.message ?? String(e)}`,
+    { tag: 'bot.catch', level: 'error' }
+  ).catch(() => {})
 })
+
+// глобальные обработчики необработанных ошибок — лучше знать, чем молчать
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err)
+  sendAlert(`uncaughtException: ${err?.message ?? String(err)}`, { tag: 'process', level: 'error' }).catch(() => {})
+})
+
+process.on('unhandledRejection', (reason) => {
+  const msg = reason instanceof Error ? reason.message : String(reason)
+  console.error('[unhandledRejection]', reason)
+  sendAlert(`unhandledRejection: ${msg}`, { tag: 'process', level: 'error' }).catch(() => {})
+})
+
+// стартовый self-check — в канал, чтобы видеть каждый перезапуск и состояние конфига
+async function sendStartupAlert() {
+  if (process.env.FEATURE_DEBUG_ALERTS !== 'true') return
+  try {
+    const pkg = await import('../package.json', { with: { type: 'json' } }).then(m => m.default)
+    const botVersion: string = (pkg as any).version ?? '?'
+    const proxyStatus = process.env.TG_PROXY_URL
+      ? (process.env.TG_PROXY_URL_BACKUP ? 'primary+backup' : 'primary only')
+      : 'нет (прямые запросы)'
+    const channelOk = !!process.env.ERROR_CHANNEL_CHAT_ID
+    const startMsg =
+      `✅ [bot] перезапущен v${botVersion} | ${new Date().toISOString()}\n` +
+      `Прокси: ${proxyStatus}\n` +
+      `Канал ошибок: ${channelOk ? 'задан' : '⚠️ не задан'}\n` +
+      `Юзеров в файле: ${userChatIds.size}\n` +
+      `BACKEND_URL: ${BACKEND_URL}`
+    await sendAlert(startMsg, { tag: 'startup', level: 'info' })
+  } catch (e: any) {
+    console.warn('[startup-alert] не удалось отправить:', e?.message)
+  }
+}
+
+sendStartupAlert()
 
 bot.start();
 
