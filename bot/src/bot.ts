@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { Bot, InlineKeyboard, Keyboard } from 'grammy';
+import { Bot, InlineKeyboard } from 'grammy';
 import { InputFile } from 'grammy';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -475,10 +475,6 @@ bot.command('channel_post', async (ctx) => {
   await ctx.reply(`📢 Введи username канала, куда отправить пост: @channel \nИспользуй /cancel для отмены.`)
 });
 
-// создаем reply keyboard с кнопкой "Старт"
-const startKeyboard = new Keyboard()
-  .text('Старт')
-  .resized();
 
 // функция обработки команды /start (используется и для команды, и для кнопки)
 async function handleStart(ctx: any) {
@@ -526,18 +522,6 @@ async function handleStart(ctx: any) {
     reply_markup: kb,
   });
   
-  // показываем reply keyboard с кнопкой "Старт" (отдельным сообщением).
-  // Telegram ужесточил валидацию text — пробел больше не считается валидным.
-  // Используем неразрывный пробел в виде HTML-сущности; он рендерится как пустая строка,
-  // но проходит проверку "text must be non-empty".
-  try {
-    await ctx.reply('⁣', {
-      reply_markup: startKeyboard
-    });
-  } catch (error: any) {
-    // игнорируем ошибку - клавиатура не критична
-    console.warn('[handleStart] предупреждение при отправке reply keyboard:', error?.message || error);
-  }
 }
 
 bot.command('start', handleStart);
@@ -618,9 +602,13 @@ bot.callbackQuery(['broadcast_button_yes', 'broadcast_button_no', 'broadcast_can
 
 // обработка сообщений (рассылка или обычное сообщение)
 bot.on('message', async (ctx) => {
+  // игнорируем сообщения из канала алертов (бот там участник, не должен отвечать)
+  const errorChannelId = process.env.ERROR_CHANNEL_CHAT_ID?.trim()
+  if (errorChannelId && ctx.chat?.id.toString() === errorChannelId) return
+
   const chatId = ctx.from?.id
   const username = ctx.from?.username
-  
+
   // сохраняем chat_id пользователя
   if (chatId) {
     addUserChatId(chatId)
@@ -755,13 +743,6 @@ bot.on('message', async (ctx) => {
     )
     return
   }
-  
-  // обработка кнопки "Старт" из reply keyboard
-  if (ctx.message.text === 'Старт') {
-    await handleStart(ctx)
-    return
-  }
-  
   
   // обработка текста кнопки
   if (chatId && waitingForButtonText.has(chatId) && isManager(chatId, username)) {
