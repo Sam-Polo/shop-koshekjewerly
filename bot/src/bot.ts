@@ -706,8 +706,15 @@ bot.on('message', async (ctx) => {
   if ((ctx.message as any).is_automatic_forward) {
     const postText = ctx.message.text || ctx.message.caption || ''
     const orderIdInPost = postText.match(/ORD-[\w-]+/)
+    console.log('[auto-forward] получен пост:', {
+      messageId: ctx.message.message_id,
+      chatId: ctx.chat?.id,
+      textSnippet: postText.slice(0, 80),
+      foundOrd: orderIdInPost?.[0] ?? null
+    })
     if (orderIdInPost && ctx.chat?.id) {
       threadOrderCache.set(`${ctx.chat.id}:${ctx.message.message_id}`, orderIdInPost[0])
+      console.log('[auto-forward] закэшировано:', `${ctx.chat.id}:${ctx.message.message_id}`, '→', orderIdInPost[0])
     }
   }
 
@@ -732,6 +739,15 @@ bot.on('message', async (ctx) => {
       if (!orderId && ctx.message.message_thread_id && ctx.chat?.id) {
         orderId = threadOrderCache.get(`${ctx.chat.id}:${ctx.message.message_thread_id}`)
       }
+
+      console.log('[cdek] ссылка получена:', {
+        url: cdekLinkMatch[0],
+        hasReplyTo: !!ctx.message.reply_to_message,
+        replyToSnippet: (ctx.message.reply_to_message?.text || ctx.message.reply_to_message?.caption || '').slice(0, 60),
+        message_thread_id: ctx.message.message_thread_id,
+        cacheSize: threadOrderCache.size,
+        resolvedOrderId: orderId ?? null
+      })
 
       if (orderId) {
         const trackingUrl = cdekLinkMatch[0].replace(/[.,;!?)]+$/, '')
