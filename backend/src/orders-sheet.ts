@@ -213,7 +213,7 @@ export async function updateOrderStatusInSheet(orderId: string, status: string, 
  * Возвращает null если заказ не найден или Sheets недоступен.
  * Поля `status` из Sheets используются для idempotency-проверки на стороне вызывающего кода.
  */
-export async function getOrderFromSheet(orderId: string): Promise<(Order & { sheetStatus: string }) | null> {
+export async function getOrderFromSheet(orderId: string): Promise<(Order & { sheetStatus: string; adminNote: string }) | null> {
   const spreadsheetId = getSheetId()
   if (!spreadsheetId) return null
   try {
@@ -273,10 +273,11 @@ export async function getOrderFromSheet(orderId: string): Promise<(Order & { she
     const promocodeCode = col(16)
     const promocodeDiscount = parseFloat(col(17)) || 0
 
-    const order: Order & { sheetStatus: string } = {
+    const order: Order & { sheetStatus: string; adminNote: string } = {
       orderId,
       status: (sheetStatus as OrderStatus) || 'pending',
       sheetStatus,
+      adminNote: col(22),
       createdAt: col(1) ? new Date(col(1)).getTime() : Date.now(),
       updatedAt: col(2) ? new Date(col(2)).getTime() : Date.now(),
       customerChatId: col(5) || null,
@@ -312,5 +313,34 @@ export async function getOrderFromSheet(orderId: string): Promise<(Order & { she
   } catch (e: any) {
     logger.warn({ orderId, error: e?.message }, 'getOrderFromSheet: ошибка чтения заказа из Sheets')
     return null
+  }
+}
+
+export async function updateOrderAdminNoteInSheet(orderId: string, note: string): Promise<void> {
+  const spreadsheetId = getSheetId()
+  if (!spreadsheetId) return
+  try {
+    await ensureOrderSheets()
+    const auth = getAuth()
+    const api = google.sheets({ version: 'v4', auth })
+    const res = await api.spreadsheets.values.get({ spreadsheetId, range: `${ORDERS_SHEET}!A:A` })
+    const rows = res.data.values || []
+    let rowNumber = -1
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i]?.[0] === orderId) { rowNumber = i + 1; break }
+    }
+    if (rowNumber === -1) {
+      logger.warn({ orderId }, 'updateOrderAdminNoteInSheet: строка не найдена')
+      return
+    }
+    await api.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${ORDERS_SHEET}!W${rowNumber}`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [[note]] }
+    })
+    logger.info({ orderId, rowNumber }, 'admin_note обновлён в Google Sheets')
+  } catch (e: any) {
+    logger.warn({ orderId, error: e?.message }, 'updateOrderAdminNoteInSheet: ошибка')
   }
 }

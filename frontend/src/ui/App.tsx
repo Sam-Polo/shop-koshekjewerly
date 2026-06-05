@@ -1594,22 +1594,20 @@ export default function App() {
   // обработка возврата после оплаты
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search)
+    const payment = urlParams.get('payment')
     // orderId — наш параметр (MAX/fallback), InvId — от Робокассы напрямую
     const orderIdFromUrl = urlParams.get('orderId') || urlParams.get('InvId')
-    const path = window.location.pathname
 
-    if (path.includes('/payment/success') && orderIdFromUrl) {
+    if ((payment === 'success' || payment === 'fail') && orderIdFromUrl) {
       setOrderId(orderIdFromUrl)
-      setPaymentStatus('success')
+      setPaymentStatus(payment)
       setOrderSuccessOpen(true)
-      window.history.replaceState({}, '', window.location.pathname)
-    }
-
-    if (path.includes('/payment/fail') && orderIdFromUrl) {
-      setOrderId(orderIdFromUrl)
-      setPaymentStatus('fail')
-      setOrderSuccessOpen(true)
-      window.history.replaceState({}, '', window.location.pathname)
+      // убираем payment-параметры из URL чтобы не показывать при обновлении
+      const clean = new URL(window.location.href)
+      clean.searchParams.delete('payment')
+      clean.searchParams.delete('orderId')
+      clean.searchParams.delete('InvId')
+      window.history.replaceState({}, '', clean.toString())
     }
   }, [])
 

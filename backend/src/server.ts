@@ -8,7 +8,7 @@ import rateLimit from 'express-rate-limit';
 import { fetchProductsFromSheet } from './sheets.js';
 import { listProducts, upsertProducts, decreaseProductStock } from './store.js';
 import { createOrder, getOrder, updateOrderStatus, listOrders, type Order, type Platform } from './orders.js';
-import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet } from './orders-sheet.js'
+import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet } from './orders-sheet.js'
 import { sendAlert } from './alerts.js';
 import { generatePaymentUrl, verifyResultSignature, queryOrderState } from './robokassa.js';
 import { fetchPromocodesFromSheet, loadPromocodes, findPromocode, validatePromocode, listPromocodes } from './promocodes.js';
@@ -621,7 +621,7 @@ ${order.orderData.comments ? `Комментарии: ${escapeHtml(order.orderDa
   // выбираем транспорт и chat_id менеджера в зависимости от платформы
   const isMax = order.platform === 'max'
   const sendPlatformMessage = isMax ? sendMaxMessage : sendTelegramMessage
-  const managerChatId = isMax ? process.env.MAX_MANAGER_CHAT_ID : process.env.TG_MANAGER_CHAT_ID
+  const managerChatId = isMax ? process.env.MAX_MANAGER_CHAT_ID : (process.env.TG_ORDERS_CHANNEL_ID || process.env.TG_MANAGER_CHAT_ID)
 
   // отправляем покупателю если есть chat_id
   // фиксируем результат, чтобы при провале алертнуть менеджера со всеми данными заказа
@@ -931,8 +931,10 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
       successUrl = `${backendUrl}/api/robokassa/success`
       failUrl = `${backendUrl}/api/robokassa/fail`
     } else {
-      successUrl = `${webappUrl}/payment/success`
-      failUrl = `${webappUrl}/payment/fail`
+      // query-параметры вместо path — GitHub Pages отдаёт 404 на несуществующие пути
+      const base = webappUrl.replace(/\/$/, '')
+      successUrl = `${base}/?payment=success`
+      failUrl = `${base}/?payment=fail`
     }
 
     const paymentUrl = generatePaymentUrl({
@@ -1166,10 +1168,10 @@ const handleSuccessUrl = (req: express.Request, res: express.Response) => {
   const deepLink = buildPaymentReturnLink(platform, InvId, 'success')
   if (deepLink) return res.redirect(deepLink)
 
-  const webappUrl = platform === 'max'
+  const base = (platform === 'max'
     ? (process.env.MAX_WEBAPP_URL || process.env.TG_WEBAPP_URL || 'https://sam-polo.github.io/shop-koshekjewerly')
-    : (process.env.TG_WEBAPP_URL || 'https://sam-polo.github.io/shop-koshekjewerly')
-  res.redirect(`${webappUrl}/payment/success?orderId=${InvId}`)
+    : (process.env.TG_WEBAPP_URL || 'https://sam-polo.github.io/shop-koshekjewerly')).replace(/\/$/, '')
+  res.redirect(`${base}/?payment=success&orderId=${InvId}`)
 }
 
 // успешная оплата (Success URL) - GET (рекомендуемый метод)
@@ -1195,10 +1197,10 @@ const handleFailUrl = (req: express.Request, res: express.Response) => {
   const deepLink = buildPaymentReturnLink(platform, InvId, 'fail')
   if (deepLink) return res.redirect(deepLink)
 
-  const webappUrl = platform === 'max'
+  const base = (platform === 'max'
     ? (process.env.MAX_WEBAPP_URL || process.env.TG_WEBAPP_URL || 'https://sam-polo.github.io/shop-koshekjewerly')
-    : (process.env.TG_WEBAPP_URL || 'https://sam-polo.github.io/shop-koshekjewerly')
-  res.redirect(`${webappUrl}/payment/fail?orderId=${InvId}`)
+    : (process.env.TG_WEBAPP_URL || 'https://sam-polo.github.io/shop-koshekjewerly')).replace(/\/$/, '')
+  res.redirect(`${base}/?payment=fail&orderId=${InvId}`)
 }
 
 // неудачная оплата (Fail URL) - GET (рекомендуемый метод)
@@ -1267,6 +1269,67 @@ ${assemblyMessage}
   } catch (e: any) {
     logger.error({ orderId, error: e?.message }, 'resend-notification: ошибка')
     res.status(500).json({ error: e?.message })
+  }
+})
+
+// отправка трека покупателю (вызывается ботом из комментария под постом заказа)
+app.post('/api/orders/:orderId/send-tracking', express.json(), async (req, res) => {
+  const auth = req.headers.authorization
+  if (!auth || auth !== `Bearer ${process.env.TG_BOT_TOKEN}`) {
+    return res.status(401).json({ error: 'unauthorized' })
+  }
+
+  const { orderId } = req.params
+  const { trackingUrl } = req.body
+  if (!trackingUrl || typeof trackingUrl !== 'string') {
+    return res.status(400).json({ error: 'trackingUrl required' })
+  }
+
+  // ищем заказ: сначала в памяти, потом в Sheets
+  let order: Order | null = getOrder(orderId) ?? null
+  let adminNote = ''
+
+  const sheetOrder = await getOrderFromSheet(orderId).catch(() => null)
+  if (sheetOrder) {
+    adminNote = sheetOrder.adminNote || ''
+    if (!order) order = sheetOrder
+  }
+
+  if (!order) {
+    return res.status(404).json({ error: 'order not found' })
+  }
+
+  // дедупликация: если трек уже отправлялся
+  if (adminNote.includes('track:')) {
+    return res.status(409).json({ error: 'already_sent' })
+  }
+
+  if (!order.customerChatId) {
+    return res.status(400).json({ error: 'no_customer_chat_id' })
+  }
+
+  const trackingMessage = [
+    '🩷 Ваша посылочка скоро уедет к вам.',
+    'Отследить можно по ссылке:',
+    '',
+    trackingUrl,
+    '',
+    'Спасибо за заказ, всегда будем счастливы видеть ваши отзывы 🥰'
+  ].join('\n')
+
+  const result = order.platform === 'max'
+    ? await sendMaxMessage(order.customerChatId, trackingMessage)
+    : await sendTelegramMessage(order.customerChatId, trackingMessage)
+
+  if (result.ok) {
+    const newNote = adminNote ? `${adminNote}\ntrack: ${trackingUrl}` : `track: ${trackingUrl}`
+    await updateOrderAdminNoteInSheet(orderId, newNote).catch(() => {})
+    logger.info({ orderId, trackingUrl }, 'трек отправлен покупателю')
+    return res.json({ ok: true })
+  } else {
+    const errDesc = result.errorDescription || `HTTP ${result.status}`
+    logger.warn({ orderId, error: errDesc }, 'не удалось отправить трек покупателю')
+    return res.json({ ok: false, error: errDesc })
   }
 })
 
