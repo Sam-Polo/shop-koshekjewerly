@@ -167,6 +167,57 @@ export function verifyResultSignature(params: {
   return isValid
 }
 
+// запрашиваем статус платежа через OpStateExt
+// возвращает { stateCode, outSum } или null при ошибке/недоступности
+// stateCode 5 = оплачено, 0 = создан, 80 = отменён (остальные — промежуточные)
+export async function queryOrderState(invId: string): Promise<{ stateCode: number; outSum: string } | null> {
+  if (!MERCHANT_LOGIN || !PASSWORD_2) return null
+
+  const signature = crypto
+    .createHash('md5')
+    .update(`${MERCHANT_LOGIN}:${invId}:${PASSWORD_2}`, 'utf8')
+    .digest('hex')
+
+  const url =
+    `https://auth.robokassa.ru/Merchant/WebService/Service.asmx/OpStateExt` +
+    `?MerchantLogin=${encodeURIComponent(MERCHANT_LOGIN)}` +
+    `&InvoiceID=${encodeURIComponent(invId)}` +
+    `&Signature=${encodeURIComponent(signature)}`
+
+  try {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 10_000)
+    const resp = await fetch(url, { signal: ctrl.signal })
+    clearTimeout(timer)
+    if (!resp.ok) {
+      logger.warn({ invId, status: resp.status }, 'OpStateExt: HTTP ошибка')
+      return null
+    }
+    const xml = await resp.text()
+
+    const resultCode = xml.match(/<Result>[\s\S]*?<Code>(\d+)<\/Code>/)?.[1]
+    if (resultCode !== '0') {
+      logger.warn({ invId, resultCode }, 'OpStateExt: результат не OK')
+      return null
+    }
+
+    const stateCodeStr = xml.match(/<State>[\s\S]*?<Code>(\d+)<\/Code>/)?.[1] ?? ''
+    const stateCode = parseInt(stateCodeStr, 10)
+    const outSum = xml.match(/<OutSum>([^<]+)<\/OutSum>/)?.[1]?.trim() ?? ''
+
+    if (isNaN(stateCode)) {
+      logger.warn({ invId, xml: xml.slice(0, 200) }, 'OpStateExt: не удалось распарсить stateCode')
+      return null
+    }
+
+    logger.info({ invId, stateCode, outSum }, 'OpStateExt: статус получен')
+    return { stateCode, outSum }
+  } catch (e: any) {
+    logger.warn({ invId, error: e?.message }, 'OpStateExt: ошибка запроса')
+    return null
+  }
+}
+
 // экспортируем константы для использования в других модулях
 export { IS_TEST, MERCHANT_LOGIN }
 

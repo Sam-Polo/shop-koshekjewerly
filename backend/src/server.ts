@@ -7,10 +7,10 @@ import path from 'node:path';
 import rateLimit from 'express-rate-limit';
 import { fetchProductsFromSheet } from './sheets.js';
 import { listProducts, upsertProducts, decreaseProductStock } from './store.js';
-import { createOrder, getOrder, updateOrderStatus, type Order, type Platform } from './orders.js';
+import { createOrder, getOrder, updateOrderStatus, listOrders, type Order, type Platform } from './orders.js';
 import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet } from './orders-sheet.js'
 import { sendAlert } from './alerts.js';
-import { generatePaymentUrl, verifyResultSignature } from './robokassa.js';
+import { generatePaymentUrl, verifyResultSignature, queryOrderState } from './robokassa.js';
 import { fetchPromocodesFromSheet, loadPromocodes, findPromocode, validatePromocode, listPromocodes } from './promocodes.js';
 import { fetchOrdersSettingsFromSheet } from './settings.js';
 import { fetchCategoriesFromSheet } from './categories.js';
@@ -1248,6 +1248,47 @@ app.post('/admin/import/sheets', async (req, res) => {
   }
 });
 
+// 1.2: проверяем статус pending-заказов через Robokassa OpStateExt
+// запускается по таймеру; если Result URL пришёл до рестарта — обрабатываем здесь
+const POLL_MIN_AGE_MS = 2 * 60 * 1000    // не трогаем только что созданные (ждём Result URL сами придут)
+const POLL_MAX_AGE_MS = 24 * 60 * 60 * 1000 // игнорируем старые брошенные заказы
+
+export async function checkPendingOrders(): Promise<void> {
+  if (process.env.FEATURE_PAYMENT_POLLING === 'false') return
+
+  const now = Date.now()
+  const pending = listOrders().filter(
+    (o) =>
+      o.status === 'pending' &&
+      now - o.createdAt >= POLL_MIN_AGE_MS &&
+      now - o.createdAt <= POLL_MAX_AGE_MS
+  )
+
+  if (pending.length === 0) return
+  logger.info({ count: pending.length }, '1.2: опрашиваем pending-заказы через OpStateExt')
+
+  for (const order of pending) {
+    const invId = order.orderId.replace('ORD-', '')
+    try {
+      const state = await queryOrderState(invId)
+      if (!state) continue
+
+      if (state.stateCode === 5) {
+        logger.info({ orderId: order.orderId, invId, outSum: state.outSum }, '1.2: Робокасса подтверждает оплату — обрабатываем')
+        const result = await processPaidOrder(order, state.outSum, invId, order.orderId)
+        if (result === 'ok' && process.env.FEATURE_DEBUG_ALERTS === 'true') {
+          sendAlert(`✅ 1.2: ${order.orderId} оплачен (polling), обработан`, { tag: '1.2', level: 'info' }).catch(() => {})
+        }
+        if (result === 'amount_mismatch') {
+          sendAlert(`⚠️ 1.2: ${order.orderId} — расхождение суммы при polling`, { tag: '1.2', level: 'warn' }).catch(() => {})
+        }
+      }
+    } catch (e: any) {
+      logger.warn({ orderId: order.orderId, error: e?.message }, '1.2: ошибка при опросе OpStateExt')
+    }
+  }
+}
+
 // глобальные обработчики необработанных ошибок
 process.on('uncaughtException', (err) => {
   logger.error({ error: err?.message, stack: err?.stack }, 'uncaughtException')
@@ -1298,17 +1339,26 @@ app.listen(port, async () => {
     logger.info({ intervalMinutes }, 'периодический импорт настроен');
   }
 
+  // 1.2: периодический опрос статуса платежей
+  const pollIntervalMinutes = Number(process.env.PAYMENT_POLL_INTERVAL_MINUTES ?? 5)
+  if (process.env.FEATURE_PAYMENT_POLLING !== 'false' && pollIntervalMinutes > 0) {
+    setInterval(() => { checkPendingOrders().catch(() => {}) }, pollIntervalMinutes * 60 * 1000)
+    logger.info({ intervalMinutes: pollIntervalMinutes }, '1.2: опрос pending-заказов настроен')
+  }
+
   // стартовый self-check — в канал ошибок при каждом рестарте
   if (process.env.FEATURE_DEBUG_ALERTS === 'true') {
     try {
       const commit = process.env.RENDER_GIT_COMMIT?.slice(0, 7) ?? 'local'
       const recoveryOn = process.env.FEATURE_ORDER_RECOVERY !== 'false'
+      const pollingOn = process.env.FEATURE_PAYMENT_POLLING !== 'false'
       const channelOk = !!process.env.ERROR_CHANNEL_CHAT_ID
       const robokassaOk = !!(process.env.ROBOKASSA_MERCHANT_LOGIN && process.env.ROBOKASSA_PASSWORD_1 && process.env.ROBOKASSA_PASSWORD_2)
       const sheetsOk = !!process.env.IMPORT_SHEET_ID
       const startMsg =
         `✅ [backend] перезапущен ${commit} | ${new Date().toISOString()}\n` +
         `Recovery (1.1): ${recoveryOn ? 'on' : 'off'}\n` +
+        `Polling (1.2): ${pollingOn ? `on (${pollIntervalMinutes}m)` : 'off'}\n` +
         `Канал ошибок: ${channelOk ? 'задан' : '⚠️ не задан'}\n` +
         `Robokassa: ${robokassaOk ? 'ok' : '⚠️ не полностью настроена'}\n` +
         `Sheets: ${sheetsOk ? 'ok' : '⚠️ IMPORT_SHEET_ID не задан'}`
