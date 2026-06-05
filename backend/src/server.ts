@@ -12,8 +12,8 @@ import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrd
 import { sendAlert } from './alerts.js';
 import { generatePaymentUrl, verifyResultSignature, queryOrderState } from './robokassa.js';
 import { fetchPromocodesFromSheet, loadPromocodes, findPromocode, validatePromocode, listPromocodes } from './promocodes.js';
-import { fetchOrdersSettingsFromSheet } from './settings.js';
-import { fetchCategoriesFromSheet } from './categories.js';
+import { getCachedOrdersSettings } from './settings.js';
+import { getCachedCategories } from './categories.js';
 import {
   fetchBasesFromSheet,
   fetchPendantsFromSheet,
@@ -124,7 +124,7 @@ async function importOrdersSettings() {
   }
   try {
     logger.info('проверка настроек заказов из google sheets...');
-    const settings = await fetchOrdersSettingsFromSheet(sheetId);
+    const settings = await getCachedOrdersSettings(sheetId);
     logger.info({ ordersClosed: settings.ordersClosed, closeDate: settings.closeDate }, 'настройки заказов проверены');
   } catch (e: any) {
     logger.error({ error: e?.message }, 'ошибка проверки настроек заказов');
@@ -308,7 +308,7 @@ app.get('/api/categories', async (_req, res) => {
     if (!sheetId) {
       return res.json({ categories: [] });
     }
-    const categories = await fetchCategoriesFromSheet(sheetId);
+    const categories = await getCachedCategories(sheetId);
     return res.json({ categories });
   } catch (e: any) {
     logger.error({ error: e?.message }, 'ошибка получения категорий');
@@ -326,7 +326,7 @@ app.get('/api/settings/orders-status', async (_req, res) => {
     }
     
     logger.info('запрос статуса заказов')
-    const settings = await fetchOrdersSettingsFromSheet(sheetId)
+    const settings = await getCachedOrdersSettings(sheetId)
     logger.info({ ordersClosed: settings.ordersClosed, closeDate: settings.closeDate }, 'статус заказов получен')
     res.json(settings)
   } catch (error: any) {
@@ -538,7 +538,7 @@ async function sendOrderNotifications(order: any) {
   try {
     const sheetId = process.env.IMPORT_SHEET_ID
     if (sheetId) {
-      const settings = await fetchOrdersSettingsFromSheet(sheetId)
+      const settings = await getCachedOrdersSettings(sheetId)
       if (settings.assemblyMessage) {
         assemblyMessage = settings.assemblyMessage
       }
@@ -685,7 +685,7 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
     const sheetId = process.env.IMPORT_SHEET_ID
     if (sheetId) {
       try {
-        const settings = await fetchOrdersSettingsFromSheet(sheetId)
+        const settings = await getCachedOrdersSettings(sheetId)
         if (settings.ordersClosed) {
           logger.warn('заказ отклонен: заказы закрыты')
           return res.status(403).json({ error: 'orders_closed', closeDate: settings.closeDate })
@@ -1352,6 +1352,8 @@ app.listen(port, async () => {
       const commit = process.env.RENDER_GIT_COMMIT?.slice(0, 7) ?? 'local'
       const recoveryOn = process.env.FEATURE_ORDER_RECOVERY !== 'false'
       const pollingOn = process.env.FEATURE_PAYMENT_POLLING !== 'false'
+      const settingsTtl = Number(process.env.SETTINGS_CACHE_TTL_SECONDS ?? 300)
+      const categoriesTtl = Number(process.env.CATEGORIES_CACHE_TTL_SECONDS ?? 300)
       const channelOk = !!process.env.ERROR_CHANNEL_CHAT_ID
       const robokassaOk = !!(process.env.ROBOKASSA_MERCHANT_LOGIN && process.env.ROBOKASSA_PASSWORD_1 && process.env.ROBOKASSA_PASSWORD_2)
       const sheetsOk = !!process.env.IMPORT_SHEET_ID
@@ -1359,6 +1361,7 @@ app.listen(port, async () => {
         `✅ [backend] перезапущен ${commit} | ${new Date().toISOString()}\n` +
         `Recovery (1.1): ${recoveryOn ? 'on' : 'off'}\n` +
         `Polling (1.2): ${pollingOn ? `on (${pollIntervalMinutes}m)` : 'off'}\n` +
+        `Cache (1.3): settings ${settingsTtl}s, categories ${categoriesTtl}s\n` +
         `Канал ошибок: ${channelOk ? 'задан' : '⚠️ не задан'}\n` +
         `Robokassa: ${robokassaOk ? 'ok' : '⚠️ не полностью настроена'}\n` +
         `Sheets: ${sheetsOk ? 'ok' : '⚠️ IMPORT_SHEET_ID не задан'}`

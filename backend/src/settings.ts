@@ -36,6 +36,30 @@ function getAuthFromEnv() {
   return new google.auth.JWT(creds.client_email, undefined, creds.private_key, scopes)
 }
 
+// TTL-кэш настроек (по умолчанию 5 минут)
+let _cachedSettings: OrdersSettings | null = null
+let _settingsCachedAt = 0
+
+function settingsTtlMs(): number {
+  return Number(process.env.SETTINGS_CACHE_TTL_SECONDS ?? 300) * 1000
+}
+
+export async function getCachedOrdersSettings(sheetId: string): Promise<OrdersSettings> {
+  const now = Date.now()
+  if (_cachedSettings !== null && now - _settingsCachedAt < settingsTtlMs()) {
+    return _cachedSettings
+  }
+  const settings = await fetchOrdersSettingsFromSheet(sheetId)
+  _cachedSettings = settings
+  _settingsCachedAt = now
+  return settings
+}
+
+export function invalidateSettingsCache(): void {
+  _cachedSettings = null
+  _settingsCachedAt = 0
+}
+
 // получение настроек заказов из Google Sheets
 export async function fetchOrdersSettingsFromSheet(sheetId: string): Promise<OrdersSettings> {
   const auth = getAuthFromEnv()

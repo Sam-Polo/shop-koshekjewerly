@@ -29,6 +29,30 @@ function getAuthFromEnv() {
 
 const SHEET_NAME = 'categories'
 
+// TTL-кэш категорий (по умолчанию 5 минут)
+let _cachedCategories: Category[] | null = null
+let _categoriesCachedAt = 0
+
+function categoriesTtlMs(): number {
+  return Number(process.env.CATEGORIES_CACHE_TTL_SECONDS ?? 300) * 1000
+}
+
+export async function getCachedCategories(sheetId: string): Promise<Category[]> {
+  const now = Date.now()
+  if (_cachedCategories !== null && now - _categoriesCachedAt < categoriesTtlMs()) {
+    return _cachedCategories
+  }
+  const categories = await fetchCategoriesFromSheet(sheetId)
+  _cachedCategories = categories
+  _categoriesCachedAt = now
+  return categories
+}
+
+export function invalidateCategoriesCache(): void {
+  _cachedCategories = null
+  _categoriesCachedAt = 0
+}
+
 export async function fetchCategoriesFromSheet(sheetId: string): Promise<Category[]> {
   const auth = getAuthFromEnv()
   const sheets = google.sheets({ version: 'v4', auth })
