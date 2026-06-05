@@ -1,7 +1,7 @@
 import { google } from 'googleapis'
 import fs from 'node:fs'
 import pino from 'pino'
-import type { Order } from './orders.js'
+import type { Order, OrderStatus, Platform } from './orders.js'
 import { listProducts } from './store.js'
 
 const logger = pino()
@@ -205,5 +205,112 @@ export async function updateOrderStatusInSheet(orderId: string, status: string, 
     logger.info({ orderId, status, rowNumber }, 'статус заказа обновлён в Google Sheets')
   } catch (e: any) {
     logger.warn({ orderId, error: e?.message }, 'не удалось обновить статус заказа в Google Sheets')
+  }
+}
+
+/**
+ * Читает заказ из Google Sheets по orderId (для восстановления после рестарта бэкенда).
+ * Возвращает null если заказ не найден или Sheets недоступен.
+ * Поля `status` из Sheets используются для idempotency-проверки на стороне вызывающего кода.
+ */
+export async function getOrderFromSheet(orderId: string): Promise<(Order & { sheetStatus: string }) | null> {
+  const spreadsheetId = getSheetId()
+  if (!spreadsheetId) return null
+  try {
+    const auth = getAuth()
+    const api = google.sheets({ version: 'v4', auth })
+
+    // индексы колонок ORDERS_HEADERS (0-based):
+    // 0=order_id, 1=created_at, 2=updated_at, 3=status, 4=platform,
+    // 5=customer_chat_id, 6=customer_name, 7=full_name, 8=phone, 9=username,
+    // 10=country, 11=city, 12=address, 13=delivery_region, 14=delivery_cost,
+    // 15=items_total, 16=promocode_code, 17=promocode_discount,
+    // 18=priority_order, 19=priority_fee, 20=total, 21=client_comment, 22=admin_note
+    const ordersRes = await api.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${ORDERS_SHEET}!A:W`
+    })
+    const orderRows = ordersRes.data.values || []
+    let orderRow: string[] | null = null
+    for (let i = 1; i < orderRows.length; i++) {
+      if (orderRows[i]?.[0] === orderId) {
+        orderRow = orderRows[i] as string[]
+        break
+      }
+    }
+    if (!orderRow) {
+      logger.warn({ orderId }, 'getOrderFromSheet: строка заказа не найдена в Sheets')
+      return null
+    }
+
+    const col = (i: number) => orderRow![i] ?? ''
+    const sheetStatus = col(3)
+
+    // индексы ORDER_ITEMS_HEADERS (0-based):
+    // 0=order_id, 1=slug, 2=title, 3=price, 4=quantity, 5=article, 6=category
+    const itemsRes = await api.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${ORDER_ITEMS_SHEET}!A:G`
+    })
+    const itemRows = itemsRes.data.values || []
+    const items: Order['orderData']['items'] = []
+    for (let i = 1; i < itemRows.length; i++) {
+      const row = itemRows[i] as string[]
+      if (row?.[0] !== orderId) continue
+      items.push({
+        slug: row[1] ?? '',
+        title: row[2] ?? '',
+        price: parseFloat(row[3]) || 0,
+        quantity: parseInt(row[4], 10) || 1,
+        article: row[5] || undefined,
+      })
+    }
+
+    const deliveryCost = parseFloat(col(14)) || 0
+    const total = parseFloat(col(20)) || 0
+    const priorityOrder = col(18) === 'true'
+    const priorityFee = parseFloat(col(19)) || 0
+    const promocodeCode = col(16)
+    const promocodeDiscount = parseFloat(col(17)) || 0
+
+    const order: Order & { sheetStatus: string } = {
+      orderId,
+      status: (sheetStatus as OrderStatus) || 'pending',
+      sheetStatus,
+      createdAt: col(1) ? new Date(col(1)).getTime() : Date.now(),
+      updatedAt: col(2) ? new Date(col(2)).getTime() : Date.now(),
+      customerChatId: col(5) || null,
+      customerName: col(6) || null,
+      platform: (col(4) as Platform) || 'telegram',
+      orderData: {
+        items,
+        fullName: col(7),
+        phone: col(8),
+        username: col(9) || undefined,
+        country: col(10),
+        city: col(11),
+        address: col(12),
+        deliveryRegion: col(13),
+        deliveryCost,
+        total,
+        comments: col(21) || undefined,
+        priorityOrder: priorityOrder || undefined,
+        priorityFee: priorityFee > 0 ? priorityFee : undefined,
+        promocode: promocodeCode
+          ? {
+              code: promocodeCode,
+              type: 'amount', // тип неизвестен после рестарта, но для уведомлений не критичен
+              value: promocodeDiscount,
+              discount: promocodeDiscount,
+            }
+          : undefined,
+      },
+    }
+
+    logger.info({ orderId, sheetStatus, itemsCount: items.length }, 'getOrderFromSheet: заказ восстановлен из Sheets')
+    return order
+  } catch (e: any) {
+    logger.warn({ orderId, error: e?.message }, 'getOrderFromSheet: ошибка чтения заказа из Sheets')
+    return null
   }
 }

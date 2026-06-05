@@ -7,8 +7,9 @@ import path from 'node:path';
 import rateLimit from 'express-rate-limit';
 import { fetchProductsFromSheet } from './sheets.js';
 import { listProducts, upsertProducts, decreaseProductStock } from './store.js';
-import { createOrder, getOrder, updateOrderStatus, type OrderStatus, type Platform } from './orders.js';
-import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets } from './orders-sheet.js';
+import { createOrder, getOrder, updateOrderStatus, type Order, type Platform } from './orders.js';
+import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet } from './orders-sheet.js'
+import { sendAlert } from './alerts.js';
 import { generatePaymentUrl, verifyResultSignature } from './robokassa.js';
 import { fetchPromocodesFromSheet, loadPromocodes, findPromocode, validatePromocode, listPromocodes } from './promocodes.js';
 import { fetchOrdersSettingsFromSheet } from './settings.js';
@@ -23,7 +24,6 @@ import {
   basesForType,
   pendantsForType,
   effectiveLimit,
-  getBaseLimit,
   JEWELRY_TYPES,
   type JewelryType
 } from './constructor.js';
@@ -70,6 +70,9 @@ async function importProducts() {
     logger.info({ imported: rows.length }, 'товары импортированы');
   } catch (e: any) {
     logger.error({ error: e?.message }, 'ошибка импорта товаров');
+    if (e?.message?.includes('429') || e?.message?.toLowerCase().includes('quota')) {
+      sendAlert(`Квота Google Sheets исчерпана при импорте товаров: ${e?.message}`, { tag: 'sheets', level: 'warn' }).catch(() => {})
+    }
   }
 }
 
@@ -959,9 +962,84 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
     })
   } catch (e: any) {
     logger.error({ error: e?.message }, 'ошибка создания заказа')
+    sendAlert(`Ошибка создания заказа: ${e?.message}`, { tag: 'orders', level: 'error' }).catch(() => {})
     res.status(500).json({ error: e?.message || 'order_failed' })
   }
 });
+
+// обработка оплаченного заказа: проверка суммы, обновление статуса, сток, уведомления.
+// используется и для live-заказа (из памяти), и для восстановленного из Sheets.
+// возвращает 'ok', 'already_paid' или 'amount_mismatch'.
+export async function processPaidOrder(
+  order: Order,
+  outSum: string,
+  invId: string,
+  orderId: string
+): Promise<'ok' | 'already_paid' | 'amount_mismatch'> {
+  if (order.status === 'paid') {
+    logger.info({ invId, orderId }, 'processPaidOrder: заказ уже paid — пропускаем')
+    return 'already_paid'
+  }
+
+  if (order.status === 'failed') {
+    logger.warn({ invId, orderId }, 'processPaidOrder: заказ был failed, Робокасса подтвердила оплату — обрабатываем как paid')
+  }
+
+  const robokassaAmount = parseFloat(outSum)
+  const orderAmount = order.orderData.total
+
+  if (Math.abs(robokassaAmount - orderAmount) > 0.01) {
+    logger.error({
+      invId, orderId, robokassaAmount, orderAmount,
+      difference: Math.abs(robokassaAmount - orderAmount)
+    }, 'processPaidOrder: сумма от Робокассы не совпадает с суммой заказа')
+    sendAlert(
+      `Несовпадение суммы! InvId: ${invId}, ожидалось ${orderAmount}₽, получено ${robokassaAmount}₽`,
+      { tag: 'robokassa', level: 'error' }
+    ).catch(() => {})
+    return 'amount_mismatch'
+  }
+
+  // обновляем статус в памяти (может вернуть null для восстановленных заказов — это норма)
+  const updatedOrder = updateOrderStatus(orderId, 'paid')
+  const paidAt = updatedOrder?.updatedAt ?? Date.now()
+  updateOrderStatusInSheet(orderId, 'paid', paidAt).catch(() => {})
+
+  // уменьшаем сток товаров
+  for (const item of order.orderData.items) {
+    const productBefore = listProducts().find(p => p.slug === item.slug)
+    const success = decreaseProductStock(item.slug, item.quantity)
+    if (!success) {
+      logger.warn({
+        slug: item.slug, quantity: item.quantity, stockBefore: productBefore?.stock
+      }, 'processPaidOrder: не удалось уменьшить stock товара')
+    } else {
+      logger.info({
+        slug: item.slug, quantity: item.quantity,
+        stockAfter: listProducts().find(p => p.slug === item.slug)?.stock
+      }, 'processPaidOrder: stock товара уменьшен')
+    }
+  }
+
+  // отправляем уведомления
+  const delivery = await sendOrderNotifications(order)
+
+  logger.info({
+    invId, orderId, amount: robokassaAmount,
+    customerDelivered: delivery?.customer?.ok ?? false,
+    managerDelivered: delivery?.manager?.ok ?? false,
+  }, 'processPaidOrder: заказ оплачен, уведомления отправлены')
+
+  if (delivery && !delivery.customer.ok) {
+    logger.warn({ invId, orderId, reason: delivery.customer.errorDescription }, 'уведомление покупателю не доставлено — менеджеру отправлен алерт')
+    sendAlert(
+      `Уведомление покупателю не доставлено по заказу ${orderId}: ${delivery.customer.errorDescription ?? 'неизвестно'}`,
+      { tag: 'notification', level: 'warn' }
+    ).catch(() => {})
+  }
+
+  return 'ok'
+}
 
 // callback от Робокассы при успешной оплате (Result URL)
 app.post('/api/robokassa/result', express.urlencoded({ extended: true }), async (req, res) => {
@@ -996,24 +1074,55 @@ app.post('/api/robokassa/result', express.urlencoded({ extended: true }), async 
     })
     
     if (!isValid) {
-      logger.error({ 
-        InvId, 
+      logger.error({
+        InvId,
         hasSignature: !!SignatureValue,
-        signatureLength: SignatureValue?.length 
+        signatureLength: SignatureValue?.length
       }, 'неверная подпись от Робокассы')
+      sendAlert(`Неверная подпись Робокассы! InvId: ${InvId}, сумма: ${OutSum}₽`, { tag: 'robokassa', level: 'error' }).catch(() => {})
       return res.status(400).send('ERROR')
     }
-    
+
     logger.info({ InvId }, 'подпись от Робокассы проверена успешно')
-    
-    // находим заказ по invoiceId (преобразуем в orderId)
-    // Робокасса возвращает числовой InvId, а у нас заказ хранится по orderId (ORD-timestamp)
+
     const orderId = `ORD-${InvId}`
     const order = getOrder(orderId)
+
     if (!order) {
-      // Заказ не найден — бэкенд мог перезапуститься (Render sleep) и потерять in-memory данные.
-      // Возвращаем OK чтобы Робокасса не ретраила, отправляем упрощённое уведомление менеджеру.
-      logger.error({ InvId, orderId }, 'заказ не найден (бэкенд перезапускался?), отправляем упрощённое уведомление')
+      // Заказ не найден в памяти — бэкенд перезапускался (Render sleep/deploy).
+      // Задача 1.1: пробуем восстановить из Google Sheets.
+      const recoveryEnabled = process.env.FEATURE_ORDER_RECOVERY !== 'false'
+      if (recoveryEnabled) {
+        logger.info({ InvId, orderId }, '1.1: заказ не найден в памяти, пробуем восстановить из Sheets...')
+        const recovered = await getOrderFromSheet(orderId)
+
+        if (recovered) {
+          if (recovered.sheetStatus === 'paid') {
+            // уже обработан ранее (идемпотентность)
+            logger.info({ InvId, orderId }, '1.1: заказ уже paid в Sheets — пропускаем повторную обработку')
+            return res.send(`OK${InvId}`)
+          }
+
+          const result = await processPaidOrder(recovered, OutSum, InvId, orderId)
+          if (result === 'amount_mismatch') return res.status(400).send('ERROR')
+
+          if (process.env.FEATURE_DEBUG_ALERTS === 'true') {
+            sendAlert(
+              `✅ 1.1: ${orderId} восстановлен из Sheets (был ${recovered.sheetStatus}) и обработан`,
+              { tag: 'recovery', level: 'info' }
+            ).catch(() => {})
+          }
+          return res.send(`OK${InvId}`)
+        }
+      }
+
+      // восстановить не удалось — упрощённое уведомление менеджеру + алерт в канал
+      logger.error({ InvId, orderId }, 'заказ не найден и восстановить из Sheets не удалось')
+      sendAlert(
+        `Оплата получена, заказ не найден! InvId: ${InvId}, сумма: ${OutSum}₽. Восстановление из Sheets не удалось — свяжитесь с покупателем.`,
+        { tag: 'recovery', level: 'error' }
+      ).catch(() => {})
+
       const shpPlatform = additionalParams['Shp_platform'] as string | undefined
       const platform: Platform = shpPlatform === 'max' ? 'max' : 'telegram'
       const managerChatId = platform === 'max' ? process.env.MAX_MANAGER_CHAT_ID : process.env.TG_MANAGER_CHAT_ID
@@ -1024,96 +1133,23 @@ app.post('/api/robokassa/result', express.urlencoded({ extended: true }), async 
       }
       return res.send(`OK${InvId}`)
     }
-    
-    logger.info({ 
-      InvId, 
-      orderId, 
-      currentStatus: order.status 
-    }, 'заказ найден, проверяем сумму')
-    
-    // обновляем статус на оплачен.
-    // 'pending' — нормальный случай.
-    // 'failed'  — Fail URL ошибочно опередил Result URL (юзер закрыл вкладку, превьювер
-    //             мессенджера разогрел fail-ссылку и т.п.). Result URL авторитативен,
-    //             поэтому подтверждённую оплату обрабатываем и при failed.
+
+    // заказ нашёлся в памяти — обычный путь
+    logger.info({ InvId, orderId, currentStatus: order.status }, 'заказ найден, обрабатываем')
+
+    // Result URL авторитативен: обрабатываем pending и failed (failed мог выставить превьювер мессенджера).
     if (order.status === 'pending' || order.status === 'failed') {
-      if (order.status === 'failed') {
-        logger.warn({ InvId, orderId }, 'заказ ранее помечен failed, но Робокасса подтвердила оплату — обрабатываем как paid')
-      }
-
-      // проверяем что сумма от Робокассы совпадает с суммой заказа (защита от подмены)
-      const robokassaAmount = parseFloat(OutSum)
-      const orderAmount = order.orderData.total
-
-      // сравниваем с точностью до копеек (0.01)
-      if (Math.abs(robokassaAmount - orderAmount) > 0.01) {
-        logger.error({
-          InvId,
-          orderId,
-          robokassaAmount,
-          orderAmount,
-          difference: Math.abs(robokassaAmount - orderAmount)
-        }, 'сумма от Робокассы не совпадает с суммой заказа')
-        return res.status(400).send('ERROR')
-      }
-
-      const updatedOrder = updateOrderStatus(orderId, 'paid')
-      if (updatedOrder) {
-        updateOrderStatusInSheet(orderId, 'paid', updatedOrder.updatedAt).catch(() => {})
-      }
-
-      // уменьшаем stock товаров после успешной оплаты
-      for (const item of order.orderData.items) {
-        // получаем товар до уменьшения для логирования
-        const productBefore = listProducts().find(p => p.slug === item.slug)
-        const stockBefore = productBefore?.stock
-
-        const success = decreaseProductStock(item.slug, item.quantity)
-
-        // получаем товар после уменьшения для проверки
-        const productAfter = listProducts().find(p => p.slug === item.slug)
-        const stockAfter = productAfter?.stock
-
-        if (!success) {
-          logger.warn({
-            slug: item.slug,
-            quantity: item.quantity,
-            stockBefore,
-            stockAfter
-          }, 'не удалось уменьшить stock товара (возможно stock undefined или недостаточно)')
-        } else {
-          logger.info({
-            slug: item.slug,
-            quantity: item.quantity,
-            stockBefore,
-            stockAfter,
-            decreased: stockBefore !== undefined && stockAfter !== undefined ? stockBefore - stockAfter : 'N/A'
-          }, 'stock товара уменьшен в памяти')
-        }
-      }
-
-      // отправляем уведомления, фиксируем фактическую доставку
-      const delivery = await sendOrderNotifications(order)
-
-      logger.info({
-        InvId,
-        orderId,
-        amount: robokassaAmount,
-        customerDelivered: delivery?.customer?.ok ?? false,
-        customerError: delivery?.customer?.ok ? undefined : delivery?.customer?.errorDescription,
-        managerDelivered: delivery?.manager?.ok ?? false,
-        managerError: delivery?.manager?.ok ? undefined : delivery?.manager?.errorDescription
-      }, 'заказ оплачен, сумма проверена')
-
-      if (delivery && !delivery.customer.ok) {
-        logger.warn({ InvId, orderId, reason: delivery.customer.errorDescription }, 'уведомление покупателю не доставлено — менеджеру отправлен алерт со всеми данными заказа')
-      }
+      const result = await processPaidOrder(order, OutSum, InvId, orderId)
+      if (result === 'amount_mismatch') return res.status(400).send('ERROR')
+    } else if (order.status === 'paid') {
+      logger.info({ InvId, orderId }, 'повторный Result URL для уже paid заказа — игнорируем')
     }
-    
+
     // Робокасса ожидает ответ "OK<InvId>"
     res.send(`OK${InvId}`)
   } catch (e: any) {
     logger.error({ error: e?.message }, 'ошибка обработки callback от Робокассы')
+    sendAlert(`Ошибка обработки Result URL: ${e?.message}`, { tag: 'robokassa', level: 'error' }).catch(() => {})
     res.status(500).send('ERROR')
   }
 });
@@ -1212,10 +1248,22 @@ app.post('/admin/import/sheets', async (req, res) => {
   }
 });
 
+// глобальные обработчики необработанных ошибок
+process.on('uncaughtException', (err) => {
+  logger.error({ error: err?.message, stack: err?.stack }, 'uncaughtException')
+  sendAlert(`uncaughtException: ${err?.message}`, { tag: 'process', level: 'error' }).catch(() => {})
+})
+
+process.on('unhandledRejection', (reason) => {
+  const msg = reason instanceof Error ? reason.message : String(reason)
+  logger.error({ reason: msg }, 'unhandledRejection')
+  sendAlert(`unhandledRejection: ${msg}`, { tag: 'process', level: 'error' }).catch(() => {})
+})
+
 const port = Number(process.env.PORT ?? 4000);
 app.listen(port, async () => {
   logger.info({ port }, 'backend started');
-  
+
   // проверяем наличие TG_BOT_TOKEN
   if (!process.env.TG_BOT_TOKEN) {
     logger.warn('⚠️  TG_BOT_TOKEN не задан! Сообщения о заказах не будут отправляться.');
@@ -1223,12 +1271,12 @@ app.listen(port, async () => {
   } else {
     logger.info('TG_BOT_TOKEN настроен, отправка сообщений доступна');
   }
-  
+
   // проверяем SUPPORT_USERNAME
   const supportUsername = process.env.SUPPORT_USERNAME || 'semyonp88'
   logger.info({ supportUsername: supportUsername.replace('@', '') }, 'SUPPORT_USERNAME настроен');
   logger.info('⚠️  Убедись что менеджер начал диалог с ботом (/start), иначе сообщения не дойдут');
-  
+
   // импорт при запуске
   await importProducts();
   await importPromocodes();
@@ -1248,6 +1296,26 @@ app.listen(port, async () => {
       importConstructor();
     }, intervalMinutes * 60 * 1000);
     logger.info({ intervalMinutes }, 'периодический импорт настроен');
+  }
+
+  // стартовый self-check — в канал ошибок при каждом рестарте
+  if (process.env.FEATURE_DEBUG_ALERTS === 'true') {
+    try {
+      const commit = process.env.RENDER_GIT_COMMIT?.slice(0, 7) ?? 'local'
+      const recoveryOn = process.env.FEATURE_ORDER_RECOVERY !== 'false'
+      const channelOk = !!process.env.ERROR_CHANNEL_CHAT_ID
+      const robokassaOk = !!(process.env.ROBOKASSA_MERCHANT_LOGIN && process.env.ROBOKASSA_PASSWORD_1 && process.env.ROBOKASSA_PASSWORD_2)
+      const sheetsOk = !!process.env.IMPORT_SHEET_ID
+      const startMsg =
+        `✅ [backend] перезапущен ${commit} | ${new Date().toISOString()}\n` +
+        `Recovery (1.1): ${recoveryOn ? 'on' : 'off'}\n` +
+        `Канал ошибок: ${channelOk ? 'задан' : '⚠️ не задан'}\n` +
+        `Robokassa: ${robokassaOk ? 'ok' : '⚠️ не полностью настроена'}\n` +
+        `Sheets: ${sheetsOk ? 'ok' : '⚠️ IMPORT_SHEET_ID не задан'}`
+      await sendAlert(startMsg, { tag: 'startup', level: 'info' })
+    } catch (e: any) {
+      logger.warn({ error: e?.message }, 'не удалось отправить startup alert')
+    }
   }
 });
 
