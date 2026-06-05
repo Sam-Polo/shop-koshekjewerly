@@ -306,6 +306,9 @@ async function startBroadcast(ctx: any, chatId: string | number, data: Broadcast
 
 // отправляет трек покупателю через бэкенд и отвечает менеджеру о результате
 async function handleSendTrack(ctx: any, orderId: string, trackingUrl: string): Promise<void> {
+  const replyExtra = ctx.message?.message_id
+    ? { reply_parameters: { message_id: ctx.message.message_id } }
+    : {}
   try {
     const resp = await fetch(`${BACKEND_URL}/api/orders/${orderId}/send-tracking`, {
       method: 'POST',
@@ -315,12 +318,12 @@ async function handleSendTrack(ctx: any, orderId: string, trackingUrl: string): 
     const respData = await resp.json().catch(() => ({})) as any
 
     if (resp.status === 409) {
-      await ctx.reply(`⚠️ Трек по заказу ${orderId} уже был отправлен покупателю ранее.`)
+      await ctx.reply(`⚠️ Трек по заказу ${orderId} уже был отправлен покупателю ранее.`, replyExtra)
       return
     }
 
     if (respData.ok) {
-      await ctx.reply(`✅ Трек отправлен покупателю по заказу ${orderId}.`)
+      await ctx.reply(`✅ Трек отправлен покупателю по заказу ${orderId}.`, replyExtra)
     } else {
       let errMsg: string
       if (respData.error === 'no_customer_chat_id') {
@@ -332,10 +335,10 @@ async function handleSendTrack(ctx: any, orderId: string, trackingUrl: string): 
       } else {
         errMsg = respData.error || 'неизвестная ошибка'
       }
-      await ctx.reply(`❌ Не удалось отправить трек по заказу ${orderId}.\nПричина: ${errMsg}`)
+      await ctx.reply(`❌ Не удалось отправить трек по заказу ${orderId}.\nПричина: ${errMsg}`, replyExtra)
     }
   } catch (e: any) {
-    await ctx.reply(`❌ Ошибка связи с сервером: ${e?.message || 'неизвестная ошибка'}`)
+    await ctx.reply(`❌ Ошибка связи с сервером: ${e?.message || 'неизвестная ошибка'}`, replyExtra)
   }
 }
 
@@ -346,7 +349,8 @@ bot.command('track', async (ctx) => {
   const chatId = ctx.from?.id
   const username = ctx.from?.username
 
-  if (!isManager(chatId, username)) {
+  // в группах (discussion group канала) не проверяем isManager — только администраторы там
+  if (ctx.chat?.type === 'private' && !isManager(chatId, username)) {
     await ctx.reply('❌ У вас нет доступа к этой команде.')
     return
   }
@@ -686,7 +690,9 @@ bot.on('message', async (ctx) => {
   }
 
   // ── CDEK-трек из комментария под постом заказа ──────────────────────────
-  if (chatId && isManager(chatId, username)) {
+  // в группах (discussion group) не проверяем isManager — группа приватная, только admins канала
+  const isAuthorizedForTrack = ctx.chat?.type !== 'private' || isManager(chatId, username)
+  if (chatId && isAuthorizedForTrack) {
     const trackMsgText = ctx.message.text || ''
     const cdekLinkMatch = trackMsgText.match(/https?:\/\/(?:www\.)?cdek\.ru\/\S+/)
 
@@ -972,8 +978,10 @@ bot.on('message', async (ctx) => {
     return
   }
   
-  // обычное сообщение
-  await ctx.reply('используй /start чтобы открыть мини‑приложение')
+  // обычное сообщение — только в личке, в группах/каналах молчим
+  if (ctx.chat?.type === 'private') {
+    await ctx.reply('используй /start чтобы открыть мини‑приложение')
+  }
 });
 
 // keep-alive для бэкенда (чтобы не засыпал на Render)
