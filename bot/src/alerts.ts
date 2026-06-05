@@ -1,9 +1,32 @@
 import { tgFetch } from './proxy.js'
 
 const CHANNEL_CHAT_ID = process.env.ERROR_CHANNEL_CHAT_ID?.trim() || ''
+const MANAGER_CHAT_ID = process.env.TG_MANAGER_CHAT_ID?.trim() || ''
 
 if (!CHANNEL_CHAT_ID) {
   console.warn('[alerts] ERROR_CHANNEL_CHAT_ID не задан — алерты в канал отключены')
+}
+
+// Отправляем менеджеру если канал алертов недоступен. Cooldown 1 час чтобы не спамить.
+let channelIssueNotifiedAt = 0
+
+async function notifyManagerChannelIssue(detail: string): Promise<void> {
+  if (!MANAGER_CHAT_ID) return
+  const now = Date.now()
+  if (now - channelIssueNotifiedAt < 60 * 60 * 1000) return
+  channelIssueNotifiedAt = now
+  const token = process.env.TG_BOT_TOKEN
+  if (!token) return
+  const text =
+    '⚠️ Внимание!\n\n' +
+    'Бот не может отправлять уведомления об ошибках, потому что чат для алертов не найден.\n\n' +
+    `Причина: ${detail}\n\n` +
+    'Что делать: попросите разработчика обновить настройку ERROR_CHANNEL_CHAT_ID в конфиге бота.'
+  await tgFetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: MANAGER_CHAT_ID, text })
+  }).catch(() => {})
 }
 
 // анти-флуд: дедуп одинаковых сообщений в скользящем окне
@@ -52,11 +75,21 @@ function escapeHtml(text: string): string {
 async function _rawSend(text: string): Promise<void> {
   const token = process.env.TG_BOT_TOKEN
   if (!token || !CHANNEL_CHAT_ID) return
-  await tgFetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+  const resp = await tgFetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ chat_id: CHANNEL_CHAT_ID, text, parse_mode: 'HTML' })
   })
+  if (!resp.ok) {
+    const result = await resp.json().catch(() => ({})) as any
+    const description: string = result?.description ?? ''
+    if (/chat not found/i.test(description)) {
+      notifyManagerChannelIssue(
+        `Чат с ID ${CHANNEL_CHAT_ID} не найден в Telegram. ` +
+        `Возможно, чат был удалён или стал супергруппой — тогда его ID изменился.`
+      ).catch(() => {})
+    }
+  }
 }
 
 export type AlertLevel = 'critical' | 'high' | 'moderate' | 'low' | 'info'

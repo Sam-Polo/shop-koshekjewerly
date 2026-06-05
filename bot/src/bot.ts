@@ -908,6 +908,7 @@ syncPendingUsers()
 // настраиваем команды бота (появятся в меню)
 bot.api.setMyCommands([
   { command: 'start', description: 'Открыть каталог' },
+  { command: 'support', description: 'Написать менеджеру' },
   { command: 'help', description: 'Список команд (админ)' }
 ]).then(() => {
   console.log('[bot] команды меню установлены')
@@ -999,6 +1000,15 @@ async function sendStartupAlert() {
       `Юзеров в файле: ${userChatIds.size}\n` +
       `BACKEND_URL: ${BACKEND_URL}`
     await sendAlert(startMsg, { tag: 'startup', level: 'info' })
+
+    if (!channelOk && MANAGER_CHAT_ID) {
+      await bot.api.sendMessage(Number(MANAGER_CHAT_ID),
+        '⚠️ Внимание!\n\n' +
+        'Чат для уведомлений об ошибках не настроен в боте. ' +
+        'Если что-то пойдёт не так, вы не получите автоматические уведомления.\n\n' +
+        'Что делать: попросите разработчика добавить ERROR_CHANNEL_CHAT_ID в настройки бота.'
+      ).catch(() => {})
+    }
   } catch (e: any) {
     console.warn('[startup-alert] не удалось отправить:', e?.message)
   }
