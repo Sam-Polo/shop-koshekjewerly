@@ -599,6 +599,13 @@ async function handleStart(ctx: any) {
 
 bot.command('start', handleStart);
 
+// диагностическая команда — не зависит ни от чего, не может упасть
+bot.command('ping', async (ctx) => {
+  const chatId = ctx.from?.id
+  const chatType = ctx.chat?.type
+  await ctx.reply(`pong | chat=${chatId} type=${chatType} ts=${Date.now()}`)
+})
+
 bot.command('support', async (ctx) => {
   await ctx.reply(`написать менеджеру: https://t.me/${SUPPORT_USERNAME}`);
 });
@@ -1126,11 +1133,14 @@ bot.catch((err) => {
   }
 
   // всё прочее — реальная ошибка, в error.log, но НЕ роняем бота
+  const errText = e?.description ?? e?.message ?? String(e)
   console.error(`[bot.catch] необработанная ошибка в апдейте ${updateId} от юзера ${userId}:`, e)
   sendAlert(
-    `Необработанная ошибка в апдейте ${updateId ?? '?'} от юзера ${userId ?? '?'}: ${e?.description ?? e?.message ?? String(e)}`,
+    `Необработанная ошибка в апдейте ${updateId ?? '?'} от юзера ${userId ?? '?'}: ${errText}`,
     { tag: 'bot.catch', level: 'high', hint: 'бот получил апдейт, который не удалось обработать — проверьте логи', code: 'BOT_UPDATE_HANDLER_ERROR' }
   ).catch(() => {})
+  // пробуем сообщить пользователю об ошибке (чтобы не молчать)
+  err.ctx?.reply?.(`⚙️ Внутренняя ошибка: ${errText}`).catch(() => {})
 })
 
 // глобальные обработчики необработанных ошибок — лучше знать, чем молчать
