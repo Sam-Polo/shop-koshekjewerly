@@ -694,15 +694,16 @@ bot.on('message', async (ctx) => {
   const errorChannelId = process.env.ERROR_CHANNEL_CHAT_ID?.trim()
   if (errorChannelId && ctx.chat?.id.toString() === errorChannelId) return
 
-  // GroupAnonymousBot (1087968824) — системный бот Telegram для анонимных постов в группе.
-  // Его chatId не является реальным пользователем — игнорируем полностью.
-  if (ctx.from?.id === 1087968824) return
+  // GroupAnonymousBot (1087968824) — так выглядят сообщения администраторов канала
+  // когда они пишут в discussion group от имени канала (анонимно).
+  // Нужно обрабатывать CDEK-ссылки от них, но не сохранять как обычного пользователя.
+  const isGroupAnonymousBot = ctx.from?.id === 1087968824
 
   const chatId = ctx.from?.id
   const username = ctx.from?.username
 
-  // сохраняем chat_id пользователя
-  if (chatId) {
+  // сохраняем chat_id только реальных пользователей
+  if (chatId && !isGroupAnonymousBot) {
     addUserChatId(chatId)
   }
 
@@ -761,6 +762,9 @@ bot.on('message', async (ctx) => {
       }
     }
   }
+
+  // GroupAnonymousBot обрабатываем только для CDEK-детекта выше, дальше не идём
+  if (isGroupAnonymousBot) return
 
   // ── /test_order шаги ────────────────────────────────────────────────────
   if (chatId && testOrderDrafts.has(chatId) && isManager(chatId, username)) {
