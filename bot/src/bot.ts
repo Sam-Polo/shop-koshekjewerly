@@ -685,18 +685,13 @@ bot.callbackQuery(['broadcast_button_yes', 'broadcast_button_no', 'broadcast_can
 
 // обработка сообщений (рассылка или обычное сообщение)
 bot.on('message', async (ctx) => {
-  // временный диагностический лог — видим каждое входящее сообщение
-  if (ctx.chat?.type !== 'private') {
-    console.log('[msg-in]', ctx.chat?.type, 'from', ctx.from?.id, '|', (ctx.message.text || ctx.message.caption || '').slice(0, 60))
-  }
-
   // игнорируем сообщения из канала алертов (бот там участник, не должен отвечать)
   const errorChannelId = process.env.ERROR_CHANNEL_CHAT_ID?.trim()
   if (errorChannelId && ctx.chat?.id.toString() === errorChannelId) return
 
   // GroupAnonymousBot (1087968824) — так выглядят сообщения администраторов канала
   // когда они пишут в discussion group от имени канала (анонимно).
-  // Нужно обрабатывать CDEK-ссылки от них, но не сохранять как обычного пользователя.
+  // Обрабатываем только CDEK-ссылки, не сохраняем как обычного пользователя.
   const isGroupAnonymousBot = ctx.from?.id === 1087968824
 
   const chatId = ctx.from?.id
@@ -712,22 +707,16 @@ bot.on('message', async (ctx) => {
   if ((ctx.message as any).is_automatic_forward) {
     const postText = ctx.message.text || ctx.message.caption || ''
     const orderIdInPost = postText.match(/ORD-[\w-]+/)
-    console.log('[auto-forward] получен пост:', {
-      messageId: ctx.message.message_id,
-      chatId: ctx.chat?.id,
-      textSnippet: postText.slice(0, 80),
-      foundOrd: orderIdInPost?.[0] ?? null
-    })
     if (orderIdInPost && ctx.chat?.id) {
       threadOrderCache.set(`${ctx.chat.id}:${ctx.message.message_id}`, orderIdInPost[0])
-      console.log('[auto-forward] закэшировано:', `${ctx.chat.id}:${ctx.message.message_id}`, '→', orderIdInPost[0])
     }
   }
 
   // ── CDEK-трек из комментария под постом заказа ──────────────────────────
   // в группах (discussion group) не проверяем isManager — группа приватная, только admins канала
+  // GroupAnonymousBot = admin канала, постящий анонимно — тоже пропускаем
   const isAuthorizedForTrack = ctx.chat?.type !== 'private' || isManager(chatId, username)
-  if (chatId && isAuthorizedForTrack) {
+  if (isAuthorizedForTrack) {
     const trackMsgText = ctx.message.text || ''
     const cdekLinkMatch = trackMsgText.match(/https?:\/\/(?:www\.)?cdek\.ru\/\S+/)
 
@@ -745,15 +734,6 @@ bot.on('message', async (ctx) => {
       if (!orderId && ctx.message.message_thread_id && ctx.chat?.id) {
         orderId = threadOrderCache.get(`${ctx.chat.id}:${ctx.message.message_thread_id}`)
       }
-
-      console.log('[cdek] ссылка получена:', {
-        url: cdekLinkMatch[0],
-        hasReplyTo: !!ctx.message.reply_to_message,
-        replyToSnippet: (ctx.message.reply_to_message?.text || ctx.message.reply_to_message?.caption || '').slice(0, 60),
-        message_thread_id: ctx.message.message_thread_id,
-        cacheSize: threadOrderCache.size,
-        resolvedOrderId: orderId ?? null
-      })
 
       if (orderId) {
         const trackingUrl = cdekLinkMatch[0].replace(/[.,;!?)]+$/, '')
