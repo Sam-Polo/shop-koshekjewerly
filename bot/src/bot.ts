@@ -11,6 +11,18 @@ import { userChatIds, loadUserChatIds, saveUserChatIds, addUserChatId } from './
 // предпочитаем ipv4: помогает избежать зависаний на ipv6 у некоторых хостингов
 setDefaultResultOrder('ipv4first');
 
+// ── Таймстампы во всех логах ─────────────────────────────────────────────
+// PM2 по умолчанию НЕ добавляет время к строкам stdout/stderr. Без меток нельзя
+// отличить свежие ошибки от старых (повторяющиеся строки выглядят одинаково).
+// Префиксуем каждый вывод сами — московское время.
+{
+  const ts = () => new Date().toLocaleString('ru-RU', { timeZone: 'Europe/Moscow', hour12: false })
+  const orig = { log: console.log, warn: console.warn, error: console.error }
+  console.log = (...a: any[]) => orig.log(`[${ts()}]`, ...a)
+  console.warn = (...a: any[]) => orig.warn(`[${ts()}]`, ...a)
+  console.error = (...a: any[]) => orig.error(`[${ts()}]`, ...a)
+}
+
 const token = process.env.TG_BOT_TOKEN;
 if (!token) {
   console.error('❌ ОШИБКА: TG_BOT_TOKEN не задан в переменных окружения!')
@@ -42,6 +54,49 @@ bot.use(async (ctx, next) => {
   if (date && date < BOT_START_TIME - 300) return
   await next()
 })
+
+// ── WATCHDOG: предохранитель от зависшего handler'а ──────────────────────
+// grammY обрабатывает апдейты ПОСЛЕДОВАТЕЛЬНО. Если любой await в handler'е зависает
+// (медленный прокси, внешний fetch без таймаута), вся очередь встаёт: бот не отвечает
+// никому, но процесс жив и таймеры (keep-alive) продолжают тикать — что и подтверждают логи.
+// Watchdog работает на setInterval (вне очереди grammY), поэтому срабатывает ДАЖЕ во время зависа:
+// если один апдейт обрабатывается дольше лимита — шлём алерт с его данными и форсим рестарт.
+// PM2 поднимает процесс заново, stale-фильтр выше выкидывает накопившийся бэклог.
+const WATCHDOG_TIMEOUT_MS = Number(process.env.WATCHDOG_TIMEOUT_MS ?? 150_000)
+let inFlightSince: number | null = null
+let inFlightInfo = ''
+// длинные ЛЕГИТИМНЫЕ операции (рассылка по тысячам юзеров) дёргают это,
+// чтобы watchdog не принял прогресс за зависание
+function bumpWatchdog() { if (inFlightSince !== null) inFlightSince = Date.now() }
+
+bot.use(async (ctx, next) => {
+  inFlightSince = Date.now()
+  const u = ctx.update
+  const kinds = Object.keys(u).filter(k => k !== 'update_id').join(',')
+  inFlightInfo = `update_id=${u.update_id} type=${kinds} from=${ctx.from?.id ?? '?'} chat=${ctx.chat?.id ?? '?'}`
+  try {
+    await next()
+  } finally {
+    inFlightSince = null
+    inFlightInfo = ''
+  }
+})
+
+setInterval(() => {
+  if (inFlightSince === null) return
+  const stuckMs = Date.now() - inFlightSince
+  if (stuckMs <= WATCHDOG_TIMEOUT_MS) return
+  const secs = Math.round(stuckMs / 1000)
+  const info = inFlightInfo
+  console.error(`[watchdog] handler завис на ${secs}с (${info}) — форсирую рестарт процесса`)
+  sendAlert(
+    `Watchdog: обработка апдейта зависла на ${secs}с и заблокировала бота. ${info}. Форсирую рестарт.`,
+    { tag: 'watchdog', level: 'critical', hint: 'зависший await в handler заморозил последовательную очередь grammY — найдите этот апдейт', code: 'HANDLER_WATCHDOG_RESTART' }
+  ).catch(() => {})
+  inFlightSince = null // не входим сюда повторно за время до exit
+  // даём алерту ~2с уйти через прокси, затем выходим — PM2 перезапустит
+  setTimeout(() => process.exit(1), 2000)
+}, 15_000)
 
 const WEBAPP_URL = process.env.TG_WEBAPP_URL ?? 'http://localhost:5173';
 // URL бэкенда для keep-alive
@@ -262,6 +317,8 @@ async function startBroadcast(ctx: any, chatId: string | number, data: Broadcast
         failed++
       }
       
+      // рассылка по тысячам юзеров — легитимно долгая операция, не зависание
+      bumpWatchdog()
       // небольшая задержка чтобы не получить rate limit
       await new Promise(resolve => setTimeout(resolve, 50))
     }
@@ -1062,38 +1119,31 @@ bot.on('message', async (ctx) => {
 
 // keep-alive для бэкенда (чтобы не засыпал на Render)
 async function keepAlive() {
+  const abortCtrl = new AbortController()
+  const abortTimer = setTimeout(() => abortCtrl.abort(), 12_000)
   try {
-    const healthUrl = `${BACKEND_URL}/health`;
     const startTime = Date.now();
-    const response = await fetch(healthUrl, {
+    const response = await fetch(`${BACKEND_URL}/health`, {
       method: 'GET',
-      headers: { 'User-Agent': 'TelegramBot-KeepAlive' }
+      headers: { 'User-Agent': 'TelegramBot-KeepAlive' },
+      signal: abortCtrl.signal,
     });
+    clearTimeout(abortTimer)
     const responseTime = Date.now() - startTime;
-    const timestamp = new Date().toLocaleString('ru-RU', { 
-      timeZone: 'Europe/Moscow',
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
+    const timestamp = new Date().toLocaleString('ru-RU', {
+      timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit',
+      year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit'
     });
-    
     if (response.ok) {
       console.log(`[keep-alive] бэкенд активен | ${timestamp} | время ответа: ${responseTime}мс`);
     } else {
       console.warn(`[keep-alive] бэкенд вернул ошибку: ${response.status} | ${timestamp}`);
     }
   } catch (error: any) {
-    const timestamp = new Date().toLocaleString('ru-RU', { 
-      timeZone: 'Europe/Moscow',
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
+    clearTimeout(abortTimer)
+    const timestamp = new Date().toLocaleString('ru-RU', {
+      timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit',
+      year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit'
     });
     console.warn(`[keep-alive] ошибка при проверке бэкенда: ${error?.message} | ${timestamp}`);
   }
@@ -1112,10 +1162,13 @@ console.log(`[keep-alive] URL бэкенда: ${BACKEND_URL}/health`);
 // Каждые 10 минут забираем новых пользователей из бэкенда и сохраняем в файл
 
 async function syncPendingUsers() {
+  const abortCtrl = new AbortController()
+  const abortTimer = setTimeout(() => abortCtrl.abort(), 12_000)
   try {
     const secret = process.env.BOT_API_SECRET
     const url = `${BACKEND_URL}/api/pending-users?platform=tg${secret ? `&secret=${secret}` : ''}`
-    const resp = await fetch(url)
+    const resp = await fetch(url, { signal: abortCtrl.signal })
+    clearTimeout(abortTimer)
     if (!resp.ok) return
     const data = await resp.json() as { ids: number[] }
     if (!Array.isArray(data.ids) || data.ids.length === 0) return
@@ -1128,6 +1181,7 @@ async function syncPendingUsers() {
       console.log(`[sync-users] добавлено ${added} новых пользователей из мини-аппа`)
     }
   } catch (e: any) {
+    clearTimeout(abortTimer)
     console.warn('[sync-users] ошибка:', e?.message)
   }
 }
