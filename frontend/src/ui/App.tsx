@@ -117,6 +117,29 @@ function getProductPrice(product: Product): number {
     : product.price_rub
 }
 
+// ретраи с экспоненциальным бэкоффом для read-only запросов к бэкенду.
+// покрывает cold start Render (~15-30 с): 3 попытки + задержки 3/6/12 с = ~21 с ожидания.
+// 4xx (кроме 429) — ошибка нашего запроса, ретраить бесполезно.
+// НЕ используем для POST /api/orders — там дублирование недопустимо.
+const FETCH_RETRY_DELAYS_MS = [3000, 6000, 12000]
+
+async function fetchWithRetry(url: string, options?: RequestInit): Promise<Response> {
+  let lastError: unknown
+  for (let attempt = 0; attempt <= FETCH_RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      const res = await fetch(url, options)
+      if (res.ok || (res.status >= 400 && res.status < 500 && res.status !== 429)) return res
+      lastError = new Error(`HTTP ${res.status}`)
+    } catch (e) {
+      lastError = e
+    }
+    if (attempt < FETCH_RETRY_DELAYS_MS.length) {
+      await new Promise<void>(r => setTimeout(r, FETCH_RETRY_DELAYS_MS[attempt]))
+    }
+  }
+  throw lastError
+}
+
 // fallback категории (если API не отдаёт)
 const defaultCategories: Category[] = [
   { key: 'ягоды', title: 'Ягоды (special)', description: 'Эксклюзивная коллекция KOSHEK, украшения в виде реалистичных ягод из полимерной глины', image: berriesImage },
@@ -1617,7 +1640,7 @@ export default function App() {
       try {
         const apiUrl = import.meta.env.VITE_API_URL || '/api'
         const url = apiUrl.endsWith('/api') ? `${apiUrl}/categories` : `${apiUrl}/api/categories`
-        const response = await fetch(url)
+        const response = await fetchWithRetry(url)
         if (response.ok) {
           const data = await response.json()
           const list = data.categories || []
@@ -1644,7 +1667,7 @@ export default function App() {
       try {
         const apiUrl = import.meta.env.VITE_API_URL || '/api'
         const url = apiUrl.endsWith('/api') ? `${apiUrl}/settings/orders-status` : `${apiUrl}/api/settings/orders-status`
-        const response = await fetch(url)
+        const response = await fetchWithRetry(url)
         if (response.ok) {
           const data = await response.json()
           setOrdersClosed(data.ordersClosed || false)
@@ -1776,7 +1799,7 @@ export default function App() {
   // загрузка товаров с бэкенда
   useEffect(() => {
     const apiUrl = import.meta.env.VITE_API_URL || '/api'
-    fetch(`${apiUrl}/api/products`)
+    fetchWithRetry(`${apiUrl}/api/products`)
       .then(res => res.json())
       .then(data => {
         setProducts(data.items || [])
