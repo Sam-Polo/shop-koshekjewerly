@@ -53,6 +53,10 @@ jobs:
             bot/node_modules/ "$TARGET/node_modules/"
           rsync -azv -e "ssh -i ~/.ssh/id_ed25519" \
             bot/package.json bot/package-lock.json "$TARGET/"
+          rsync -azv -e "ssh -i ~/.ssh/id_ed25519" \
+            bot/scripts/backup.sh "root@${{ secrets.SSH_HOST }}:/opt/bot/scripts/backup.sh"
+          ssh -i ~/.ssh/id_ed25519 root@${{ secrets.SSH_HOST }} \
+            "chmod +x /opt/bot/scripts/backup.sh"
 
       - name: Restart PM2
         run: |
