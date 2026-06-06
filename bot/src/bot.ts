@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { Bot, InlineKeyboard } from 'grammy';
+import { Bot, InlineKeyboard, HttpError } from 'grammy';
 import { InputFile } from 'grammy';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -662,11 +662,18 @@ async function handleStart(ctx: any) {
   // обычное приветствие
   const kb = new InlineKeyboard().webApp('KOSHEK JEWERLY🐾', WEBAPP_URL);
   const photoPath = path.join(__dirname, '..', 'assets', 'bot-greeting.jpg');
-  await ctx.replyWithPhoto(new InputFile(photoPath), {
-    caption: 'Нажми на кнопку, чтоб перейти в каталог 👇🏽',
-    reply_markup: kb,
-  });
-  
+  try {
+    await ctx.replyWithPhoto(new InputFile(photoPath), {
+      caption: 'Нажми на кнопку, чтоб перейти в каталог 👇🏽',
+      reply_markup: kb,
+    });
+  } catch (e: any) {
+    // загрузка фото через прокси может разово упасть — не оставляем юзера ни с чем
+    console.warn('[start] не удалось отправить фото-приветствие, отдаю текст:', e?.message)
+    await ctx.reply('Добро пожаловать в KOSHEK JEWERLY 🐾\nНажми на кнопку, чтоб перейти в каталог 👇🏽', {
+      reply_markup: kb,
+    }).catch(() => {})
+  }
 }
 
 bot.command('start', handleStart);
@@ -1261,8 +1268,16 @@ bot.catch((err) => {
     return
   }
 
-  // сетевые/прокси-ошибки — то же самое: логируем как warn, бот продолжает работать
-  const cause = e?.cause || e
+  // grammY HttpError = сетевой сбой запроса к TG API (через прокси), напр. "Network request for 'sendPhoto' failed!".
+  // Транзиентно (флапнул прокси) — логируем как warn, без HIGH-алерта.
+  if (e instanceof HttpError) {
+    console.warn(`[bot.catch] сетевой сбой TG API в апдейте ${updateId} от юзера ${userId}: ${e.message}`)
+    return
+  }
+
+  // сетевые/прокси-ошибки — то же самое: логируем как warn, бот продолжает работать.
+  // grammY кладёт исходную ошибку в .error, undici — в .cause
+  const cause = e?.cause || e?.error || e
   const code: string | undefined = cause?.code || cause?.name
   if (code && /ECONN|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|UND_ERR|SocketError|ConnectTimeout|fetch failed/i.test(String(code) + ' ' + String(cause?.message ?? ''))) {
     console.warn(`[bot.catch] сетевая ошибка в апдейте ${updateId} (${code}): ${cause?.message ?? e?.message}`)
