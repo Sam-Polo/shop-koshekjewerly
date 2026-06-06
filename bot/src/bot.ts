@@ -33,6 +33,16 @@ const bot = new Bot(token, proxyDispatcher ? {
   }
 } : undefined);
 
+const BOT_START_TIME = Math.floor(Date.now() / 1000)
+
+// Пропускаем апдейты старше 5 минут до старта — предотвращает зависания из-за бэклога
+// после рестарта (старые CDEK-ссылки, тестовые сообщения и т.п. не обрабатываются)
+bot.use(async (ctx, next) => {
+  const date = (ctx.message ?? ctx.channelPost ?? ctx.editedMessage)?.date
+  if (date && date < BOT_START_TIME - 300) return
+  await next()
+})
+
 const WEBAPP_URL = process.env.TG_WEBAPP_URL ?? 'http://localhost:5173';
 // URL бэкенда для keep-alive
 // если не указан BACKEND_URL, пытаемся определить из окружения или используем дефолт
@@ -304,6 +314,15 @@ async function startBroadcast(ctx: any, chatId: string | number, data: Broadcast
   }
 }
 
+// ctx.reply с fallback: если reply_parameters указывает на удалённое сообщение → plain reply
+async function replyFallback(ctx: any, text: string, extra: Record<string, any>): Promise<void> {
+  try {
+    await ctx.reply(text, extra)
+  } catch {
+    try { await ctx.reply(text) } catch {}
+  }
+}
+
 // отправляет трек покупателю через бэкенд и отвечает менеджеру о результате
 async function handleSendTrack(ctx: any, orderId: string, trackingUrl: string): Promise<void> {
   const replyExtra = ctx.message?.message_id
@@ -322,12 +341,12 @@ async function handleSendTrack(ctx: any, orderId: string, trackingUrl: string): 
     const respData = await resp.json().catch(() => ({})) as any
 
     if (resp.status === 409) {
-      await ctx.reply(`⚠️ Трек по заказу ${orderId} уже был отправлен покупателю ранее.`, replyExtra)
+      await replyFallback(ctx, `⚠️ Трек по заказу ${orderId} уже был отправлен покупателю ранее.`, replyExtra)
       return
     }
 
     if (respData.ok) {
-      await ctx.reply(`✅ Трек отправлен покупателю по заказу ${orderId}.`, replyExtra)
+      await replyFallback(ctx, `✅ Трек отправлен покупателю по заказу ${orderId}.`, replyExtra)
     } else {
       let errMsg: string
       if (respData.error === 'no_customer_chat_id') {
@@ -339,14 +358,14 @@ async function handleSendTrack(ctx: any, orderId: string, trackingUrl: string): 
       } else {
         errMsg = respData.error || 'неизвестная ошибка'
       }
-      await ctx.reply(`❌ Не удалось отправить трек по заказу ${orderId}.\nПричина: ${errMsg}`, replyExtra)
+      await replyFallback(ctx, `❌ Не удалось отправить трек по заказу ${orderId}.\nПричина: ${errMsg}`, replyExtra)
     }
   } catch (e: any) {
     clearTimeout(abortTimer)
     const msg = e?.name === 'AbortError'
       ? 'сервер не отвечает (таймаут). Попробуйте через минуту, когда бэкенд проснётся.'
       : (e?.message || 'неизвестная ошибка')
-    await ctx.reply(`❌ Ошибка связи с сервером: ${msg}`, replyExtra)
+    await replyFallback(ctx, `❌ Ошибка связи с сервером: ${msg}`, replyExtra)
   }
 }
 

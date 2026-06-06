@@ -50,8 +50,10 @@ class FailoverProxyDispatcher {
   private backup: ProxyAgent | null
 
   constructor(primaryUrl: string, backupUrl: string | null) {
-    this.primary = new ProxyAgent(primaryUrl)
-    this.backup = backupUrl ? new ProxyAgent(backupUrl) : null
+    // 60s таймауты вместо дефолтных 5 минут undici — предотвращает 10-минутные зависания
+    const agentOpts = { headersTimeout: 60_000, bodyTimeout: 60_000 }
+    this.primary = new ProxyAgent({ uri: primaryUrl, ...agentOpts } as any)
+    this.backup = backupUrl ? new ProxyAgent({ uri: backupUrl, ...agentOpts } as any) : null
   }
 
   dispatch(opts: any, handler: any): boolean {
