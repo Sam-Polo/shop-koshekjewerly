@@ -53,6 +53,8 @@ jobs:
             bot/node_modules/ "$TARGET/node_modules/"
           rsync -azv -e "ssh -i ~/.ssh/id_ed25519" \
             bot/package.json bot/package-lock.json "$TARGET/"
+          ssh -i ~/.ssh/id_ed25519 root@${{ secrets.SSH_HOST }} \
+            "mkdir -p /opt/bot/scripts"
           rsync -azv -e "ssh -i ~/.ssh/id_ed25519" \
             bot/scripts/backup.sh "root@${{ secrets.SSH_HOST }}:/opt/bot/scripts/backup.sh"
           ssh -i ~/.ssh/id_ed25519 root@${{ secrets.SSH_HOST }} \
