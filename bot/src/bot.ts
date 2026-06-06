@@ -639,10 +639,52 @@ bot.command('support', async (ctx) => {
   await ctx.reply(`написать менеджеру: https://t.me/${SUPPORT_USERNAME}`);
 });
 
+bot.command('myorders', async (ctx) => {
+  const chatId = ctx.from?.id
+  if (!chatId) return
+
+  let orders: Array<{ orderId: string; createdAt: string; status: string; total: number }> = []
+  try {
+    const resp = await fetch(`${BACKEND_URL}/api/orders/my?chatId=${chatId}`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    })
+    if (resp.ok) {
+      const data = await resp.json() as { orders: typeof orders }
+      orders = data.orders ?? []
+    }
+  } catch {
+    await ctx.reply('⚠️ Не удалось загрузить заказы. Попробуйте позже.')
+    return
+  }
+
+  if (orders.length === 0) {
+    await ctx.reply('У вас пока нет заказов.')
+    return
+  }
+
+  const STATUS_LABEL: Record<string, string> = {
+    pending: '⏳ Ожидает',
+    paid: '✅ Оплачен',
+    processing: '🔧 В обработке',
+    shipped: '🚚 Отправлен',
+    delivered: '📦 Доставлен',
+    cancelled: '❌ Отменён',
+  }
+
+  const lines = orders.map((o, i) => {
+    const date = o.createdAt ? new Date(o.createdAt).toLocaleDateString('ru-RU') : '—'
+    const status = STATUS_LABEL[o.status] ?? o.status
+    return `${i + 1}. ${o.orderId}\n   📅 ${date}  💰 ${o.total} ₽\n   ${status}`
+  })
+
+  await ctx.reply(`📦 Ваши заказы (последние ${orders.length}):\n\n${lines.join('\n\n')}`)
+})
+
 function getHelpMessage(): string {
   return (
     '📚 Доступные команды бота:\n\n' +
     '/start — открыть каталог\n' +
+    '/myorders — мои последние заказы\n' +
     '/support — ссылка на менеджера\n' +
     '/help — показать список команд\n\n' +
     '🔐 Команды только для админа:\n' +
@@ -1122,6 +1164,7 @@ syncPendingUsers()
 // настраиваем команды бота (появятся в меню)
 bot.api.setMyCommands([
   { command: 'start', description: 'Открыть каталог' },
+  { command: 'myorders', description: 'Мои последние заказы' },
   { command: 'support', description: 'Написать менеджеру' },
   { command: 'help', description: 'Список команд (админ)' }
 ]).then(() => {

@@ -316,6 +316,49 @@ export async function getOrderFromSheet(orderId: string): Promise<(Order & { she
   }
 }
 
+export type OrderSummary = {
+  orderId: string
+  createdAt: string
+  status: string
+  total: number
+  platform: string
+}
+
+/**
+ * Возвращает последние `limit` заказов пользователя по customer_chat_id из Google Sheets.
+ * Используется для команды /myorders в боте.
+ */
+export async function getOrdersByCustomerChatId(chatId: string, limit = 10): Promise<OrderSummary[]> {
+  const spreadsheetId = getSheetId()
+  if (!spreadsheetId) return []
+  try {
+    const auth = getAuth()
+    const api = google.sheets({ version: 'v4', auth })
+    const res = await api.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${ORDERS_SHEET}!A:U` // A(order_id) … U(total), F(customer_chat_id)=col5
+    })
+    const rows = res.data.values || []
+    const results: OrderSummary[] = []
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i] as string[]
+      if (!row || row[5] !== chatId) continue
+      results.push({
+        orderId: row[0] ?? '',
+        createdAt: row[1] ?? '',
+        status: row[3] ?? '',
+        platform: row[4] ?? 'telegram',
+        total: parseFloat(row[20]) || 0,
+      })
+    }
+    results.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    return results.slice(0, limit)
+  } catch (e: any) {
+    logger.warn({ chatId, error: e?.message }, 'getOrdersByCustomerChatId: ошибка чтения из Sheets')
+    return []
+  }
+}
+
 export async function updateOrderAdminNoteInSheet(orderId: string, note: string): Promise<void> {
   const spreadsheetId = getSheetId()
   if (!spreadsheetId) return

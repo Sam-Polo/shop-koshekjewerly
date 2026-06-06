@@ -9,7 +9,7 @@ import rateLimit from 'express-rate-limit';
 import { fetchProductsFromSheet } from './sheets.js';
 import { listProducts, upsertProducts, decreaseProductStock } from './store.js';
 import { createOrder, getOrder, updateOrderStatus, listOrders, type Order, type Platform } from './orders.js';
-import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet } from './orders-sheet.js'
+import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId } from './orders-sheet.js'
 import { sendAlert } from './alerts.js';
 import { generatePaymentUrl, verifyResultSignature, queryOrderState } from './robokassa.js';
 import { fetchPromocodesFromSheet, loadPromocodes, findPromocode, validatePromocode, listPromocodes } from './promocodes.js';
@@ -1339,6 +1339,24 @@ app.post('/api/orders/:orderId/send-tracking', express.json(), async (req, res) 
     const errDesc = result.errorDescription || `HTTP ${result.status}`
     logger.warn({ orderId, error: errDesc }, 'не удалось отправить трек покупателю')
     return res.json({ ok: false, error: errDesc })
+  }
+})
+
+// история заказов пользователя (вызывается ботом по команде /myorders)
+app.get('/api/orders/my', async (req, res) => {
+  const auth = req.headers.authorization
+  if (!auth || auth !== `Bearer ${process.env.TG_BOT_TOKEN}`) {
+    return res.status(401).json({ error: 'unauthorized' })
+  }
+  const chatId = (req.query.chatId as string)?.trim()
+  if (!chatId) return res.status(400).json({ error: 'chatId required' })
+
+  try {
+    const orders = await getOrdersByCustomerChatId(chatId, 10)
+    return res.json({ orders })
+  } catch (e: any) {
+    logger.error({ chatId, error: e?.message }, 'ошибка получения заказов пользователя')
+    return res.status(500).json({ error: 'internal_error' })
   }
 })
 
