@@ -53,7 +53,7 @@ const BACKEND_URL = process.env.BACKEND_URL ||
 const SUPPORT_USERNAME = process.env.SUPPORT_USERNAME;
 const MANAGER_CHAT_ID = process.env.TG_MANAGER_CHAT_ID;
 // канал для публикации поста с мини-приложением
-const CHANNEL_USERNAME = process.env.TG_CHANNEL_USERNAME || 'ecl1psetest';
+
 // ID группы обсуждений канала заказов (отличается от ID самого канала)
 // если задан — /track и CDEK-детект работают только в этой группе
 const ORDERS_DISCUSSION_GROUP_ID = process.env.TG_ORDERS_DISCUSSION_GROUP_ID?.trim();
@@ -67,57 +67,21 @@ loadUserChatIds()
 
 // проверка что пользователь - менеджер
 function isManager(chatId: string | number | undefined, username?: string): boolean {
-  if (!chatId) {
-    console.log('[isManager] chatId отсутствует')
-    return false
-  }
-  
-  console.log('[isManager] проверка:', { chatId, username, MANAGER_CHAT_ID, SUPPORT_USERNAME })
-  
+  if (!chatId) return false
+
   // временный доступ для разработчика
   const TEMP_MANAGER_CHAT_ID = '8495144404'
   const TEMP_MANAGER_USERNAME = 'semyonp88'
-  
-  // проверка по временному chat_id
-  if (String(chatId) === TEMP_MANAGER_CHAT_ID) {
-    console.log('[isManager] доступ по временному chat_id (разработчик)')
-    return true
-  }
-  
-  // проверка по временному username
-  if (username) {
-    const userUsername = username.replace('@', '').toLowerCase()
-    if (userUsername === TEMP_MANAGER_USERNAME) {
-      console.log('[isManager] доступ по временному username (разработчик)')
-      return true
-    }
-  }
-  
-  // проверка по chat_id (существующий менеджер)
-  if (MANAGER_CHAT_ID) {
-    const isMatch = String(chatId) === String(MANAGER_CHAT_ID)
-    console.log('[isManager] проверка по chat_id:', isMatch, { chatId, MANAGER_CHAT_ID })
-    if (isMatch) {
-      return true
-    }
-  } else {
-    console.log('[isManager] TG_MANAGER_CHAT_ID не задан')
-  }
-  
-  // проверка по username (существующий менеджер)
+  if (String(chatId) === TEMP_MANAGER_CHAT_ID) return true
+  if (username && username.replace('@', '').toLowerCase() === TEMP_MANAGER_USERNAME) return true
+
+  if (MANAGER_CHAT_ID && String(chatId) === String(MANAGER_CHAT_ID)) return true
+
   if (SUPPORT_USERNAME && username) {
     const supportUsername = SUPPORT_USERNAME.replace('@', '').toLowerCase()
-    const userUsername = username.replace('@', '').toLowerCase()
-    const isMatch = userUsername === supportUsername
-    console.log('[isManager] проверка по username:', isMatch, { userUsername, supportUsername })
-    if (isMatch) {
-      return true
-    }
-  } else {
-    console.log('[isManager] SUPPORT_USERNAME не задан или username отсутствует', { SUPPORT_USERNAME, username })
+    if (username.replace('@', '').toLowerCase() === supportUsername) return true
   }
-  
-  console.log('[isManager] доступ запрещен')
+
   return false
 }
 
@@ -341,8 +305,8 @@ async function handleSendTrack(ctx: any, orderId: string, trackingUrl: string): 
       body: JSON.stringify({ trackingUrl }),
       signal: abortCtrl.signal
     })
-    clearTimeout(abortTimer)
     const respData = await resp.json().catch(() => ({})) as any
+    clearTimeout(abortTimer)
 
     if (resp.status === 409) {
       await replyFallback(ctx, `⚠️ Трек по заказу ${orderId} уже был отправлен покупателю ранее.`, replyExtra)
@@ -547,7 +511,6 @@ bot.command('channel_post', async (ctx) => {
   }
   
   waitingForChannelPost.add(chatId!)
-  const example = CHANNEL_USERNAME ? `@${CHANNEL_USERNAME.replace('@', '')}` : '@channelname'
   await ctx.reply(`📢 Введи username канала, куда отправить пост: @channel \nИспользуй /cancel для отмены.`)
 });
 
@@ -644,16 +607,24 @@ bot.command('myorders', async (ctx) => {
   if (!chatId) return
 
   let orders: Array<{ orderId: string; createdAt: string; status: string; total: number }> = []
+  const abortCtrl = new AbortController()
+  const abortTimer = setTimeout(() => abortCtrl.abort(), 12_000)
   try {
     const resp = await fetch(`${BACKEND_URL}/api/orders/my?chatId=${chatId}`, {
       headers: { 'Authorization': `Bearer ${token}` },
+      signal: abortCtrl.signal,
     })
     if (resp.ok) {
       const data = await resp.json() as { orders: typeof orders }
       orders = data.orders ?? []
     }
-  } catch {
-    await ctx.reply('⚠️ Не удалось загрузить заказы. Попробуйте позже.')
+    clearTimeout(abortTimer)
+  } catch (e: any) {
+    clearTimeout(abortTimer)
+    const msg = e?.name === 'AbortError'
+      ? '⚠️ Сервер не отвечает (таймаут). Попробуйте через минуту.'
+      : '⚠️ Не удалось загрузить заказы. Попробуйте позже.'
+    await ctx.reply(msg)
     return
   }
 
@@ -995,7 +966,6 @@ bot.on('message', async (ctx) => {
     const mediaGroupId = ctx.message.media_group_id
     const contextAction = targetMode === 'broadcast' ? 'Рассылка' : 'Отправка'
     const contextGenitive = targetMode === 'broadcast' ? 'рассылки' : 'поста'
-    const contextAccusative = targetMode === 'broadcast' ? 'рассылку' : 'пост'
     const channelDraft = targetMode === 'channel' ? channelPostDrafts.get(chatId) : null
     
     if (targetMode === 'channel' && !channelDraft) {
