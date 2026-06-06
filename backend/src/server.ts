@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import * as Sentry from '@sentry/node';
 import express from 'express';
 import cors from 'cors';
 import pino from 'pino';
@@ -27,6 +28,14 @@ import {
   JEWELRY_TYPES,
   type JewelryType
 } from './constructor.js';
+
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV || 'production',
+    tracesSampleRate: 0,
+  })
+}
 
 const logger = pino();
 const app = express();
@@ -1413,6 +1422,11 @@ export async function checkPendingOrders(): Promise<void> {
       logger.warn({ orderId: order.orderId, error: e?.message }, '1.2: ошибка при опросе OpStateExt')
     }
   }
+}
+
+// перехватывает ошибки из Express-роутов, которые не поймал try-catch
+if (process.env.SENTRY_DSN) {
+  Sentry.setupExpressErrorHandler(app)
 }
 
 // глобальные обработчики необработанных ошибок
