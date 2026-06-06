@@ -226,7 +226,7 @@ async function sendMessage(
 }
 
 // функция для вопроса про кнопку
-async function askAboutButton(ctx: any, chatId: string | number, data: BroadcastData) {
+async function askAboutButton(ctx: any, chatId: string | number) {
   waitingForButtonQuestion.add(chatId)
   const keyboard = new InlineKeyboard()
     .text('✅ Да, добавить', 'broadcast_button_yes')
@@ -330,10 +330,12 @@ async function handleSendTrack(ctx: any, orderId: string, trackingUrl: string): 
     }
   } catch (e: any) {
     clearTimeout(abortTimer)
-    const msg = e?.name === 'AbortError'
-      ? 'сервер не отвечает (таймаут). Попробуйте через минуту, когда бэкенд проснётся.'
-      : (e?.message || 'неизвестная ошибка')
-    await replyFallback(ctx, `❌ Ошибка связи с сервером: ${msg}`, replyExtra)
+    if (e?.name === 'AbortError') {
+      sendAlert(`handleSendTrack: бэкенд не ответил за 12с (orderId=${orderId})`, { tag: 'track', level: 'moderate', hint: 'Render спит или перегружен', code: 'SEND_TRACK_BACKEND_TIMEOUT' }).catch(() => {})
+      await replyFallback(ctx, `❌ Сервер не отвечает (таймаут). Попробуйте через минуту.`, replyExtra)
+    } else {
+      await replyFallback(ctx, `❌ Ошибка связи с сервером: ${e?.message || 'неизвестная ошибка'}`, replyExtra)
+    }
   }
 }
 
@@ -621,10 +623,12 @@ bot.command('myorders', async (ctx) => {
     clearTimeout(abortTimer)
   } catch (e: any) {
     clearTimeout(abortTimer)
-    const msg = e?.name === 'AbortError'
-      ? '⚠️ Сервер не отвечает (таймаут). Попробуйте через минуту.'
-      : '⚠️ Не удалось загрузить заказы. Попробуйте позже.'
-    await ctx.reply(msg)
+    if (e?.name === 'AbortError') {
+      sendAlert(`/myorders: бэкенд не ответил за 12с (chatId=${chatId})`, { tag: 'myorders', level: 'moderate', hint: 'Render спит или перегружен — keepAlive должен его разбудить', code: 'MYORDERS_BACKEND_TIMEOUT' }).catch(() => {})
+      await ctx.reply('⚠️ Сервер не отвечает (таймаут). Попробуйте через минуту.')
+    } else {
+      await ctx.reply('⚠️ Не удалось загрузить заказы. Попробуйте позже.')
+    }
     return
   }
 
@@ -1023,7 +1027,7 @@ bot.on('message', async (ctx) => {
         media: mediaAttachment
       }
       broadcastData.set(chatId, data)
-      await askAboutButton(ctx, chatId, data)
+      await askAboutButton(ctx, chatId)
     } else {
       const draft = channelPostDrafts.get(chatId)
       if (!draft) {
