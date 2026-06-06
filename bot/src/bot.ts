@@ -54,6 +54,9 @@ const SUPPORT_USERNAME = process.env.SUPPORT_USERNAME;
 const MANAGER_CHAT_ID = process.env.TG_MANAGER_CHAT_ID;
 // канал для публикации поста с мини-приложением
 const CHANNEL_USERNAME = process.env.TG_CHANNEL_USERNAME || 'ecl1psetest';
+// ID группы обсуждений канала заказов (отличается от ID самого канала)
+// если задан — /track и CDEK-детект работают только в этой группе
+const ORDERS_DISCUSSION_GROUP_ID = process.env.TG_ORDERS_DISCUSSION_GROUP_ID?.trim();
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -135,6 +138,7 @@ const waitingForChannelContent = new Set<string | number>();
 // кэш авто-форвардов постов заказов из канала: "chatId:messageId" → orderId
 // нужен чтобы находить orderId по message_thread_id в комментариях
 const threadOrderCache = new Map<string, string>()
+const THREAD_CACHE_MAX = 200
 
 type MediaAttachment = {
   type: 'photo' | 'video'
@@ -376,8 +380,11 @@ bot.command('track', async (ctx) => {
   const chatId = ctx.from?.id
   const username = ctx.from?.username
 
-  // в группах (discussion group канала) не проверяем isManager — только администраторы там
-  if (ctx.chat?.type === 'private' && !isManager(chatId, username)) {
+  // в приватном чате — только менеджер
+  // в группах — только если это наша discussion group (TG_ORDERS_DISCUSSION_GROUP_ID)
+  const isOurDiscussionGroup = ctx.chat?.type !== 'private' &&
+    (!ORDERS_DISCUSSION_GROUP_ID || String(ctx.chat?.id) === ORDERS_DISCUSSION_GROUP_ID)
+  if (!isOurDiscussionGroup && !isManager(chatId, username)) {
     await ctx.reply('❌ У вас нет доступа к этой команде.')
     return
   }
@@ -728,13 +735,20 @@ bot.on('message', async (ctx) => {
     const orderIdInPost = postText.match(/ORD-[\w-]+/)
     if (orderIdInPost && ctx.chat?.id) {
       threadOrderCache.set(`${ctx.chat.id}:${ctx.message.message_id}`, orderIdInPost[0])
+      if (threadOrderCache.size > THREAD_CACHE_MAX) {
+        const oldestKey = threadOrderCache.keys().next().value
+        if (oldestKey) threadOrderCache.delete(oldestKey)
+      }
     }
   }
 
   // ── CDEK-трек из комментария под постом заказа ──────────────────────────
-  // в группах (discussion group) не проверяем isManager — группа приватная, только admins канала
+  // в нашей discussion group (TG_ORDERS_DISCUSSION_GROUP_ID) — без проверки isManager
+  // если переменная не задана — разрешаем в любой группе (обратная совместимость)
   // GroupAnonymousBot = admin канала, постящий анонимно — тоже пропускаем
-  const isAuthorizedForTrack = ctx.chat?.type !== 'private' || isManager(chatId, username)
+  const isOurDiscussionGroupForCdek = ctx.chat?.type !== 'private' &&
+    (!ORDERS_DISCUSSION_GROUP_ID || String(ctx.chat?.id) === ORDERS_DISCUSSION_GROUP_ID)
+  const isAuthorizedForTrack = isOurDiscussionGroupForCdek || isManager(chatId, username)
   if (isAuthorizedForTrack) {
     const trackMsgText = ctx.message.text || ''
     const cdekLinkMatch = trackMsgText.match(/https?:\/\/(?:www\.)?cdek\.ru\/\S+/)
