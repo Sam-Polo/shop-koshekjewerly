@@ -1477,12 +1477,12 @@ function useImagePreload(src: string) {
     if (!src) return
     
     const img = new Image()
-    img.src = src
     img.onload = () => setLoaded(true)
     img.onerror = () => {
       setError(true)
       setLoaded(true) // показываем даже при ошибке
     }
+    img.src = src
 
     return () => {
       img.onload = null
@@ -1509,11 +1509,16 @@ function useImageLoader(src: string) {
     }
     
     const img = new Image()
-    img.src = src
     img.onload = () => setLoading(false)
     img.onerror = () => {
       setError(true)
       setLoading(false)
+    }
+    img.src = src
+
+    return () => {
+      img.onload = null
+      img.onerror = null
     }
   }, [src])
 
