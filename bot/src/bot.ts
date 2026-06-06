@@ -45,53 +45,62 @@ const bot = new Bot(token, proxyDispatcher ? {
   }
 } : undefined);
 
-// ── POLL-WATCHDOG: предохранитель от зависшего long-polling ───────────────
-// getUpdates периодически залипает (флапает primary-прокси, а failover на backup
-// для него не срабатывает) → бот молча перестаёт получать апдейты на минуты/часы,
-// пока прокси сам не оклемается. Handler-watchdog это НЕ ловит: апдейты не доходят
-// до обработки. В норме getUpdates отдаёт успешный ответ каждые ≤30с (long-poll timeout).
-// Если успешного ответа нет дольше лимита — поллинг завис, шлём алерт и форсим рестарт.
-// 180с: запас на деградацию, когда primary-прокси висит ~60с и запрос уходит на backup —
-// в этом режиме бот живой (просто медленный poll), ложно рестартить его не нужно.
-// Реальный полный залип (оба прокси мертвы) всё равно ловится.
+// ── Watchdog'и: параметры и общее состояние ──────────────────────────────
 const POLL_STALL_MS = Number(process.env.POLL_STALL_MS ?? 180_000)
+const WATCHDOG_TIMEOUT_MS = Number(process.env.WATCHDOG_TIMEOUT_MS ?? 150_000)
+// Короткий long-poll. Дешёвые прокси нормально проксируют короткие запросы (getMe),
+// но РВУТ долго висящие idle-соединения — из-за чего 30-секундный getUpdates залипает,
+// а getMe в ту же секунду отвечает ok. 10с возвращается ДО разрыва: опрашиваем чаще,
+// но стабильно. Тюнится через env GETUPDATES_TIMEOUT.
+const GETUPDATES_TIMEOUT = Number(process.env.GETUPDATES_TIMEOUT ?? 10)
 let lastSuccessfulPollAt = Date.now()
+let inFlightSince: number | null = null
+let inFlightInfo = ''
+// длинные ЛЕГИТИМНЫЕ операции (рассылка по тысячам юзеров) дёргают это,
+// чтобы handler-watchdog не принял прогресс за зависание
+function bumpWatchdog() { if (inFlightSince !== null) inFlightSince = Date.now() }
 
-// API-transformer: отмечаем КАЖДЫЙ успешный ответ getUpdates (даже пустой).
-// Если getUpdates бросает (таймаут) или вернул ok:false (409) — отметка НЕ обновляется.
+// API-transformer для getUpdates: укорачиваем long-poll и отмечаем успешные ответы.
+// Логируем ok:false (напр. 409 conflict) и исключения — иначе сбои поллинга невидимы
+// (grammY глушит ошибки getUpdates, видны только при DEBUG=grammy*).
 bot.api.config.use(async (prev, method, payload, signal) => {
   if (method !== 'getUpdates') return prev(method, payload, signal)
-  const res = await prev(method, payload, signal)
-  if ((res as any).ok) lastSuccessfulPollAt = Date.now()
-  return res
+  const p = { ...(payload as any), timeout: GETUPDATES_TIMEOUT }
+  try {
+    const res = await prev(method, p, signal) as any
+    if (res?.ok) lastSuccessfulPollAt = Date.now()
+    else console.warn(`[polling] getUpdates ok:false → ${res?.error_code} ${res?.description}`)
+    return res
+  } catch (e: any) {
+    console.warn(`[polling] getUpdates исключение: ${e?.name ?? ''} ${e?.message ?? e}`)
+    throw e
+  }
 })
 
+// ── POLL-WATCHDOG: ловит зависший long-polling ───────────────────────────
+// getUpdates залипает (прокси рвёт long-poll, либо failover не сработал) → бот молча
+// перестаёт получать апдейты. Handler-watchdog это НЕ ловит: апдейты не доходят до обработки.
+// Срабатывает только когда бот СВОБОДЕН (не обрабатывает апдейт) и успешного getUpdates
+// нет дольше лимита — тогда форсим рестарт (PM2 поднимет заново).
 setInterval(() => {
+  if (inFlightSince !== null) return // бот занят легитимной обработкой — забота handler-watchdog
   const stalledMs = Date.now() - lastSuccessfulPollAt
   if (stalledMs <= POLL_STALL_MS) return
   const secs = Math.round(stalledMs / 1000)
   console.error(`[poll-watchdog] getUpdates без успешного ответа ${secs}с — форсирую рестарт процесса`)
   sendAlert(
-    `Poll-watchdog: long-polling завис — getUpdates без успешного ответа ${secs}с. Вероятно флапает primary-прокси. Форсирую рестарт.`,
-    { tag: 'poll-watchdog', level: 'critical', hint: 'исходящий getUpdates залип, failover на backup не сработал — бот не получает апдейты', code: 'POLL_STALL_RESTART' }
+    `Poll-watchdog: long-polling завис — getUpdates без успешного ответа ${secs}с. Форсирую рестарт.`,
+    { tag: 'poll-watchdog', level: 'critical', hint: 'исходящий getUpdates залип — бот не получает апдейты', code: 'POLL_STALL_RESTART' }
   ).catch(() => {})
   lastSuccessfulPollAt = Date.now() // не входим сюда повторно за время до exit
   setTimeout(() => process.exit(1), 2000)
 }, 15_000)
 
-// ── WATCHDOG: предохранитель от зависшего handler'а ──────────────────────
-// grammY обрабатывает апдейты ПОСЛЕДОВАТЕЛЬНО. Если любой await в handler'е зависает
-// (медленный прокси, внешний fetch без таймаута), вся очередь встаёт: бот не отвечает
-// никому, но процесс жив и таймеры (keep-alive) продолжают тикать — что и подтверждают логи.
-// Watchdog работает на setInterval (вне очереди grammY), поэтому срабатывает ДАЖЕ во время зависа:
-// если один апдейт обрабатывается дольше лимита — шлём алерт с его данными и форсим рестарт.
-// PM2 поднимает процесс заново, drop_pending_updates при старте выкидывает накопившийся бэклог.
-const WATCHDOG_TIMEOUT_MS = Number(process.env.WATCHDOG_TIMEOUT_MS ?? 150_000)
-let inFlightSince: number | null = null
-let inFlightInfo = ''
-// длинные ЛЕГИТИМНЫЕ операции (рассылка по тысячам юзеров) дёргают это,
-// чтобы watchdog не принял прогресс за зависание
-function bumpWatchdog() { if (inFlightSince !== null) inFlightSince = Date.now() }
+// ── HANDLER-WATCHDOG: предохранитель от зависшего handler'а ───────────────
+// grammY обрабатывает апдейты ПОСЛЕДОВАТЕЛЬНО. Если await в handler'е зависает, вся
+// очередь встаёт: бот не отвечает никому, но процесс жив (таймеры тикают). Работает на
+// setInterval (вне очереди grammY): если один апдейт обрабатывается дольше лимита —
+// шлём алерт с его данными и форсим рестарт. drop_pending_updates при старте чистит бэклог.
 
 bot.use(async (ctx, next) => {
   inFlightSince = Date.now()
