@@ -62,11 +62,20 @@ class FailoverProxyDispatcher {
       return this.primary.dispatch(opts, handler)
     }
 
-    // Фейловер разрешаем ТОЛЬКО на фазе коннекта: пока не пошёл ответ (responseStarted)
-    // И пока не началась отправка тела (bodySent). Иначе при stream-теле (sendPhoto/sendVideo
-    // с файлом) поток уже частично прочитан, и повтор на backup отправит битое/пустое тело.
-    // Это покрывает главный реальный сценарий: primary-прокси недоступен → ошибка коннекта
-    // до отправки данных → уходим на backup.
+    // Тело можно безопасно переотправить на backup, только если оно НЕ поток:
+    // string / Buffer / Uint8Array / пусто — буферизованы и шлются повторно как есть.
+    // Для stream-тела (sendPhoto/sendVideo с файлом) поток уже прочитан после bodySent,
+    // повтор отправил бы битое тело — для него фейловер разрешаем только ДО bodySent.
+    const body = opts?.body
+    const bodyReplayable =
+      body == null || typeof body === 'string' ||
+      Buffer.isBuffer(body) || body instanceof Uint8Array
+
+    // Фейловер разрешаем, пока не пошёл ОТВЕТ (responseStarted). Это критично для getUpdates:
+    // long-poll сразу отправляет (пустое) тело → bodySent=true, и при залипшем primary
+    // (headers-timeout через 60с) старая логика «!bodySent» НЕ уходила на backup — бот навсегда
+    // оставался на мёртвом primary и молчал. Теперь для буферизованного/пустого тела
+    // переключаемся даже после bodySent, раз ответ ещё не начался.
     let responseStarted = false
     let bodySent = false
     let switchedToBackup = false
@@ -96,7 +105,7 @@ class FailoverProxyDispatcher {
         return handler.onBodySent?.(...args)
       },
       onError: (err: Error) => {
-        if (!switchedToBackup && !responseStarted && !bodySent && isNetworkError(err)) {
+        if (!switchedToBackup && !responseStarted && (bodyReplayable || !bodySent) && isNetworkError(err)) {
           switchedToBackup = true
           console.warn(`[proxy] primary упал (${(err as any).code ?? err.name ?? err.message}), переключаюсь на резервный прокси`)
           try {

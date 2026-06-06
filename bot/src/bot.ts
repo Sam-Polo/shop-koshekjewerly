@@ -51,7 +51,10 @@ const bot = new Bot(token, proxyDispatcher ? {
 // пока прокси сам не оклемается. Handler-watchdog это НЕ ловит: апдейты не доходят
 // до обработки. В норме getUpdates отдаёт успешный ответ каждые ≤30с (long-poll timeout).
 // Если успешного ответа нет дольше лимита — поллинг завис, шлём алерт и форсим рестарт.
-const POLL_STALL_MS = Number(process.env.POLL_STALL_MS ?? 120_000)
+// 180с: запас на деградацию, когда primary-прокси висит ~60с и запрос уходит на backup —
+// в этом режиме бот живой (просто медленный poll), ложно рестартить его не нужно.
+// Реальный полный залип (оба прокси мертвы) всё равно ловится.
+const POLL_STALL_MS = Number(process.env.POLL_STALL_MS ?? 180_000)
 let lastSuccessfulPollAt = Date.now()
 
 // API-transformer: отмечаем КАЖДЫЙ успешный ответ getUpdates (даже пустой).
