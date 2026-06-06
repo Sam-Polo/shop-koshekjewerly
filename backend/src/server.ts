@@ -8,8 +8,8 @@ import path from 'node:path';
 import rateLimit from 'express-rate-limit';
 import { fetchProductsFromSheet } from './sheets.js';
 import { listProducts, upsertProducts, decreaseProductStock } from './store.js';
-import { createOrder, getOrder, updateOrderStatus, listOrders, type Order, type Platform } from './orders.js';
-import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId } from './orders-sheet.js'
+import { createOrder, getOrder, updateOrderStatus, listOrders, restoreOrder, type Order, type Platform } from './orders.js';
+import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId, listPendingOrdersFromSheet } from './orders-sheet.js'
 import { sendAlert } from './alerts.js';
 import { generatePaymentUrl, verifyResultSignature, queryOrderState } from './robokassa.js';
 import { fetchPromocodesFromSheet, loadPromocodes, findPromocode, validatePromocode, listPromocodes } from './promocodes.js';
@@ -1024,6 +1024,10 @@ export async function processPaidOrder(
       logger.warn({
         slug: item.slug, quantity: item.quantity, stockBefore: productBefore?.stock
       }, 'processPaidOrder: не удалось уменьшить stock товара')
+      sendAlert(
+        `Не удалось уменьшить остаток по заказу ${orderId}: ${item.title} (${item.slug}), qty=${item.quantity}, stock до=${productBefore?.stock ?? 'n/a'}`,
+        { tag: 'stock', level: 'high', hint: 'товар отсутствует в памяти или недостаточный остаток — проверьте вручную', code: 'STOCK_DECREASE_FAILED' }
+      ).catch(() => {})
     } else {
       logger.info({
         slug: item.slug, quantity: item.quantity,
@@ -1406,9 +1410,17 @@ app.post('/admin/import/sheets', async (req, res) => {
 const POLL_MIN_AGE_MS = 10 * 60 * 1000   // не трогаем свежие заказы — даём время Result URL прийти
 const POLL_MAX_AGE_MS = 24 * 60 * 60 * 1000 // игнорируем старые брошенные заказы
 
+let isPollingRunning = false
+
 export async function checkPendingOrders(): Promise<void> {
   if (process.env.FEATURE_PAYMENT_POLLING === 'false') return
+  if (isPollingRunning) {
+    logger.warn('1.2: предыдущий опрос ещё выполняется, пропускаем')
+    return
+  }
+  isPollingRunning = true
 
+  try {
   const now = Date.now()
   const pending = listOrders().filter(
     (o) =>
@@ -1428,7 +1440,7 @@ export async function checkPendingOrders(): Promise<void> {
 
       if (state.stateCode === 100) {
         // stateCode 100 = платёж проведён успешно, средства зачислены
-        logger.info({ orderId: order.orderId, invId, outSum: state.outSum }, '1.2: Робокасса подтверждает оплату — обрабатываем')
+        logger.info({ orderId: order.orderId, invId, outSum: state.outSum, stateCode: state.stateCode }, '1.2: Робокасса подтверждает оплату — обрабатываем')
         const result = await processPaidOrder(order, state.outSum, invId, order.orderId)
         if (result === 'ok' && process.env.FEATURE_DEBUG_ALERTS === 'true') {
           sendAlert(`✅ 1.2: ${order.orderId} оплачен (polling), обработан`, { tag: '1.2', level: 'info' }).catch(() => {})
@@ -1449,6 +1461,9 @@ export async function checkPendingOrders(): Promise<void> {
     } catch (e: any) {
       logger.warn({ orderId: order.orderId, error: e?.message }, '1.2: ошибка при опросе OpStateExt')
     }
+  }
+  } finally {
+    isPollingRunning = false
   }
 }
 
@@ -1495,6 +1510,28 @@ app.listen(port, async () => {
   ensureOrderSheets().catch((e: any) => {
     logger.warn({ error: e?.message }, 'не удалось подготовить листы orders/order_items')
   });
+
+  // 1.2: при старте восстанавливаем pending-заказы из Sheets в память.
+  // После рестарта Render память пуста — без этого polling слеп к заказам, созданным до рестарта.
+  if (process.env.FEATURE_PAYMENT_POLLING !== 'false') {
+    listPendingOrdersFromSheet(POLL_MIN_AGE_MS, POLL_MAX_AGE_MS)
+      .then(sheetsOrders => {
+        let restored = 0
+        for (const order of sheetsOrders) {
+          if (restoreOrder(order)) restored++
+        }
+        if (restored > 0) {
+          logger.info({ restored }, '1.2: восстановлены pending заказы из Sheets в память (после рестарта)')
+          sendAlert(
+            `1.2: при старте восстановлено ${restored} pending заказов из Sheets — будут проверены polling'ом`,
+            { tag: '1.2', level: 'info', hint: 'заказы созданы до рестарта, Result URL мог не дойти' }
+          ).catch(() => {})
+        }
+      })
+      .catch((e: any) => {
+        logger.warn({ error: e?.message }, '1.2: ошибка загрузки pending заказов из Sheets при старте')
+      })
+  }
 
   // периодический импорт (по умолчанию каждые 10 минут)
   const intervalMinutes = Number(process.env.IMPORT_INTERVAL_MINUTES ?? 10);

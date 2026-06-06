@@ -87,3 +87,11 @@ export function listOrders(): Order[] {
   return Array.from(orders.values()).sort((a, b) => b.createdAt - a.createdAt)
 }
 
+// восстанавливаем заказ из внешнего хранилища (Sheets) в память.
+// не перезаписывает, если заказ уже есть — память всегда актуальнее Sheets.
+export function restoreOrder(order: Order): boolean {
+  if (orders.has(order.orderId)) return false
+  orders.set(order.orderId, order)
+  return true
+}
+

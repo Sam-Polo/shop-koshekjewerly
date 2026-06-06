@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import pino from 'pino'
 import type { Order, OrderStatus, Platform } from './orders.js'
 import { listProducts } from './store.js'
+import { sendAlert } from './alerts.js'
 
 const logger = pino()
 
@@ -204,7 +205,11 @@ export async function updateOrderStatusInSheet(orderId: string, status: string, 
     })
     logger.info({ orderId, status, rowNumber }, 'статус заказа обновлён в Google Sheets')
   } catch (e: any) {
-    logger.warn({ orderId, error: e?.message }, 'не удалось обновить статус заказа в Google Sheets')
+    logger.error({ orderId, status, error: e?.message }, 'не удалось обновить статус заказа в Google Sheets')
+    sendAlert(
+      `⚠️ Заказ ${orderId}: статус «${status}» НЕ сохранён в Google Sheets! Обновите вручную.`,
+      { tag: 'sheets', level: 'high', hint: 'ошибка записи в Sheets — в памяти статус обновлён, после рестарта Sheets станет авторитетом', code: 'SHEETS_STATUS_UPDATE_FAILED' }
+    ).catch(() => {})
   }
 }
 
@@ -385,5 +390,112 @@ export async function updateOrderAdminNoteInSheet(orderId: string, note: string)
     logger.info({ orderId, rowNumber }, 'admin_note обновлён в Google Sheets')
   } catch (e: any) {
     logger.warn({ orderId, error: e?.message }, 'updateOrderAdminNoteInSheet: ошибка')
+  }
+}
+
+/**
+ * Читает все pending-заказы из Sheets в заданном возрастном окне.
+ * Используется при старте сервера для восстановления в памяти заказов,
+ * созданных до рестарта (чтобы polling мог их проверить через Robokassa).
+ * Делает ровно 2 запроса к Sheets API независимо от числа заказов.
+ */
+export async function listPendingOrdersFromSheet(
+  minAgeMs: number,
+  maxAgeMs: number
+): Promise<Order[]> {
+  const spreadsheetId = getSheetId()
+  if (!spreadsheetId) return []
+  try {
+    const auth = getAuth()
+    const api = google.sheets({ version: 'v4', auth })
+    const now = Date.now()
+
+    const ordersRes = await api.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${ORDERS_SHEET}!A:W`
+    })
+    const orderRows = ordersRes.data.values || []
+
+    const candidateIds: string[] = []
+    const rowByOrderId = new Map<string, string[]>()
+
+    for (let i = 1; i < orderRows.length; i++) {
+      const row = orderRows[i] as string[]
+      if (!row?.[0] || row[3] !== 'pending') continue
+      const createdAt = row[1] ? new Date(row[1]).getTime() : 0
+      const age = now - createdAt
+      if (age < minAgeMs || age > maxAgeMs) continue
+      candidateIds.push(row[0])
+      rowByOrderId.set(row[0], row)
+    }
+
+    if (candidateIds.length === 0) return []
+
+    const itemsRes = await api.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${ORDER_ITEMS_SHEET}!A:G`
+    })
+    const itemRows = itemsRes.data.values || []
+
+    const itemsByOrderId = new Map<string, Order['orderData']['items']>()
+    for (let i = 1; i < itemRows.length; i++) {
+      const row = itemRows[i] as string[]
+      if (!row?.[0] || !candidateIds.includes(row[0])) continue
+      const bucket = itemsByOrderId.get(row[0]) ?? []
+      bucket.push({
+        slug: row[1] ?? '',
+        title: row[2] ?? '',
+        price: parseFloat(row[3]) || 0,
+        quantity: parseInt(row[4], 10) || 1,
+        article: row[5] || undefined,
+      })
+      itemsByOrderId.set(row[0], bucket)
+    }
+
+    const result: Order[] = []
+    for (const orderId of candidateIds) {
+      const row = rowByOrderId.get(orderId)!
+      const col = (i: number) => row[i] ?? ''
+      const items = itemsByOrderId.get(orderId) ?? []
+      if (items.length === 0) continue
+
+      const promocodeCode = col(16)
+      const promocodeDiscount = parseFloat(col(17)) || 0
+      const priorityFee = parseFloat(col(19)) || 0
+
+      result.push({
+        orderId,
+        status: 'pending',
+        createdAt: col(1) ? new Date(col(1)).getTime() : now,
+        updatedAt: col(2) ? new Date(col(2)).getTime() : now,
+        customerChatId: col(5) || null,
+        customerName: col(6) || null,
+        platform: (col(4) as Platform) || 'telegram',
+        orderData: {
+          items,
+          fullName: col(7),
+          phone: col(8),
+          username: col(9) || undefined,
+          country: col(10),
+          city: col(11),
+          address: col(12),
+          deliveryRegion: col(13),
+          deliveryCost: parseFloat(col(14)) || 0,
+          total: parseFloat(col(20)) || 0,
+          comments: col(21) || undefined,
+          priorityOrder: col(18) === 'true' || undefined,
+          priorityFee: priorityFee > 0 ? priorityFee : undefined,
+          promocode: promocodeCode
+            ? { code: promocodeCode, type: 'amount', value: promocodeDiscount, discount: promocodeDiscount }
+            : undefined,
+        },
+      })
+    }
+
+    logger.info({ count: result.length }, 'listPendingOrdersFromSheet: найдено pending заказов в Sheets')
+    return result
+  } catch (e: any) {
+    logger.warn({ error: e?.message }, 'listPendingOrdersFromSheet: ошибка чтения из Sheets')
+    return []
   }
 }
