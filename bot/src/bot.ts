@@ -45,15 +45,36 @@ const bot = new Bot(token, proxyDispatcher ? {
   }
 } : undefined);
 
-const BOT_START_TIME = Math.floor(Date.now() / 1000)
+// ── POLL-WATCHDOG: предохранитель от зависшего long-polling ───────────────
+// getUpdates периодически залипает (флапает primary-прокси, а failover на backup
+// для него не срабатывает) → бот молча перестаёт получать апдейты на минуты/часы,
+// пока прокси сам не оклемается. Handler-watchdog это НЕ ловит: апдейты не доходят
+// до обработки. В норме getUpdates отдаёт успешный ответ каждые ≤30с (long-poll timeout).
+// Если успешного ответа нет дольше лимита — поллинг завис, шлём алерт и форсим рестарт.
+const POLL_STALL_MS = Number(process.env.POLL_STALL_MS ?? 120_000)
+let lastSuccessfulPollAt = Date.now()
 
-// Пропускаем апдейты старше 5 минут до старта — предотвращает зависания из-за бэклога
-// после рестарта (старые CDEK-ссылки, тестовые сообщения и т.п. не обрабатываются)
-bot.use(async (ctx, next) => {
-  const date = (ctx.message ?? ctx.channelPost ?? ctx.editedMessage)?.date
-  if (date && date < BOT_START_TIME - 300) return
-  await next()
+// API-transformer: отмечаем КАЖДЫЙ успешный ответ getUpdates (даже пустой).
+// Если getUpdates бросает (таймаут) или вернул ok:false (409) — отметка НЕ обновляется.
+bot.api.config.use(async (prev, method, payload, signal) => {
+  if (method !== 'getUpdates') return prev(method, payload, signal)
+  const res = await prev(method, payload, signal)
+  if ((res as any).ok) lastSuccessfulPollAt = Date.now()
+  return res
 })
+
+setInterval(() => {
+  const stalledMs = Date.now() - lastSuccessfulPollAt
+  if (stalledMs <= POLL_STALL_MS) return
+  const secs = Math.round(stalledMs / 1000)
+  console.error(`[poll-watchdog] getUpdates без успешного ответа ${secs}с — форсирую рестарт процесса`)
+  sendAlert(
+    `Poll-watchdog: long-polling завис — getUpdates без успешного ответа ${secs}с. Вероятно флапает primary-прокси. Форсирую рестарт.`,
+    { tag: 'poll-watchdog', level: 'critical', hint: 'исходящий getUpdates залип, failover на backup не сработал — бот не получает апдейты', code: 'POLL_STALL_RESTART' }
+  ).catch(() => {})
+  lastSuccessfulPollAt = Date.now() // не входим сюда повторно за время до exit
+  setTimeout(() => process.exit(1), 2000)
+}, 15_000)
 
 // ── WATCHDOG: предохранитель от зависшего handler'а ──────────────────────
 // grammY обрабатывает апдейты ПОСЛЕДОВАТЕЛЬНО. Если любой await в handler'е зависает
@@ -61,7 +82,7 @@ bot.use(async (ctx, next) => {
 // никому, но процесс жив и таймеры (keep-alive) продолжают тикать — что и подтверждают логи.
 // Watchdog работает на setInterval (вне очереди grammY), поэтому срабатывает ДАЖЕ во время зависа:
 // если один апдейт обрабатывается дольше лимита — шлём алерт с его данными и форсим рестарт.
-// PM2 поднимает процесс заново, stale-фильтр выше выкидывает накопившийся бэклог.
+// PM2 поднимает процесс заново, drop_pending_updates при старте выкидывает накопившийся бэклог.
 const WATCHDOG_TIMEOUT_MS = Number(process.env.WATCHDOG_TIMEOUT_MS ?? 150_000)
 let inFlightSince: number | null = null
 let inFlightInfo = ''
@@ -1304,6 +1325,8 @@ async function sendStartupAlert() {
 
 sendStartupAlert()
 
-bot.start()
+// drop_pending_updates: пропускаем накопленный бэклог при старте (по offset'у, не по часам).
+// Заменяет прежний хрупкий фильтр по времени, который ломался при сбое часов сервера.
+bot.start({ drop_pending_updates: true })
 
 

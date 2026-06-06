@@ -56,14 +56,14 @@ vi.stubGlobal('fetch', fetchMock)
 import type { Order } from './orders.js'
 
 const NOW = Date.now()
-const THREE_MIN_AGO = NOW - 3 * 60 * 1000
+const ELEVEN_MIN_AGO = NOW - 11 * 60 * 1000
 
 function makeOrder(overrides: Partial<Order> = {}): Order {
   return {
     orderId: 'ORD-1717000000000',
     status: 'pending',
-    createdAt: THREE_MIN_AGO,
-    updatedAt: THREE_MIN_AGO,
+    createdAt: ELEVEN_MIN_AGO,
+    updatedAt: ELEVEN_MIN_AGO,
     customerChatId: '123456789',
     customerName: 'Иван',
     platform: 'telegram',
@@ -145,8 +145,8 @@ describe('checkPendingOrders', () => {
     expect(queryOrderState).not.toHaveBeenCalled()
   })
 
-  it('пропускает слишком свежий заказ (< 2 мин)', async () => {
-    const freshOrder = makeOrder({ createdAt: Date.now() - 60_000 }) // 1 минута
+  it('пропускает слишком свежий заказ (< 10 мин)', async () => {
+    const freshOrder = makeOrder({ createdAt: Date.now() - 5 * 60_000 }) // 5 минут
     listOrders.mockReturnValue([freshOrder])
 
     await checkPendingOrders()
@@ -163,7 +163,16 @@ describe('checkPendingOrders', () => {
     expect(queryOrderState).not.toHaveBeenCalled()
   })
 
-  it('не обрабатывает если stateCode не 5', async () => {
+  it('не обрабатывает если stateCode не 100 (например, 5 = ещё не оплачен)', async () => {
+    listOrders.mockReturnValue([makeOrder()])
+    queryOrderState.mockResolvedValue({ stateCode: 5, outSum: '2500.00' })
+
+    await checkPendingOrders()
+
+    expect(updateOrderStatus).not.toHaveBeenCalled()
+  })
+
+  it('не обрабатывает если stateCode = 0 (pending)', async () => {
     listOrders.mockReturnValue([makeOrder()])
     queryOrderState.mockResolvedValue({ stateCode: 0, outSum: '2500.00' })
 
@@ -172,9 +181,9 @@ describe('checkPendingOrders', () => {
     expect(updateOrderStatus).not.toHaveBeenCalled()
   })
 
-  it('обрабатывает pending-заказ когда stateCode = 5', async () => {
+  it('обрабатывает pending-заказ когда stateCode = 100 (оплачено)', async () => {
     listOrders.mockReturnValue([makeOrder()])
-    queryOrderState.mockResolvedValue({ stateCode: 5, outSum: '2500.00' })
+    queryOrderState.mockResolvedValue({ stateCode: 100, outSum: '2500.00' })
 
     await checkPendingOrders()
 

@@ -169,7 +169,8 @@ export function verifyResultSignature(params: {
 
 // запрашиваем статус платежа через OpStateExt
 // возвращает { stateCode, outSum } или null при ошибке/недоступности
-// stateCode 5 = оплачено, 0 = создан, 80 = отменён (остальные — промежуточные)
+// stateCode 100 = платёж проведён успешно (оплачено), 5 = инициализирован (ещё НЕ оплачен),
+// 10 = отменён, 50 = средства получены (идёт зачисление), 80 = приостановлен
 export async function queryOrderState(invId: string): Promise<{ stateCode: number; outSum: string } | null> {
   if (!MERCHANT_LOGIN || !PASSWORD_2) return null
 

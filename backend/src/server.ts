@@ -1403,7 +1403,7 @@ app.post('/admin/import/sheets', async (req, res) => {
 
 // 1.2: проверяем статус pending-заказов через Robokassa OpStateExt
 // запускается по таймеру; если Result URL пришёл до рестарта — обрабатываем здесь
-const POLL_MIN_AGE_MS = 2 * 60 * 1000    // не трогаем только что созданные (ждём Result URL сами придут)
+const POLL_MIN_AGE_MS = 10 * 60 * 1000   // не трогаем свежие заказы — даём время Result URL прийти
 const POLL_MAX_AGE_MS = 24 * 60 * 60 * 1000 // игнорируем старые брошенные заказы
 
 export async function checkPendingOrders(): Promise<void> {
@@ -1426,7 +1426,8 @@ export async function checkPendingOrders(): Promise<void> {
       const state = await queryOrderState(invId)
       if (!state) continue
 
-      if (state.stateCode === 5) {
+      if (state.stateCode === 100) {
+        // stateCode 100 = платёж проведён успешно, средства зачислены
         logger.info({ orderId: order.orderId, invId, outSum: state.outSum }, '1.2: Робокасса подтверждает оплату — обрабатываем')
         const result = await processPaidOrder(order, state.outSum, invId, order.orderId)
         if (result === 'ok' && process.env.FEATURE_DEBUG_ALERTS === 'true') {
@@ -1435,6 +1436,15 @@ export async function checkPendingOrders(): Promise<void> {
         if (result === 'amount_mismatch') {
           sendAlert(`⚠️ 1.2: ${order.orderId} — расхождение суммы при polling`, { tag: '1.2', level: 'moderate', hint: 'сумма от Robokassa при опросе не совпала с заказом — нужна ручная проверка', code: 'POLLING_AMOUNT_MISMATCH' }).catch(() => {})
         }
+      } else if (state.stateCode === 10 || state.stateCode === 60) {
+        // stateCode 10 = отменён, 60 = отказ в зачислении (деньги вернули покупателю)
+        logger.info({ orderId: order.orderId, invId, stateCode: state.stateCode }, '1.2: платёж отменён или отклонён Робокассой')
+        sendAlert(
+          `ℹ️ 1.2: ${order.orderId} — платёж отменён в Робокассе (stateCode ${state.stateCode})`,
+          { tag: '1.2', level: 'info', hint: 'заказ остаётся pending — если нужно, отметьте вручную' }
+        ).catch(() => {})
+      } else {
+        logger.info({ orderId: order.orderId, invId, stateCode: state.stateCode }, '1.2: заказ ещё не оплачен, пропускаем')
       }
     } catch (e: any) {
       logger.warn({ orderId: order.orderId, error: e?.message }, '1.2: ошибка при опросе OpStateExt')
