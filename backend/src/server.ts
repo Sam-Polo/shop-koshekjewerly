@@ -1439,24 +1439,19 @@ export async function checkPendingOrders(): Promise<void> {
       if (!state) continue
 
       if (state.stateCode === 100) {
-        // stateCode 100 = платёж проведён успешно, средства зачислены
+        // stateCode 100 = платёж проведён успешно — Result URL был пропущен (Render sleep/restart)
         logger.info({ orderId: order.orderId, invId, outSum: state.outSum, stateCode: state.stateCode }, '1.2: Робокасса подтверждает оплату — обрабатываем')
+        sendAlert(
+          `1.2: ${order.orderId} — оплачен, но Result URL был пропущен. Polling спас заказ.`,
+          { tag: '1.2', level: 'high', hint: 'webhook от Робокассы не дошёл до бэкенда (Render sleep или рестарт во время оплаты)', code: 'RESULT_URL_MISSED' }
+        ).catch(() => {})
         const result = await processPaidOrder(order, state.outSum, invId, order.orderId)
-        if (result === 'ok' && process.env.FEATURE_DEBUG_ALERTS === 'true') {
-          sendAlert(`✅ 1.2: ${order.orderId} оплачен (polling), обработан`, { tag: '1.2', level: 'info' }).catch(() => {})
-        }
         if (result === 'amount_mismatch') {
           sendAlert(`⚠️ 1.2: ${order.orderId} — расхождение суммы при polling`, { tag: '1.2', level: 'moderate', hint: 'сумма от Robokassa при опросе не совпала с заказом — нужна ручная проверка', code: 'POLLING_AMOUNT_MISMATCH' }).catch(() => {})
         }
-      } else if (state.stateCode === 10 || state.stateCode === 60) {
-        // stateCode 10 = отменён, 60 = отказ в зачислении (деньги вернули покупателю)
-        logger.info({ orderId: order.orderId, invId, stateCode: state.stateCode }, '1.2: платёж отменён или отклонён Робокассой')
-        sendAlert(
-          `ℹ️ 1.2: ${order.orderId} — платёж отменён в Робокассе (stateCode ${state.stateCode})`,
-          { tag: '1.2', level: 'info', hint: 'заказ остаётся pending — если нужно, отметьте вручную' }
-        ).catch(() => {})
       } else {
-        logger.info({ orderId: order.orderId, invId, stateCode: state.stateCode }, '1.2: заказ ещё не оплачен, пропускаем')
+        // stateCode 5 (не оплачен), 10 (отменён), 20 (hold), 50 (зачисление), 60 (отказ), 80 (приостановлен) — тихо пропускаем
+        logger.info({ orderId: order.orderId, invId, stateCode: state.stateCode }, '1.2: заказ не оплачен, пропускаем')
       }
     } catch (e: any) {
       logger.warn({ orderId: order.orderId, error: e?.message }, '1.2: ошибка при опросе OpStateExt')
