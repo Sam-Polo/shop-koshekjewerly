@@ -208,6 +208,7 @@ const waitingForButtonText = new Set<string | number>();
 // состояние ожидания username канала, текста кнопки и контента
 const waitingForChannelPost = new Set<string | number>();
 const waitingForChannelButtonText = new Set<string | number>();
+const waitingForChannelButtonUrl = new Set<string | number>();
 const waitingForChannelContent = new Set<string | number>();
 
 // кэш авто-форвардов постов заказов из канала: "chatId:messageId" → orderId
@@ -232,6 +233,7 @@ const broadcastData = new Map<string | number, BroadcastData>();
 type ChannelPostDraft = {
   channel: string
   buttonText?: string
+  buttonUrl?: string
 }
 const channelPostDrafts = new Map<string | number, ChannelPostDraft>();
 
@@ -538,6 +540,11 @@ bot.command('cancel', async (ctx) => {
     channelPostDrafts.delete(chatId!)
     wasCancelled = true
   }
+  if (waitingForChannelButtonUrl.has(chatId!)) {
+    waitingForChannelButtonUrl.delete(chatId!)
+    channelPostDrafts.delete(chatId!)
+    wasCancelled = true
+  }
   if (waitingForChannelContent.has(chatId!)) {
     waitingForChannelContent.delete(chatId!)
     channelPostDrafts.delete(chatId!)
@@ -589,19 +596,21 @@ async function getMiniAppDeepLink(): Promise<string> {
   return cachedMiniAppLink
 }
 
-async function sendChannelPostContent(channelUsername: string, messageText: string, media?: MediaAttachment, buttonText?: string) {
+async function sendChannelPostContent(channelUsername: string, messageText: string, media?: MediaAttachment, buttonText?: string, buttonUrl?: string) {
   try {
     const channel = channelUsername.replace('@', '')
-    const miniappLink = await getMiniAppDeepLink()
     const finalButtonText = buttonText && buttonText.trim().length > 0
       ? buttonText.trim().slice(0, 64)
       : 'Открыть каталог 🛍️'
+    const finalButtonUrl = buttonUrl && buttonUrl.trim().length > 0
+      ? buttonUrl.trim()
+      : await getMiniAppDeepLink()
     const result = await sendMessage(
       `@${channel}`,
       messageText,
       media,
       finalButtonText,
-      miniappLink,
+      finalButtonUrl,
       'url'
     )
     if (!result.success) {
@@ -1037,11 +1046,41 @@ bot.on('message', async (ctx) => {
     draft.buttonText = buttonText
     channelPostDrafts.set(chatId, draft)
     waitingForChannelButtonText.delete(chatId)
-    waitingForChannelContent.add(chatId)
-    
+    waitingForChannelButtonUrl.add(chatId)
+
     await ctx.reply(
-      '✅ Кнопка сохранена.\nПришли текст/фото поста (можно альбом до 10 фото). ' +
-      'К посту автоматически добавлю эту кнопку. Используй /cancel для отмены.'
+      '✅ Текст кнопки сохранён.\nТеперь введи ссылку для кнопки (https://...). Используй /cancel для отмены.'
+    )
+    return
+  }
+
+  // ожидание URL кнопки для поста в канал
+  if (chatId && waitingForChannelButtonUrl.has(chatId) && isManager(chatId, username)) {
+    const buttonUrl = ctx.message.text?.trim()
+    if (!buttonUrl) {
+      await ctx.reply('❌ Ссылка не может быть пустой. Введи URL или используй /cancel.')
+      return
+    }
+    if (!/^https?:\/\/.+/.test(buttonUrl)) {
+      await ctx.reply('❌ Неверный формат ссылки. Ссылка должна начинаться с https:// или http://. Попробуй ещё раз.')
+      return
+    }
+
+    const draft = channelPostDrafts.get(chatId)
+    if (!draft) {
+      waitingForChannelButtonUrl.delete(chatId)
+      await ctx.reply('❌ Канал не найден. Используй /channel_post заново.')
+      return
+    }
+
+    draft.buttonUrl = buttonUrl
+    channelPostDrafts.set(chatId, draft)
+    waitingForChannelButtonUrl.delete(chatId)
+    waitingForChannelContent.add(chatId)
+
+    await ctx.reply(
+      '✅ Ссылка сохранена.\nПришли текст или фото поста. ' +
+      'К посту автоматически добавлю кнопку. Используй /cancel для отмены.'
     )
     return
   }
@@ -1161,8 +1200,8 @@ bot.on('message', async (ctx) => {
         await ctx.reply('❌ Сначала введи текст кнопки для поста.')
         return
       }
-      
-      const result = await sendChannelPostContent(draft.channel, messageText, mediaAttachment, draft.buttonText)
+
+      const result = await sendChannelPostContent(draft.channel, messageText, mediaAttachment, draft.buttonText, draft.buttonUrl)
       if (result.success) {
         waitingForChannelContent.delete(chatId)
         channelPostDrafts.delete(chatId)
