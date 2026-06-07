@@ -72,13 +72,27 @@ function bumpWatchdog() { if (inFlightSince !== null) inFlightSince = Date.now()
 bot.api.config.use(async (prev, method, payload, signal) => {
   if (method !== 'getUpdates') return prev(method, payload, signal)
   const p = { ...(payload as any), timeout: GETUPDATES_TIMEOUT }
+
+  // Hard deadline: если прокси завис и не ответил (нет ECONNREFUSED, просто тишина),
+  // исключения не будет → rotateGrammyAgent() не вызовется → бот висит до watchdog (180с).
+  // AbortController гарантирует ошибку через GETUPDATES_TIMEOUT + 20с → catch → ротация.
+  const ac = new AbortController()
+  const deadline = (GETUPDATES_TIMEOUT + 20) * 1000
+  const timer = setTimeout(() => ac.abort(), deadline)
+  if (signal) {
+    if (signal.aborted) ac.abort()
+    else signal.addEventListener('abort', () => ac.abort())
+  }
+
   try {
-    const res = await prev(method, p, signal) as any
+    const res = await prev(method, p, ac.signal as any) as any
+    clearTimeout(timer)
     if (res?.ok) lastSuccessfulPollAt = Date.now()
     else console.warn(`[polling] getUpdates ok:false → ${res?.error_code} ${res?.description}`)
     return res
   } catch (e: any) {
-    // сетевой сбой getUpdates (ETIMEDOUT и т.п.) — переключаемся на другой прокси,
+    clearTimeout(timer)
+    // сетевой сбой или таймаут — переключаемся на другой прокси,
     // следующий poll пойдёт через него (бот сам восстановится без рестарта)
     console.warn(`[polling] getUpdates исключение: ${e?.name ?? ''} ${e?.message ?? e}`)
     rotateGrammyAgent()
