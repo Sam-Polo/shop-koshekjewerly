@@ -1,4 +1,5 @@
 import { Dispatcher, ProxyAgent, fetch as undiciFetch } from 'undici'
+import { HttpsProxyAgent } from 'https-proxy-agent'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -165,6 +166,31 @@ if (proxyUrl && proxyUrlBackup) {
   console.log(`[proxy] TG-запросы пойдут через прокси: ${maskProxy(proxyUrl)} (резервный прокси не задан — установите TG_PROXY_URL_BACKUP для автофейловера)`)
 } else {
   console.log('[proxy] TG_PROXY_URL не задан — прямые запросы к api.telegram.org')
+}
+
+// ── HTTP-агенты для grammY ────────────────────────────────────────────────
+// grammY (через node-fetch) НЕ понимает undici `dispatcher` — ему нужен http.Agent.
+// Поэтому proxyDispatcher выше работает только для tgFetch (undici), а сам бот ходил
+// НАПРЯМУЮ мимо прокси → ETIMEDOUT. Строим прокси-агенты отдельно и ротируем при сбое.
+const grammyProxyAgents: HttpsProxyAgent<string>[] = []
+if (proxyUrl) grammyProxyAgents.push(new HttpsProxyAgent(proxyUrl, { keepAlive: true } as any))
+if (proxyUrlBackup) grammyProxyAgents.push(new HttpsProxyAgent(proxyUrlBackup, { keepAlive: true } as any))
+let activeGrammyAgent = 0
+
+export const grammyAgentCount = grammyProxyAgents.length
+
+// node-fetch вызывает это на КАЖДЫЙ запрос — возвращаем текущий прокси-агент.
+export function currentGrammyAgent(): HttpsProxyAgent<string> | undefined {
+  if (grammyProxyAgents.length === 0) return undefined
+  return grammyProxyAgents[activeGrammyAgent % grammyProxyAgents.length]
+}
+
+// Переключиться на следующий прокси при сетевом сбое (вызывается из bot.ts на ошибках TG API).
+export function rotateGrammyAgent(): void {
+  if (grammyProxyAgents.length > 1) {
+    activeGrammyAgent++
+    console.warn(`[proxy] grammY: сетевой сбой, переключаюсь на прокси #${activeGrammyAgent % grammyProxyAgents.length}`)
+  }
 }
 
 const __filename = fileURLToPath(import.meta.url)
