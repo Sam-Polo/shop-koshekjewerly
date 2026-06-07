@@ -77,7 +77,7 @@ bot.api.config.use(async (prev, method, payload, signal) => {
   // исключения не будет → rotateGrammyAgent() не вызовется → бот висит до watchdog (180с).
   // AbortController гарантирует ошибку через GETUPDATES_TIMEOUT + 20с → catch → ротация.
   const ac = new AbortController()
-  const deadline = (GETUPDATES_TIMEOUT + 20) * 1000
+  const deadline = (GETUPDATES_TIMEOUT + 5) * 1000
   const timer = setTimeout(() => ac.abort(), deadline)
   if (signal) {
     if (signal.aborted) ac.abort()

@@ -172,24 +172,42 @@ if (proxyUrl && proxyUrlBackup) {
 // grammY (через node-fetch) НЕ понимает undici `dispatcher` — ему нужен http.Agent.
 // Поэтому proxyDispatcher выше работает только для tgFetch (undici), а сам бот ходил
 // НАПРЯМУЮ мимо прокси → ETIMEDOUT. Строим прокси-агенты отдельно и ротируем при сбое.
+//
+// Sticky failover: если primary упал — переходим на backup и ОСТАЁМСЯ на нём.
+// Через PRIMARY_COOLDOWN_MS пробуем primary снова. Если ожил — возвращаемся.
+// Без этого каждый цикл опроса ждал бы timeout на мёртвом primary.
 const grammyProxyAgents: HttpsProxyAgent<string>[] = []
 if (proxyUrl) grammyProxyAgents.push(new HttpsProxyAgent(proxyUrl, { keepAlive: true } as any))
 if (proxyUrlBackup) grammyProxyAgents.push(new HttpsProxyAgent(proxyUrlBackup, { keepAlive: true } as any))
-let activeGrammyAgent = 0
+
+const PRIMARY_COOLDOWN_MS = 60_000 // how long to avoid primary after failure
+let primaryDeadUntil = 0 // 0 = primary healthy; >0 = avoid until this timestamp
 
 export const grammyAgentCount = grammyProxyAgents.length
 
 // node-fetch вызывает это на КАЖДЫЙ запрос — возвращаем текущий прокси-агент.
 export function currentGrammyAgent(): HttpsProxyAgent<string> | undefined {
   if (grammyProxyAgents.length === 0) return undefined
-  return grammyProxyAgents[activeGrammyAgent % grammyProxyAgents.length]
+  if (grammyProxyAgents.length === 1) return grammyProxyAgents[0]
+  // Stay on backup while primary is in cooldown; otherwise try primary.
+  // When cooldown expires currentGrammyAgent() naturally returns primary again —
+  // if it's still dead the next call will fail fast and rotateGrammyAgent() re-arms cooldown.
+  const onPrimary = Date.now() >= primaryDeadUntil
+  return grammyProxyAgents[onPrimary ? 0 : 1]
 }
 
-// Переключиться на следующий прокси при сетевом сбое (вызывается из bot.ts на ошибках TG API).
+// Вызывается при сетевом сбое ТЕКУЩЕГО прокси (из bot.ts на ошибках TG API / getUpdates).
 export function rotateGrammyAgent(): void {
-  if (grammyProxyAgents.length > 1) {
-    activeGrammyAgent++
-    console.warn(`[proxy] grammY: сетевой сбой, переключаюсь на прокси #${activeGrammyAgent % grammyProxyAgents.length}`)
+  if (grammyProxyAgents.length <= 1) return
+  const onPrimary = Date.now() >= primaryDeadUntil
+  if (onPrimary) {
+    primaryDeadUntil = Date.now() + PRIMARY_COOLDOWN_MS
+    console.warn(`[proxy] grammY: primary упал → backup на ${PRIMARY_COOLDOWN_MS / 1000}с`)
+  } else {
+    // Backup тоже дал сбой — продлеваем cooldown, остаёмся на backup.
+    // Не прыгаем на заведомо мёртвый primary.
+    primaryDeadUntil = Date.now() + PRIMARY_COOLDOWN_MS
+    console.warn(`[proxy] grammY: backup дал сбой → остаёмся на backup (cooldown продлён)`)
   }
 }
 
