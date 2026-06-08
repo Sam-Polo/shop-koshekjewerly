@@ -43,6 +43,16 @@ const TYPES: { key: JewelryType; title: string }[] = [
 
 const BADGE_COLOR = '#5e6623'
 
+const OLD_IMG_BASE = 'https://s3.twcstorage.ru/koshekjewerly-s3-bucket'
+const NEW_IMG_BASE = 'https://storage.yandexcloud.net/koshekjewerly'
+function rewriteImageUrl(url: string): string {
+  if (!url) return url
+  return url.startsWith(OLD_IMG_BASE) ? NEW_IMG_BASE + url.slice(OLD_IMG_BASE.length) : url
+}
+function rewriteImages<T extends { images: string[] }>(item: T): T {
+  return { ...item, images: item.images.map(rewriteImageUrl) }
+}
+
 type Step = 'type' | 'base' | 'pendants'
 export type ConstructorDetailView =
   | { kind: 'base'; data: ConstructorBase }
@@ -221,7 +231,7 @@ export default function Constructor({
     setLoading(true)
     setError(null)
     fetchJsonWithRetry<{ bases?: ConstructorBase[] }>(`${apiUrl}/api/constructor/bases?type=${selectedType}`)
-      .then(data => { if (!cancelled) setBases(data.bases || []) })
+      .then(data => { if (!cancelled) setBases((data.bases || []).map(rewriteImages)) })
       .catch(() => { if (!cancelled) setError('Не удалось загрузить основы. Попробуйте обновить страницу.') })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
@@ -233,7 +243,7 @@ export default function Constructor({
     setLoading(true)
     setError(null)
     fetchJsonWithRetry<{ pendants?: ConstructorPendant[] }>(`${apiUrl}/api/constructor/pendants?type=${selectedType}`)
-      .then(data => { if (!cancelled) setPendants(data.pendants || []) })
+      .then(data => { if (!cancelled) setPendants((data.pendants || []).map(rewriteImages)) })
       .catch(() => { if (!cancelled) setError('Не удалось загрузить подвески. Попробуйте обновить страницу.') })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }

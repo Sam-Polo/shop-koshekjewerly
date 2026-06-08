@@ -8,6 +8,14 @@ import Constructor, { ConstructorDetailModal, type ConstructorComposite, type Co
 
 const CONSTRUCTOR_CATEGORY_KEY = 'constructor'
 
+// Перенаправляем старые URL Timeweb на Yandex Cloud — Sheets трогать не нужно
+const OLD_IMG_BASE = 'https://s3.twcstorage.ru/koshekjewerly-s3-bucket'
+const NEW_IMG_BASE = 'https://storage.yandexcloud.net/koshekjewerly'
+function rewriteImageUrl(url: string): string {
+  if (!url) return url
+  return url.startsWith(OLD_IMG_BASE) ? NEW_IMG_BASE + url.slice(OLD_IMG_BASE.length) : url
+}
+
 const TYPE_TITLES: Record<JewelryType, string> = {
   necklace: 'Колье',
   earrings: 'Серьги',
@@ -1657,7 +1665,7 @@ export default function App() {
               key: c.key,
               title: c.title,
               description: c.description,
-              image: c.image,
+              image: rewriteImageUrl(c.image),
               image_position: c.image_position || 'center'
             })))
           }
@@ -1811,7 +1819,10 @@ export default function App() {
     fetchWithRetry(`${apiUrl}/api/products`)
       .then(res => res.json())
       .then(data => {
-        setProducts(data.items || [])
+        setProducts((data.items || []).map((p: Product) => ({
+          ...p,
+          images: (p.images || []).map(rewriteImageUrl),
+        })))
         setLoading(false)
       })
       .catch(err => {
