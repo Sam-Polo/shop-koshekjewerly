@@ -542,18 +542,18 @@ function extractUserFromInitData(initData: string): { id: string | null; display
 const DEFAULT_ASSEMBLY_MESSAGE = 'Ваш заказ будет отправлен в течении 3-5 дней, мы пришлем уведомление с трек номером для отслеживания. Благодарим за заказ 🤍'
 
 async function sendOrderNotifications(order: any) {
-  // читаем assembly_message из настроек (с фоллбэком на дефолтный текст)
+  // читаем assembly_message и priorityOrderFee из настроек
   let assemblyMessage = DEFAULT_ASSEMBLY_MESSAGE
+  let notifPriorityFeePct = 30
   try {
     const sheetId = process.env.IMPORT_SHEET_ID
     if (sheetId) {
       const settings = await getCachedOrdersSettings(sheetId)
-      if (settings.assemblyMessage) {
-        assemblyMessage = settings.assemblyMessage
-      }
+      if (settings.assemblyMessage) assemblyMessage = settings.assemblyMessage
+      if (settings.priorityOrderFee !== undefined) notifPriorityFeePct = settings.priorityOrderFee
     }
   } catch {
-    // при ошибке используем дефолтный текст
+    // при ошибке используем значения по умолчанию
   }
 
   // экранируем HTML для защиты от XSS
@@ -571,7 +571,7 @@ async function sendOrderNotifications(order: any) {
   
   const priorityCustomerLine =
     order.orderData.priorityOrder && order.orderData.priorityFee
-      ? `\nПриоритетный заказ (+30%): ${order.orderData.priorityFee} ₽`
+      ? `\nПриоритетный заказ (+${notifPriorityFeePct}%): ${order.orderData.priorityFee} ₽`
       : ''
 
   const customerMessage = `
@@ -600,7 +600,7 @@ ${assemblyMessage}
 
   const priorityManagerLine =
     order.orderData.priorityOrder && order.orderData.priorityFee
-      ? `Приоритет (+30%): ${order.orderData.priorityFee} ₽\n`
+      ? `Приоритет (+${notifPriorityFeePct}%): ${order.orderData.priorityFee} ₽\n`
       : ''
 
   const managerMessage = `
@@ -692,6 +692,7 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
     
     // проверка статуса заказов
     const sheetId = process.env.IMPORT_SHEET_ID
+    let priorityFeePct = 30
     if (sheetId) {
       try {
         const settings = await getCachedOrdersSettings(sheetId)
@@ -699,6 +700,7 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
           logger.warn('заказ отклонен: заказы закрыты')
           return res.status(403).json({ error: 'orders_closed', closeDate: settings.closeDate })
         }
+        if (settings.priorityOrderFee !== undefined) priorityFeePct = settings.priorityOrderFee
       } catch (error: any) {
         logger.error({ error: error?.message }, 'ошибка проверки статуса заказов, продолжаем')
         // при ошибке продолжаем обработку заказа
@@ -869,12 +871,12 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
       }
     }
     
-    // сумма после товаров, доставки и промокода (база для +30% приоритета)
+    // сумма после товаров, доставки и промокода (база для приоритетной наценки)
     const subtotalAfterDiscount = Math.max(0, itemsTotal + deliveryCost - promocodeDiscount)
     const priorityOrder = Boolean(orderData.priorityOrder)
     const priorityFee =
       priorityOrder && subtotalAfterDiscount > 0
-        ? Math.round(subtotalAfterDiscount * 0.3)
+        ? Math.round(subtotalAfterDiscount * priorityFeePct / 100)
         : 0
     const total = subtotalAfterDiscount + priorityFee
     
@@ -1240,10 +1242,12 @@ app.post('/api/orders/:orderId/resend-notification', express.json(), async (req,
 
   try {
     let assemblyMessage = 'Ваш заказ будет отправлен в течении 3-5 дней, мы пришлем уведомление с трек номером для отслеживания. Благодарим за заказ 🤍'
+    let resendPriorityFeePct = 30
     const sheetId = process.env.IMPORT_SHEET_ID
     if (sheetId) {
       const settings = await getCachedOrdersSettings(sheetId).catch(() => null)
       if (settings?.assemblyMessage) assemblyMessage = settings.assemblyMessage
+      if (settings?.priorityOrderFee !== undefined) resendPriorityFeePct = settings.priorityOrderFee
     }
 
     const itemsText = order.orderData.items.map((item: any) => {
@@ -1252,7 +1256,7 @@ app.post('/api/orders/:orderId/resend-notification', express.json(), async (req,
     }).join('\n')
 
     const priorityLine = order.orderData.priorityOrder && order.orderData.priorityFee
-      ? `\nПриоритетный заказ (+30%): ${order.orderData.priorityFee} ₽` : ''
+      ? `\nПриоритетный заказ (+${resendPriorityFeePct}%): ${order.orderData.priorityFee} ₽` : ''
 
     const customerMessage = `
 🎉 <b>Ваш заказ оформлен!</b>

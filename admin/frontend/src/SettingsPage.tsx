@@ -18,6 +18,7 @@ type OrdersSettings = {
   closeDate: string
   assemblyMessage: string
   priorityOrderEnabled: boolean
+  priorityOrderFee: number
 }
 
 const STYLE_LABELS: Record<BannerStyle, string> = {
@@ -63,6 +64,7 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
     closeDate: '',
     assemblyMessage: '',
     priorityOrderEnabled: true,
+    priorityOrderFee: 30,
   })
   const [ordersLoading, setOrdersLoading] = useState(true)
   const [ordersSaving, setOrdersSaving] = useState(false)
@@ -106,6 +108,7 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
         closeDate: data.closeDate || '',
         assemblyMessage: data.assemblyMessage || '',
         priorityOrderEnabled: data.priorityOrderEnabled !== false,
+        priorityOrderFee: data.priorityOrderFee ?? 30,
       })
     } catch (err: any) {
       showToast(err.message || 'Ошибка загрузки статуса заказов', 'error')
@@ -140,6 +143,7 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
         closeDate: orders.closeDate || undefined,
         assemblyMessage: orders.assemblyMessage || undefined,
         priorityOrderEnabled: orders.priorityOrderEnabled,
+        priorityOrderFee: orders.priorityOrderFee,
       })
       showToast(orders.ordersClosed ? 'Заказы закрыты' : 'Заказы открыты', 'success')
     } catch (err: any) {
@@ -208,11 +212,41 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
                 <p className="settings-hint">Отображается в мини-приложении как «до&nbsp;[дата]»</p>
               </div>
 
+              <div className="settings-field">
+                <label className="settings-label">Сообщение о сроке сборки (в уведомлении бота)</label>
+                <textarea
+                  className="settings-textarea"
+                  rows={3}
+                  placeholder="Ваш заказ будет отправлен в течении 3-5 дней, мы пришлем уведомление с трек номером для отслеживания. Благодарим за заказ 🤍"
+                  value={orders.assemblyMessage}
+                  onChange={e => setOrders(prev => ({ ...prev, assemblyMessage: e.target.value }))}
+                />
+                <p className="settings-hint">Отправляется покупателю в Telegram/MAX после успешной оплаты. Если оставить пустым — используется стандартный текст.</p>
+              </div>
+
+              <button
+                className="settings-save-btn"
+                onClick={handleSaveOrders}
+                disabled={ordersSaving}
+              >
+                {ordersSaving ? 'Сохранение...' : 'Сохранить'}
+              </button>
+            </div>
+          )}
+        </section>
+
+        {/* ── ПРИОРИТЕТНЫЙ ЗАКАЗ ────────────────────────── */}
+        <section className="settings-section">
+          <h2 className="settings-section__title">Приоритетный заказ</h2>
+          {ordersLoading ? (
+            <div className="settings-loading">Загрузка...</div>
+          ) : (
+            <div className="settings-card">
               <label className="settings-toggle-row">
                 <span className="settings-toggle-label">
-                  Приоритетный заказ
+                  Показывать плашку
                   <span className={`settings-status-badge ${orders.priorityOrderEnabled ? 'badge-open' : 'badge-closed'}`}>
-                    {orders.priorityOrderEnabled ? 'Включён' : 'Выключен'}
+                    {orders.priorityOrderEnabled ? 'Включена' : 'Выключена'}
                   </span>
                 </span>
                 <input
@@ -226,15 +260,20 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
               <p className="settings-hint" style={{ marginTop: '-0.75rem' }}>При выключении плашка «Приоритетный заказ» полностью скрывается в форме оформления заказа.</p>
 
               <div className="settings-field">
-                <label className="settings-label">Сообщение о сроке сборки (в уведомлении бота)</label>
-                <textarea
-                  className="settings-textarea"
-                  rows={3}
-                  placeholder="Ваш заказ будет отправлен в течении 3-5 дней, мы пришлем уведомление с трек номером для отслеживания. Благодарим за заказ 🤍"
-                  value={orders.assemblyMessage}
-                  onChange={e => setOrders(prev => ({ ...prev, assemblyMessage: e.target.value }))}
+                <label className="settings-label">Наценка за приоритет (%)</label>
+                <input
+                  type="number"
+                  className="settings-input"
+                  min={1}
+                  max={100}
+                  value={orders.priorityOrderFee}
+                  onChange={e => {
+                    const v = parseInt(e.target.value, 10)
+                    if (!isNaN(v) && v >= 1 && v <= 100) setOrders(prev => ({ ...prev, priorityOrderFee: v }))
+                  }}
+                  style={{ maxWidth: 100 }}
                 />
-                <p className="settings-hint">Отправляется покупателю в Telegram/MAX после успешной оплаты. Если оставить пустым — используется стандартный текст.</p>
+                <p className="settings-hint">Процент, который прибавляется к сумме заказа при включённом приоритете. Сейчас: <b>+{orders.priorityOrderFee}%</b></p>
               </div>
 
               <button

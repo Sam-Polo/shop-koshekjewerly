@@ -14,6 +14,7 @@ export type OrdersSettings = {
   closeDate?: string
   assemblyMessage?: string
   priorityOrderEnabled?: boolean
+  priorityOrderFee?: number
   banner?: BannerSettings
 }
 
@@ -116,6 +117,9 @@ export async function fetchOrdersSettingsFromSheet(sheetId: string): Promise<Ord
       } else if (key === 'priority_order_enabled') {
         // отсутствие ключа = включено (обратная совместимость)
         settings.priorityOrderEnabled = !(value === 'false' || value === '0' || value === 'no')
+      } else if (key === 'priority_order_fee') {
+        const fee = parseInt(originalValue, 10)
+        if (!isNaN(fee) && fee >= 1 && fee <= 100) settings.priorityOrderFee = fee
       } else if (key === 'banner_enabled') {
         hasBannerData = true
         banner.bannerEnabled = value === 'true' || value === '1' || value === 'yes'

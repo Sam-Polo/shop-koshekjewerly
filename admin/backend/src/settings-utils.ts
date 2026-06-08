@@ -9,6 +9,7 @@ export type OrdersSettings = {
   closeDate?: string
   assemblyMessage?: string
   priorityOrderEnabled?: boolean
+  priorityOrderFee?: number
 }
 
 export type BannerSettings = {
@@ -119,6 +120,9 @@ export async function fetchOrdersSettingsFromSheet(sheetId: string): Promise<Ord
         if (originalValue) settings.assemblyMessage = originalValue
       } else if (key === 'priority_order_enabled') {
         settings.priorityOrderEnabled = !(value === 'false' || value === '0' || value === 'no')
+      } else if (key === 'priority_order_fee') {
+        const fee = parseInt(originalValue, 10)
+        if (!isNaN(fee) && fee >= 1 && fee <= 100) settings.priorityOrderFee = fee
       }
     }
 
@@ -203,6 +207,7 @@ export async function saveOrdersSettingsToSheet(sheetId: string, settings: Order
     await upsertSettingRow(sheets, sheetId, rows, 'close_date', settings.closeDate || '')
     await upsertSettingRow(sheets, sheetId, rows, 'assembly_message', settings.assemblyMessage || '')
     await upsertSettingRow(sheets, sheetId, rows, 'priority_order_enabled', settings.priorityOrderEnabled === false ? 'false' : 'true')
+    await upsertSettingRow(sheets, sheetId, rows, 'priority_order_fee', String(settings.priorityOrderFee ?? 30))
 
     logger.info({ ordersClosed: settings.ordersClosed, closeDate: settings.closeDate }, 'настройки заказов сохранены')
   } catch (error: any) {

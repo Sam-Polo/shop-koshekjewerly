@@ -773,6 +773,7 @@ const CheckoutForm = ({
   cart,
   products,
   priorityOrderEnabled = true,
+  priorityOrderFee = 30,
   onBack,
   onSubmit
 }: {
@@ -781,6 +782,7 @@ const CheckoutForm = ({
   cart: CartItem[]
   products: Product[]
   priorityOrderEnabled?: boolean
+  priorityOrderFee?: number
   onBack: () => void
   onSubmit: (data: any) => void
 }) => {
@@ -870,7 +872,7 @@ const CheckoutForm = ({
   const subtotalAfterDiscount = Math.max(0, subtotal - promocodeDiscount)
   const priorityFee =
     priorityOrderEnabled && priorityOrder && subtotalAfterDiscount > 0
-      ? Math.round(subtotalAfterDiscount * 0.3)
+      ? Math.round(subtotalAfterDiscount * priorityOrderFee / 100)
       : 0
   const total = subtotalAfterDiscount + priorityFee
   
@@ -1189,7 +1191,7 @@ const CheckoutForm = ({
                 <p className="priority-toast__text">
                   Приоритетный заказ оформляется вне очереди и отправляется в течение 24 часов.
                   <br />
-                  Стоимость услуги +30% к общей сумме заказа.
+                  Стоимость услуги +{priorityOrderFee}% к общей сумме заказа.
                 </p>
               </div>
             </>
@@ -1216,7 +1218,7 @@ const CheckoutForm = ({
         )}
         {priorityOrder && priorityFee > 0 && (
           <div className="checkout-form__summary-row checkout-form__summary-row--priority">
-            <span>Приоритетный заказ (+30%):</span>
+            <span>Приоритетный заказ (+{priorityOrderFee}%):</span>
             <span>{priorityFee} ₽</span>
           </div>
         )}
@@ -1612,6 +1614,7 @@ export default function App() {
   const [bannerDateFrom, setBannerDateFrom] = useState<string | undefined>(undefined)
   const [bannerDateTo, setBannerDateTo] = useState<string | undefined>(undefined)
   const [priorityOrderEnabled, setPriorityOrderEnabled] = useState(true)
+  const [priorityOrderFee, setPriorityOrderFee] = useState(30)
   const mainContentRef = useRef<HTMLElement>(null)
   const productsTitleRef = useRef<HTMLHeadingElement>(null)
   
@@ -1687,6 +1690,7 @@ export default function App() {
           }
           // отсутствие ключа = включено (обратная совместимость)
           setPriorityOrderEnabled(data.priorityOrderEnabled !== false)
+          if (typeof data.priorityOrderFee === 'number') setPriorityOrderFee(data.priorityOrderFee)
         }
       } catch (error) {
         console.error('[mini-app] ошибка загрузки настроек:', error)
@@ -2271,6 +2275,7 @@ export default function App() {
                 cart={cart}
                 products={products}
                 priorityOrderEnabled={priorityOrderEnabled}
+                priorityOrderFee={priorityOrderFee}
                 onBack={() => setCheckoutStep('region')}
                 onSubmit={handleCheckoutSubmit}
               />
