@@ -4,7 +4,7 @@ import { InputFile } from 'grammy';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { setDefaultResultOrder } from 'node:dns';
-import { tgFetch, currentGrammyAgent, rotateGrammyAgent, grammyAgentCount } from './proxy.js'
+import { tgFetch } from './proxy.js'
 import { sendAlert } from './alerts.js';
 import { userChatIds, loadUserChatIds, saveUserChatIds, addUserChatId } from './user-store.js'
 
@@ -39,17 +39,7 @@ if (token.length < 20) {
 
 console.log(`[bot] токен загружен, длина: ${token.length} символов`)
 
-// grammY ходит через node-fetch, который НЕ понимает undici dispatcher — ему нужен http.Agent.
-// Передаём прокси-агент функцией: node-fetch вызывает её на каждый запрос, что позволяет
-// ротировать прокси при сбое (rotateGrammyAgent) без пересоздания бота.
-const bot = new Bot(token, grammyAgentCount > 0 ? {
-  client: {
-    baseFetchConfig: {
-      compress: true,
-      agent: () => currentGrammyAgent(),
-    } as any
-  }
-} : undefined);
+const bot = new Bot(token);
 
 // ── Watchdog'и: параметры и общее состояние ──────────────────────────────
 const POLL_STALL_MS = Number(process.env.POLL_STALL_MS ?? 180_000)
@@ -95,7 +85,6 @@ bot.api.config.use(async (prev, method, payload, signal) => {
     // сетевой сбой или таймаут — переключаемся на другой прокси,
     // следующий poll пойдёт через него (бот сам восстановится без рестарта)
     console.warn(`[polling] getUpdates исключение: ${e?.name ?? ''} ${e?.message ?? e}`)
-    rotateGrammyAgent()
     throw e
   }
 })
@@ -1346,7 +1335,6 @@ bot.catch((err) => {
   // Транзиентно (флапнул прокси) — переключаемся на другой прокси, логируем как warn, без HIGH-алерта.
   if (e instanceof HttpError) {
     console.warn(`[bot.catch] сетевой сбой TG API в апдейте ${updateId} от юзера ${userId}: ${e.message}`)
-    rotateGrammyAgent()
     return
   }
 
