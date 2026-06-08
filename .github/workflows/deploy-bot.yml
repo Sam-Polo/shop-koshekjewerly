@@ -39,13 +39,13 @@ jobs:
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          echo "${{ secrets.SSH_PRIVATE_KEY_BOT }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+          ssh-keyscan -H ${{ secrets.SSH_HOST_BOT }} >> ~/.ssh/known_hosts
 
       - name: Deploy artifacts
         env:
-          TARGET: root@${{ secrets.SSH_HOST }}:/opt/bot/bot
+          TARGET: root@${{ secrets.SSH_HOST_BOT }}:/opt/bot/bot
         run: |
           rsync -azv --delete -e "ssh -i ~/.ssh/id_ed25519" \
             bot/dist/ "$TARGET/dist/"
@@ -53,14 +53,14 @@ jobs:
             bot/node_modules/ "$TARGET/node_modules/"
           rsync -azv -e "ssh -i ~/.ssh/id_ed25519" \
             bot/package.json bot/package-lock.json "$TARGET/"
-          ssh -i ~/.ssh/id_ed25519 root@${{ secrets.SSH_HOST }} \
+          ssh -i ~/.ssh/id_ed25519 root@${{ secrets.SSH_HOST_BOT }} \
             "mkdir -p /opt/bot/scripts"
           rsync -azv -e "ssh -i ~/.ssh/id_ed25519" \
-            bot/scripts/backup.sh "root@${{ secrets.SSH_HOST }}:/opt/bot/scripts/backup.sh"
-          ssh -i ~/.ssh/id_ed25519 root@${{ secrets.SSH_HOST }} \
+            bot/scripts/backup.sh "root@${{ secrets.SSH_HOST_BOT }}:/opt/bot/scripts/backup.sh"
+          ssh -i ~/.ssh/id_ed25519 root@${{ secrets.SSH_HOST_BOT }} \
             "chmod +x /opt/bot/scripts/backup.sh"
 
       - name: Restart PM2
         run: |
-          ssh -i ~/.ssh/id_ed25519 root@${{ secrets.SSH_HOST }} \
+          ssh -i ~/.ssh/id_ed25519 root@${{ secrets.SSH_HOST_BOT }} \
             "pm2 restart telegram-bot --update-env && pm2 save"
