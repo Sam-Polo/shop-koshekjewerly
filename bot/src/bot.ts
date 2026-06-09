@@ -151,7 +151,10 @@ const BACKEND_URL = process.env.BACKEND_URL ||
     ? 'https://shop-koshekjewerly.onrender.com' // дефолтный URL для продакшена
     : 'http://localhost:4000'); // дефолт для локальной разработки
 const SUPPORT_USERNAME = process.env.SUPPORT_USERNAME;
-const MANAGER_CHAT_ID = process.env.TG_MANAGER_CHAT_ID;
+const MANAGER_CHAT_IDS: Set<string> = new Set(
+  (process.env.TG_MANAGER_CHAT_ID || '').split(',').map(s => s.trim()).filter(Boolean)
+)
+const PRIMARY_MANAGER_CHAT_ID = [...MANAGER_CHAT_IDS][0]
 // канал для публикации поста с мини-приложением
 
 // ID группы обсуждений канала заказов (отличается от ID самого канала)
@@ -175,7 +178,7 @@ function isManager(chatId: string | number | undefined, username?: string): bool
   if (String(chatId) === TEMP_MANAGER_CHAT_ID) return true
   if (username && username.replace('@', '').toLowerCase() === TEMP_MANAGER_USERNAME) return true
 
-  if (MANAGER_CHAT_ID && String(chatId) === String(MANAGER_CHAT_ID)) return true
+  if (MANAGER_CHAT_IDS.has(String(chatId))) return true
 
   if (SUPPORT_USERNAME && username) {
     const supportUsername = SUPPORT_USERNAME.replace('@', '').toLowerCase()
@@ -497,7 +500,7 @@ bot.command('broadcast', async (ctx) => {
   const chatId = ctx.from?.id
   const username = ctx.from?.username
   
-  console.log('[broadcast] запрос от:', { chatId, username, MANAGER_CHAT_ID, SUPPORT_USERNAME })
+  console.log('[broadcast] запрос от:', { chatId, username, managerIds: [...MANAGER_CHAT_IDS], SUPPORT_USERNAME })
   
   if (!isManager(chatId, username)) {
     await ctx.reply('❌ У вас нет доступа к этой команде.')
@@ -951,7 +954,7 @@ bot.on('message', async (ctx) => {
     if (draft.step === 'comments') {
       const comments = text === '-' ? '' : text
       testOrderDrafts.delete(chatId)
-      const managerChatId = process.env.TG_MANAGER_CHAT_ID
+      const managerChatId = PRIMARY_MANAGER_CHAT_ID
       if (!managerChatId) {
         await ctx.reply('❌ TG_MANAGER_CHAT_ID не задан.')
         return
@@ -1388,8 +1391,8 @@ async function sendStartupAlert() {
       `BACKEND_URL: ${BACKEND_URL}`
     await sendAlert(startMsg, { tag: 'startup', level: 'info' })
 
-    if (!channelOk && MANAGER_CHAT_ID) {
-      await bot.api.sendMessage(Number(MANAGER_CHAT_ID),
+    if (!channelOk && PRIMARY_MANAGER_CHAT_ID) {
+      await bot.api.sendMessage(Number(PRIMARY_MANAGER_CHAT_ID),
         '⚠️ Внимание!\n\n' +
         'Чат для уведомлений об ошибках не настроен в боте. ' +
         'Если что-то пойдёт не так, вы не получите автоматические уведомления.\n\n' +
