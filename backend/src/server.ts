@@ -11,7 +11,7 @@ import { listProducts, upsertProducts, decreaseProductStock } from './store.js';
 import { createOrder, getOrder, updateOrderStatus, listOrders, restoreOrder, type Order, type Platform } from './orders.js';
 import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId, listPendingOrdersFromSheet } from './orders-sheet.js'
 import { sendAlert } from './alerts.js';
-import { buildPaymentForm, buildReceipt, verifyResultSignature, queryOrderState } from './robokassa.js';
+import { generatePaymentUrl, verifyResultSignature, queryOrderState } from './robokassa.js';
 import { fetchPromocodesFromSheet, loadPromocodes, findPromocode, validatePromocode, listPromocodes } from './promocodes.js';
 import { getCachedOrdersSettings } from './settings.js';
 import { getCachedCategories } from './categories.js';
@@ -923,6 +923,9 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
 
     // fire-and-forget запись в Google Sheets (orders + order_items)
     appendOrderToSheet(order).catch(() => {})
+    
+    // генерируем URL для оплаты
+    const webappUrl = process.env.TG_WEBAPP_URL || 'https://sam-polo.github.io/shop-koshekjewerly'
 
     // проверяем наличие обязательных переменных для Робокассы
     if (!process.env.ROBOKASSA_MERCHANT_LOGIN || !process.env.ROBOKASSA_PASSWORD_1) {
@@ -930,24 +933,45 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
       return res.status(500).json({ error: 'payment_config_error' })
     }
 
-    // Оплата идёт через промежуточную страницу бэкенда (/api/robokassa/pay), которая
-    // авто-POST'ит форму в Робокассу с номенклатурой (Receipt). POST — потому что чек с
-    // кириллицей раздувается в URL и упирается в лимит длины (рекомендация Робокассы).
-    const backendUrl = (process.env.BACKEND_URL || 'https://shop-koshekjewerly.onrender.com').replace(/\/$/, '')
-    const paymentUrl = `${backendUrl}/api/robokassa/pay?orderId=${encodeURIComponent(orderId)}`
+    // Для MAX: после оплаты Робокасса редиректит на бэкенд, который строит MAX deep link.
+    // Для TG: редирект сразу на GitHub Pages (мини-апп показывает страницу успеха).
+    let successUrl: string
+    let failUrl: string
+    if (orderPlatform === 'max') {
+      const backendUrl = process.env.BACKEND_URL || 'https://shop-koshekjewerly.onrender.com'
+      successUrl = `${backendUrl}/api/robokassa/success`
+      failUrl = `${backendUrl}/api/robokassa/fail`
+    } else {
+      // query-параметры вместо path — GitHub Pages отдаёт 404 на несуществующие пути
+      const base = webappUrl.replace(/\/$/, '')
+      successUrl = `${base}/?payment=success`
+      failUrl = `${base}/?payment=fail`
+    }
 
-    logger.info({
+    const paymentUrl = generatePaymentUrl({
       orderId,
       invoiceId,
       amount: total,
-      merchantLogin: process.env.ROBOKASSA_MERCHANT_LOGIN,
-      isTest: process.env.ROBOKASSA_TEST
-    }, 'заказ создан, ссылка на страницу оплаты сформирована')
-
-    res.json({
-      ok: true,
+      description: `Заказ ${orderId}`,
+      successUrl,
+      failUrl,
+      platform: orderPlatform // передаётся как Shp_platform, вернётся в success/fail URL
+    })
+    
+    // логируем сгенерированный URL для отладки (без паролей)
+    logger.info({ 
       orderId,
-      paymentUrl // URL страницы бэкенда, которая POST'ит форму в Робокассу
+      invoiceId, // числовой ID для Робокассы
+      amount: total, // пересчитанная сумма
+      merchantLogin: process.env.ROBOKASSA_MERCHANT_LOGIN,
+      isTest: process.env.ROBOKASSA_TEST,
+      paymentUrlLength: paymentUrl.length
+    }, 'URL для оплаты сгенерирован')
+    
+    res.json({ 
+      ok: true, 
+      orderId,
+      paymentUrl // URL для редиректа на оплату
     })
   } catch (e: any) {
     logger.error({ error: e?.message }, 'ошибка создания заказа')
@@ -1146,116 +1170,6 @@ app.post('/api/robokassa/result', express.urlencoded({ extended: true }), async 
     res.status(500).send('ERROR')
   }
 });
-
-// success/fail URL'ы в зависимости от платформы.
-// MAX: Робокасса редиректит на бэкенд, который строит MAX deep link.
-// TG: редирект сразу на GitHub Pages (мини-апп показывает страницу успеха).
-function buildSuccessFailUrls(platform: Platform): { successUrl: string; failUrl: string } {
-  if (platform === 'max') {
-    const backendUrl = (process.env.BACKEND_URL || 'https://shop-koshekjewerly.onrender.com').replace(/\/$/, '')
-    return { successUrl: `${backendUrl}/api/robokassa/success`, failUrl: `${backendUrl}/api/robokassa/fail` }
-  }
-  // query-параметры вместо path — GitHub Pages отдаёт 404 на несуществующие пути
-  const base = (process.env.TG_WEBAPP_URL || 'https://sam-polo.github.io/shop-koshekjewerly').replace(/\/$/, '')
-  return { successUrl: `${base}/?payment=success`, failUrl: `${base}/?payment=fail` }
-}
-
-// экранирование значений для HTML-атрибутов (значения полей формы)
-function escapeHtmlAttr(s: string): string {
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
-
-// HTML-страница с авто-submit POST-формой в Робокассу
-function renderRobokassaForm(actionUrl: string, fields: Record<string, string>): string {
-  const inputs = Object.entries(fields)
-    .map(([k, v]) => `    <input type="hidden" name="${escapeHtmlAttr(k)}" value="${escapeHtmlAttr(v)}">`)
-    .join('\n')
-  return `<!DOCTYPE html>
-<html lang="ru">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Переход к оплате…</title>
-<style>body{font-family:-apple-system,system-ui,'Segoe UI',Roboto,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;background:#faf7f2;color:#333}.box{text-align:center;padding:24px}button{margin-top:12px;padding:10px 18px;border:0;border-radius:10px;background:#caa46a;color:#fff;font-size:15px}</style>
-</head>
-<body>
-  <form id="rk" method="POST" action="${escapeHtmlAttr(actionUrl)}" accept-charset="utf-8">
-${inputs}
-  </form>
-  <div class="box">
-    <p>Перенаправляем на оплату…</p>
-    <noscript><button type="submit" form="rk">Перейти к оплате</button></noscript>
-  </div>
-  <script>document.getElementById('rk').submit();</script>
-</body>
-</html>`
-}
-
-// промежуточная страница оплаты: собирает чек номенклатуры (Receipt) и авто-POST'ит форму в Робокассу.
-// заказ берём из памяти; если бэкенд перезапускался (Render sleep/deploy) — восстанавливаем из Sheets.
-const handlePayRedirect = async (req: express.Request, res: express.Response) => {
-  try {
-    const orderId = String(req.query.orderId || '')
-    if (!orderId) return res.status(400).send('orderId required')
-
-    let order: Order | null = getOrder(orderId) ?? null
-    if (!order) {
-      order = await getOrderFromSheet(orderId).catch(() => null)
-    }
-    if (!order) {
-      logger.warn({ orderId }, 'pay: заказ не найден ни в памяти, ни в Sheets')
-      return res.status(404).send('<!DOCTYPE html><meta charset="utf-8"><h1>Заказ не найден</h1><p>Вернитесь в приложение и оформите заказ заново.</p>')
-    }
-
-    const platform: Platform = order.platform === 'max' ? 'max' : 'telegram'
-    const invoiceId = orderId.replace(/^ORD-/, '')
-    const { total, deliveryCost, priorityFee, promocode, items } = order.orderData
-
-    const receipt = buildReceipt({
-      items: items.map(i => ({ title: i.title, price: i.price, quantity: i.quantity })),
-      deliveryCost,
-      priorityFee: priorityFee ?? 0,
-      discount: promocode?.discount ?? 0,
-      total,
-    })
-    if (!receipt) {
-      // не удалось свести чек к OutSum — платим без номенклатуры: карта работает, BNPL будет скрыт
-      sendAlert(
-        `Не удалось собрать Receipt для ${orderId} — оплата без номенклатуры (Сплит/рассрочка будут скрыты)`,
-        { tag: 'robokassa', level: 'moderate', hint: 'проверьте суммы позиций/скидку — итог не сошёлся с total', code: 'RECEIPT_BUILD_FAILED' }
-      ).catch(() => {})
-    }
-
-    const { successUrl, failUrl } = buildSuccessFailUrls(platform)
-    const { actionUrl, fields } = buildPaymentForm({
-      orderId,
-      invoiceId,
-      amount: total,
-      receipt,
-      description: `Заказ ${orderId}`,
-      successUrl,
-      failUrl,
-      platform,
-    })
-
-    res.set('Content-Type', 'text/html; charset=utf-8')
-    // страница персональная и одноразовая — не кэшируем
-    res.set('Cache-Control', 'no-store')
-    res.send(renderRobokassaForm(actionUrl, fields))
-  } catch (e: any) {
-    logger.error({ error: e?.message }, 'pay: ошибка формирования формы оплаты')
-    sendAlert(`Ошибка формирования формы оплаты: ${e?.message}`, { tag: 'robokassa', level: 'high', hint: 'покупатель не смог перейти к оплате', code: 'PAY_FORM_FAILED' }).catch(() => {})
-    res.status(500).send('<!DOCTYPE html><meta charset="utf-8"><h1>Ошибка</h1><p>Не удалось перейти к оплате. Попробуйте ещё раз.</p>')
-  }
-}
-
-// страница оплаты (GET — открывается в браузере через WebApp.openLink)
-app.get('/api/robokassa/pay', handlePayRedirect);
 
 // обработчик для Success URL (поддерживает GET и POST)
 const handleSuccessUrl = (req: express.Request, res: express.Response) => {

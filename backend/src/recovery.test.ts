@@ -22,8 +22,7 @@ vi.mock('./orders-sheet.js', () => ({
   getOrderFromSheet: vi.fn(),
 }))
 vi.mock('./robokassa.js', () => ({
-  buildPaymentForm: vi.fn().mockReturnValue({ actionUrl: 'https://pay.test', fields: {} }),
-  buildReceipt: vi.fn().mockReturnValue(null),
+  generatePaymentUrl: vi.fn().mockReturnValue('https://pay.test'),
   verifyResultSignature: vi.fn().mockReturnValue(true),
   IS_TEST: true,
   MERCHANT_LOGIN: 'test',
