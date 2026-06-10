@@ -575,12 +575,14 @@ const OrdersClosedModal = ({
 }
 
 // модальное окно перед перенаправлением на оплату
-const PaymentRedirectModal = ({ 
+const PaymentRedirectModal = ({
   onConfirm,
-  onCancel
-}: { 
+  onCancel,
+  appPlatform
+}: {
   onConfirm: () => void
   onCancel: () => void
+  appPlatform?: string
 }) => {
   return (
     <div className="modal-overlay" onClick={onCancel}>
@@ -593,6 +595,11 @@ const PaymentRedirectModal = ({
             Вы будете перенаправлены на сайт платежной системы.<br/><br/>
             Сразу после оплаты бот отправит Вам информацию о заказе в сообщениях.
           </p>
+          {appPlatform !== 'max' && (
+            <p className="order-success__bot-warning">
+              Убедитесь, что у вас начат диалог с ботом, иначе информация о заказе не придёт!
+            </p>
+          )}
           <button className="btn order-success__button order-success__button--pink" onClick={onConfirm} style={{ marginTop: '24px' }}>
             Подтвердить
           </button>
@@ -2348,6 +2355,7 @@ export default function App() {
             <PaymentRedirectModal
               onConfirm={handlePaymentConfirm}
               onCancel={handlePaymentCancel}
+              appPlatform={appPlatform}
             />
           )}
           

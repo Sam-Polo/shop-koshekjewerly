@@ -1080,6 +1080,17 @@ export async function processPaidOrder(
         ).catch(() => {})
       }
     }
+
+    // отправляем трек менеджеру в канал
+    const mgrChatId = order.platform === 'max'
+      ? process.env.MAX_MANAGER_CHAT_ID
+      : (process.env.TG_ORDERS_CHANNEL_ID || process.env.TG_MANAGER_CHAT_ID)
+    if (mgrChatId) {
+      const sendMgr = order.platform === 'max' ? sendMaxMessage : sendTelegramMessage
+      sendMgr(mgrChatId,
+        `📦 СДЭК трек по заказу <code>${escapeHtml(orderId)}</code>:\n<code>${cdekNumber}</code>\n${trackingUrl}`
+      ).catch(() => {})
+    }
   }).catch((e: any) => {
     sendAlert(
       `CDEK: необработанная ошибка при запуске triggerCdekOrderAsync для ${orderId}: ${e?.message}`,
