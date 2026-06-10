@@ -16,6 +16,7 @@ import { buildPaymentForm, buildReceipt, verifyResultSignature, queryOrderState 
 import { fetchPromocodesFromSheet, loadPromocodes, findPromocode, validatePromocode, listPromocodes } from './promocodes.js';
 import { getCachedOrdersSettings } from './settings.js';
 import { getCachedCategories } from './categories.js';
+import { loadPendingNotifications, addPendingNotification, claimPendingNotifications } from './pending-notifications.js';
 import {
   fetchBasesFromSheet,
   fetchPendantsFromSheet,
@@ -669,6 +670,20 @@ ${order.orderData.comments ? `Комментарии: ${escapeHtml(order.orderDa
       return 'chat_id покупателя не найден (мини-апп открыт без initData)'
     }
     return 'не удалось доставить сообщение покупателю'
+  }
+
+  // если "chat not found" — сохраняем уведомление для отправки при первом /start
+  if (!customerDelivery.ok && order.customerChatId && !isMax) {
+    const desc = (customerDelivery.errorDescription || '').toLowerCase()
+    if (desc.includes('chat not found') || desc.includes("bot can't initiate")) {
+      addPendingNotification(order.customerChatId, {
+        orderId: order.orderId,
+        message: customerMessage,
+        type: 'order',
+        createdAt: Date.now(),
+      })
+      logger.info({ orderId: order.orderId, customerChatId: order.customerChatId }, 'pending: уведомление о заказе сохранено')
+    }
   }
 
   // финальный текст для менеджера: если покупатель не получил — добавляем шапку с причиной
@@ -1435,11 +1450,28 @@ ${assemblyMessage}
       : await sendTelegramMessage(String(chatId), customerMessage)
 
     logger.info({ orderId, chatId, ok: result.ok }, 'resend-notification: результат')
+    if (result.ok) {
+      // очищаем pending-уведомления: resend уже доставил заказ, дублировать не нужно
+      claimPendingNotifications(chatId)
+    }
     res.json({ ok: result.ok, error: result.ok ? undefined : result.errorDescription })
   } catch (e: any) {
     logger.error({ orderId, error: e?.message }, 'resend-notification: ошибка')
     res.status(500).json({ error: e?.message })
   }
+})
+
+// возвращает и очищает отложенные уведомления для пользователя (вызывается ботом при /start)
+app.post('/api/claim-pending-notifications', express.json(), (req, res) => {
+  const auth = req.headers.authorization
+  if (!auth || auth !== `Bearer ${process.env.TG_BOT_TOKEN}`) {
+    return res.status(401).json({ error: 'unauthorized' })
+  }
+  const { chatId } = req.body
+  if (!chatId) return res.status(400).json({ error: 'chatId required' })
+  const notifications = claimPendingNotifications(chatId)
+  logger.info({ chatId, count: notifications.length }, 'claim-pending-notifications')
+  return res.json({ notifications })
 })
 
 // ── CDEK endpoints ────────────────────────────────────────────────────────────
@@ -1539,6 +1571,21 @@ app.post('/api/orders/:orderId/send-tracking', express.json(), async (req, res) 
   } else {
     const errDesc = result.errorDescription || `HTTP ${result.status}`
     logger.warn({ orderId, error: errDesc }, 'не удалось отправить трек покупателю')
+
+    // если "chat not found" — сохраняем трек для отправки при первом /start
+    if (order.platform !== 'max') {
+      const desc = errDesc.toLowerCase()
+      if (desc.includes('chat not found') || desc.includes("bot can't initiate")) {
+        addPendingNotification(order.customerChatId!, {
+          orderId,
+          message: trackingMessage,
+          type: 'track',
+          createdAt: Date.now(),
+        })
+        logger.info({ orderId, customerChatId: order.customerChatId }, 'pending: трек-уведомление сохранено')
+      }
+    }
+
     return res.json({ ok: false, error: errDesc })
   }
 })
@@ -1692,6 +1739,9 @@ app.listen(port, async () => {
   const supportUsername = process.env.SUPPORT_USERNAME || 'semyonp88'
   logger.info({ supportUsername: supportUsername.replace('@', '') }, 'SUPPORT_USERNAME настроен');
   logger.info('⚠️  Убедись что менеджер начал диалог с ботом (/start), иначе сообщения не дойдут');
+
+  // загружаем отложенные уведомления (заказы, у которых не был открыт чат с ботом)
+  loadPendingNotifications();
 
   // импорт при запуске
   await importProducts();

@@ -710,6 +710,36 @@ async function handleStart(ctx: any) {
       reply_markup: kb,
     }).catch(() => {})
   }
+
+  // отправляем отложенные уведомления (заказ или трек, которые не дошли при "chat not found")
+  if (chatId && BACKEND_URL && token) {
+    const abortCtrl = new AbortController()
+    const abortTimer = setTimeout(() => abortCtrl.abort(), 12_000)
+    try {
+      const resp = await fetch(`${BACKEND_URL}/api/claim-pending-notifications`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ chatId }),
+        signal: abortCtrl.signal,
+      })
+      const data = await resp.json() as { notifications?: Array<{ message: string; type: string }> }
+      clearTimeout(abortTimer)
+      for (const notif of data.notifications ?? []) {
+        await ctx.reply(notif.message, { parse_mode: 'HTML' }).catch(() => {})
+      }
+    } catch (e: any) {
+      clearTimeout(abortTimer)
+      if (e?.name === 'AbortError') {
+        sendAlert(`/start claim-pending: бэкенд не ответил за 12с (chatId=${chatId})`, {
+          tag: 'claim_pending',
+          level: 'low',
+        }).catch(() => {})
+      }
+    }
+  }
 }
 
 bot.command('start', handleStart);
@@ -1408,6 +1438,15 @@ sendStartupAlert()
 
 // drop_pending_updates: пропускаем накопленный бэклог при старте (по offset'у, не по часам).
 // Заменяет прежний хрупкий фильтр по времени, который ломался при сбое часов сервера.
-bot.start({ drop_pending_updates: true })
+// .catch обязателен: без него 409 (Telegram ещё не отпустил сессию после быстрого рестарта PM2)
+// превращается в unhandledRejection и бот зависает живым — polling остановлен, PM2 не перезапускает.
+bot.start({ drop_pending_updates: true }).catch((err: any) => {
+  console.error('[bot.start] fatal error, exiting for PM2 restart:', err)
+  sendAlert(
+    `bot.start завершился с ошибкой: ${err?.message ?? String(err)}`,
+    { tag: 'bot-start', level: 'critical', hint: 'polling loop упал — процесс завершается, PM2 поднимет заново', code: 'BOT_START_FATAL' }
+  ).catch(() => {})
+  setTimeout(() => process.exit(1), 2000)
+})
 
 
