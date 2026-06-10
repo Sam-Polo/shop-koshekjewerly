@@ -773,7 +773,8 @@ const CheckoutForm = ({
   const [selectedCity, setSelectedCity] = useState<CdekCity | null>(null)
   const [cityLoading, setCityLoading] = useState(false)
   const [pvzList, setPvzList] = useState<CdekPvz[]>([])
-  const [pvzFilter, setPvzFilter] = useState('')
+  const [pvzQuery, setPvzQuery] = useState('')
+  const [pvzListOpen, setPvzListOpen] = useState(false)
   const [selectedPvz, setSelectedPvz] = useState<CdekPvz | null>(null)
   const [pvzLoading, setPvzLoading] = useState(false)
   const [deliveryCost, setDeliveryCost] = useState<number | null>(null)
@@ -862,34 +863,50 @@ const CheckoutForm = ({
     }
     if (errors.city) setErrors(prev => ({ ...prev, city: '' }))
     if (cityDebounceRef.current) clearTimeout(cityDebounceRef.current)
-    cityDebounceRef.current = setTimeout(() => fetchCities(value), 400)
+    cityDebounceRef.current = setTimeout(() => fetchCities(value), 250)
   }
 
   const handleCitySelect = async (city: CdekCity) => {
     setSelectedCity(city)
     setCityQuery(`${city.city}${city.region ? ', ' + city.region : ''}`)
     setCitySuggestions([]); setShowCitySuggestions(false)
-    setSelectedPvz(null); setPvzFilter('')
-    setPvzLoading(true); setCostLoading(true); setCostError(null); setDeliveryCost(null); setPvzList([])
+    setSelectedPvz(null); setPvzQuery(''); setPvzListOpen(false)
+    setPvzLoading(true); setPvzList([]); setDeliveryCost(null); setCostError(null)
     if (errors.city) setErrors(prev => ({ ...prev, city: '' }))
     if (errors.pvz) setErrors(prev => ({ ...prev, pvz: '' }))
 
     const apiUrl = import.meta.env.VITE_API_URL || ''
-    const [pvzResult, costResult] = await Promise.allSettled([
-      fetch(`${apiUrl}/api/cdek/pvz?city_code=${city.code}`).then(r => r.json() as Promise<CdekPvz[]>),
-      fetch(`${apiUrl}/api/cdek/calculate?city_code=${city.code}`).then(r => {
-        if (!r.ok) throw new Error('cdek_unavailable')
-        return r.json() as Promise<{ delivery_sum: number }>
-      })
-    ])
-    setPvzList(pvzResult.status === 'fulfilled' && Array.isArray(pvzResult.value) ? pvzResult.value : [])
-    setPvzLoading(false)
-    if (costResult.status === 'fulfilled') {
-      setDeliveryCost(costResult.value.delivery_sum); setCostError(null)
-    } else {
-      setDeliveryCost(null); setCostError('Не удалось рассчитать стоимость. Выберите другой город или попробуйте позже.')
+    try {
+      const resp = await fetch(`${apiUrl}/api/cdek/pvz?city_code=${city.code}`)
+      const data: CdekPvz[] = await resp.json()
+      setPvzList(Array.isArray(data) ? data : [])
+    } catch {
+      setPvzList([])
+    } finally {
+      setPvzLoading(false)
     }
-    setCostLoading(false)
+  }
+
+  const handlePvzSelect = async (pvz: CdekPvz) => {
+    setSelectedPvz(pvz)
+    setPvzQuery(pvz.address)
+    setPvzListOpen(false)
+    if (errors.pvz) setErrors(prev => ({ ...prev, pvz: '' }))
+    if (errors.delivery) setErrors(prev => ({ ...prev, delivery: '' }))
+    if (isOnlyTestProducts) return
+    setCostLoading(true); setCostError(null); setDeliveryCost(null)
+    const apiUrl = import.meta.env.VITE_API_URL || ''
+    try {
+      const resp = await fetch(`${apiUrl}/api/cdek/calculate?city_code=${selectedCity!.code}`)
+      if (!resp.ok) throw new Error('cdek_unavailable')
+      const data = await resp.json()
+      setDeliveryCost(data.delivery_sum)
+    } catch {
+      setDeliveryCost(null)
+      setCostError('Не удалось рассчитать стоимость. Выберите другой город или попробуйте позже.')
+    } finally {
+      setCostLoading(false)
+    }
   }
 
   // если в корзине только тестовые товары - доставка бесплатная
@@ -904,9 +921,9 @@ const CheckoutForm = ({
   const total = subtotalAfterDiscount + priorityFee
 
   const filteredPvz = pvzList.filter(p =>
-    !pvzFilter ||
-    p.address.toLowerCase().includes(pvzFilter.toLowerCase()) ||
-    p.name.toLowerCase().includes(pvzFilter.toLowerCase())
+    !pvzQuery ||
+    p.address.toLowerCase().includes(pvzQuery.toLowerCase()) ||
+    p.name.toLowerCase().includes(pvzQuery.toLowerCase())
   )
 
   const validate = () => {
@@ -1083,41 +1100,46 @@ const CheckoutForm = ({
         </div>
 
         {selectedCity && (
-          <div className="checkout-form__label">
+          <div className="checkout-form__label" style={{ position: 'relative' }}>
             Пункт выдачи СДЭК <span className="checkout-form__required">*</span>
             {pvzLoading ? (
               <div style={{ padding: '12px 0', color: '#999', fontSize: 14 }}>Загружаем пункты выдачи...</div>
-            ) : pvzList.length > 0 ? (
-              <>
-                {pvzList.length > 5 && (
-                  <input
-                    type="text"
-                    className="checkout-form__input"
-                    style={{ marginBottom: 8 }}
-                    value={pvzFilter}
-                    onChange={e => setPvzFilter(e.target.value)}
-                    placeholder="Фильтр по адресу или названию"
-                  />
-                )}
-                <div className="cdek-pvz-list">
-                  {filteredPvz.slice(0, 50).map(pvz => (
-                    <div
-                      key={pvz.code}
-                      className={`cdek-pvz-item ${selectedPvz?.code === pvz.code ? 'cdek-pvz-item--selected' : ''}`}
-                      onClick={() => { setSelectedPvz(pvz); if (errors.pvz) setErrors(prev => ({ ...prev, pvz: '' })) }}
-                    >
-                      <div className="cdek-pvz-item__name">{pvz.name}</div>
-                      <div className="cdek-pvz-item__address">{pvz.address}</div>
-                      {pvz.work_time && <div className="cdek-pvz-item__hours">{pvz.work_time}</div>}
-                    </div>
-                  ))}
-                  {filteredPvz.length === 0 && <div style={{ color: '#999', fontSize: 14, padding: '8px 0' }}>Ничего не найдено</div>}
-                </div>
-              </>
-            ) : (
+            ) : pvzList.length === 0 ? (
               <div style={{ padding: '12px 0', color: '#d32f2f', fontSize: 14 }}>
                 Нет доступных пунктов выдачи для выбранного города
               </div>
+            ) : (
+              <>
+                <input
+                  type="text"
+                  className={`checkout-form__input ${selectedPvz ? 'cdek-pvz-input--selected' : ''} ${errors.pvz ? 'error' : ''}`}
+                  value={pvzQuery}
+                  onChange={e => { setPvzQuery(e.target.value); setPvzListOpen(true) }}
+                  onFocus={() => {
+                    if (selectedPvz) {
+                      setSelectedPvz(null); setPvzQuery(''); setDeliveryCost(null); setCostError(null)
+                    }
+                    setPvzListOpen(true)
+                  }}
+                  onBlur={() => setTimeout(() => setPvzListOpen(false), 150)}
+                  placeholder="Поиск пункта"
+                  autoComplete="off"
+                />
+                {pvzListOpen && (
+                  <div className="cdek-suggestions">
+                    {filteredPvz.slice(0, 50).map(pvz => (
+                      <div key={pvz.code} className="cdek-suggestions__item" onMouseDown={() => handlePvzSelect(pvz)}>
+                        <div className="cdek-pvz-item__name">{pvz.name}</div>
+                        <div className="cdek-pvz-item__address">{pvz.address}</div>
+                        {pvz.work_time && <div className="cdek-pvz-item__hours">{pvz.work_time}</div>}
+                      </div>
+                    ))}
+                    {filteredPvz.length === 0 && (
+                      <div style={{ color: '#999', fontSize: 14, padding: '10px 12px' }}>Ничего не найдено</div>
+                    )}
+                  </div>
+                )}
+              </>
             )}
             {errors.pvz && <span className="checkout-form__error">{errors.pvz}</span>}
           </div>

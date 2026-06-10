@@ -2,7 +2,8 @@ import type { Order } from './orders.js'
 import { sendAlert } from './alerts.js'
 
 const CDEK_BASE = (process.env.CDEK_BASE_URL ?? 'https://api.cdek.ru/v2').replace(/\/$/, '')
-const FROM_CITY = 'Москва'
+// CDEK city code for Moscow (official CDEK reference)
+const FROM_CITY_CODE = Number(process.env.CDEK_FROM_CITY_CODE ?? 44)
 const TARIFF_CODE = 136
 const PKG_WEIGHT_G = 200
 const PKG_LENGTH_CM = 15
@@ -125,12 +126,15 @@ export async function getPickupPoints(cityCode: number): Promise<CdekPvz[]> {
 export async function calculateDelivery(toCityCode: number): Promise<number> {
   const data = await cdekFetch('POST', '/calculator/tariff', {
     tariff_code: TARIFF_CODE,
-    from_location: { city: FROM_CITY },
+    from_location: { city_code: FROM_CITY_CODE },
     to_location: { city_code: toCityCode },
     packages: [{ weight: PKG_WEIGHT_G, length: PKG_LENGTH_CM, width: PKG_WIDTH_CM, height: PKG_HEIGHT_CM }],
   }) as any
   const sum = data?.delivery_sum ?? data?.total_sum
-  if (typeof sum !== 'number') throw new Error('CDEK calculator: no delivery_sum in response')
+  if (typeof sum !== 'number') {
+    const errors = data?.errors ?? data?.error
+    throw new Error(`CDEK calculator: no delivery_sum. Response: ${JSON.stringify(errors ?? data).slice(0, 300)}`)
+  }
   return Math.ceil(sum)
 }
 
@@ -154,7 +158,7 @@ export async function createCdekOrder(order: Order, pvzCode: string): Promise<Cd
   const data = await cdekFetch('POST', '/orders', {
     tariff_code: TARIFF_CODE,
     comment: `Заказ ${order.orderId}`,
-    from_location: { city: FROM_CITY },
+    from_location: { city_code: FROM_CITY_CODE },
     delivery_point: pvzCode,
     recipient: {
       name: order.orderData.fullName,

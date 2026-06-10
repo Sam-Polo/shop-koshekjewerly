@@ -1465,7 +1465,7 @@ app.get('/api/cdek/calculate', generalLimiter, async (req, res) => {
     return res.json({ delivery_sum: cost })
   } catch (e: any) {
     logger.warn({ error: e?.message, cityCode }, 'CDEK calculate error')
-    return res.status(502).json({ error: 'cdek_unavailable' })
+    return res.status(502).json({ error: 'cdek_unavailable', detail: e?.message?.slice(0, 300) })
   }
 })
 
