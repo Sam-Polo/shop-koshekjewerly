@@ -15,7 +15,8 @@ const ORDERS_HEADERS = [
   'customer_chat_id', 'customer_name', 'full_name', 'phone', 'username',
   'country', 'city', 'address', 'delivery_region', 'delivery_cost',
   'items_total', 'promocode_code', 'promocode_discount',
-  'priority_order', 'priority_fee', 'total', 'client_comment', 'admin_note'
+  'priority_order', 'priority_fee', 'total', 'client_comment', 'admin_note',
+  'cdek_uuid', 'cdek_track_number'
 ]
 
 const ORDER_ITEMS_HEADERS = [
@@ -128,7 +129,9 @@ function buildOrderRow(order: Order): (string | number)[] {
     d.priorityFee ?? 0,
     d.total ?? 0,
     d.comments || '',
-    '' // admin_note
+    '', // admin_note
+    order.cdekUuid ?? '',
+    order.cdekTrackNumber ?? '',
   ]
 }
 
@@ -153,7 +156,7 @@ export async function appendOrderToSheet(order: Order): Promise<void> {
     const api = google.sheets({ version: 'v4', auth })
     await api.spreadsheets.values.append({
       spreadsheetId,
-      range: `${ORDERS_SHEET}!A:W`,
+      range: `${ORDERS_SHEET}!A:Y`,
       valueInputOption: 'RAW',
       insertDataOption: 'INSERT_ROWS',
       requestBody: { values: [buildOrderRow(order)] }
@@ -233,7 +236,7 @@ export async function getOrderFromSheet(orderId: string): Promise<(Order & { she
     // 18=priority_order, 19=priority_fee, 20=total, 21=client_comment, 22=admin_note
     const ordersRes = await api.spreadsheets.values.get({
       spreadsheetId,
-      range: `${ORDERS_SHEET}!A:W`
+      range: `${ORDERS_SHEET}!A:Y`
     })
     const orderRows = ordersRes.data.values || []
     let orderRow: string[] | null = null
@@ -364,6 +367,36 @@ export async function getOrdersByCustomerChatId(chatId: string, limit = 10): Pro
   }
 }
 
+export async function updateCdekInfoInSheet(orderId: string, cdekUuid: string, cdekTrackNumber: string | null): Promise<void> {
+  const spreadsheetId = getSheetId()
+  if (!spreadsheetId) return
+  try {
+    await ensureOrderSheets()
+    const auth = getAuth()
+    const api = google.sheets({ version: 'v4', auth })
+    const res = await api.spreadsheets.values.get({ spreadsheetId, range: `${ORDERS_SHEET}!A:A` })
+    const rows = res.data.values || []
+    let rowNumber = -1
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i]?.[0] === orderId) { rowNumber = i + 1; break }
+    }
+    if (rowNumber === -1) {
+      logger.warn({ orderId }, 'updateCdekInfoInSheet: строка не найдена')
+      return
+    }
+    // columns X=24 (cdek_uuid), Y=25 (cdek_track_number)
+    await api.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${ORDERS_SHEET}!X${rowNumber}:Y${rowNumber}`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [[cdekUuid, cdekTrackNumber ?? '']] }
+    })
+    logger.info({ orderId, cdekUuid, cdekTrackNumber, rowNumber }, 'CDEK info обновлён в Google Sheets')
+  } catch (e: any) {
+    logger.warn({ orderId, error: e?.message }, 'updateCdekInfoInSheet: ошибка')
+  }
+}
+
 export async function updateOrderAdminNoteInSheet(orderId: string, note: string): Promise<void> {
   const spreadsheetId = getSheetId()
   if (!spreadsheetId) return
@@ -412,7 +445,7 @@ export async function listPendingOrdersFromSheet(
 
     const ordersRes = await api.spreadsheets.values.get({
       spreadsheetId,
-      range: `${ORDERS_SHEET}!A:W`
+      range: `${ORDERS_SHEET}!A:Y`
     })
     const orderRows = ordersRes.data.values || []
 

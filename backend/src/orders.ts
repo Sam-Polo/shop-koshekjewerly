@@ -28,6 +28,10 @@ export type Order = {
     deliveryCost: number
     total: number
     comments?: string
+    /** код ПВЗ СДЭК (обязателен для создания отправления) */
+    pvzCode?: string
+    /** CDEK city code (для расчёта стоимости и создания отправления) */
+    cdekCityCode?: number
     /** приоритетный заказ: +30% к сумме после скидки */
     priorityOrder?: boolean
     priorityFee?: number
@@ -43,6 +47,10 @@ export type Order = {
   customerName?: string | null
   /** платформа, с которой создан заказ (telegram или max) */
   platform?: Platform
+  /** UUID заказа в системе СДЭК */
+  cdekUuid?: string | null
+  /** трек-номер СДЭК */
+  cdekTrackNumber?: string | null
 }
 
 const orders = new Map<string, Order>()

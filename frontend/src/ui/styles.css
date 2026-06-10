@@ -580,6 +580,21 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 .checkout-form__promocode-message--success { color: #2e7d32; }
 .checkout-form__promocode-message--error { color: #d32f2f; }
 
+/* CDEK: autocomplete и PVZ */
+.cdek-suggestions { position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 1px solid #ddd; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,.12); z-index: 100; max-height: 220px; overflow-y: auto; }
+.cdek-suggestions__item { padding: 10px 12px; cursor: pointer; transition: background .15s; }
+.cdek-suggestions__item:hover { background: #faf5fc; }
+.cdek-suggestions__city { font-size: 15px; color: #222; }
+.cdek-suggestions__region { font-size: 13px; color: #888; }
+.cdek-pvz-list { max-height: 260px; overflow-y: auto; border: 1px solid #eee; border-radius: 6px; margin-top: 6px; }
+.cdek-pvz-item { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; cursor: pointer; transition: background .15s; }
+.cdek-pvz-item:last-child { border-bottom: none; }
+.cdek-pvz-item:hover { background: #faf5fc; }
+.cdek-pvz-item--selected { background: #f3e6f8; border-left: 3px solid #d480e0; }
+.cdek-pvz-item__name { font-size: 14px; font-weight: 500; color: #222; }
+.cdek-pvz-item__address { font-size: 13px; color: #555; margin-top: 2px; }
+.cdek-pvz-item__hours { font-size: 12px; color: #888; margin-top: 2px; }
+
 /* приоритетный заказ: тогл (матча выкл / розовый вкл) */
 .checkout-form__priority-wrap {
   position: relative;

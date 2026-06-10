@@ -9,8 +9,9 @@ import rateLimit from 'express-rate-limit';
 import { fetchProductsFromSheet } from './sheets.js';
 import { listProducts, upsertProducts, decreaseProductStock } from './store.js';
 import { createOrder, getOrder, updateOrderStatus, listOrders, restoreOrder, type Order, type Platform } from './orders.js';
-import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId, listPendingOrdersFromSheet } from './orders-sheet.js'
+import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId, listPendingOrdersFromSheet, updateCdekInfoInSheet } from './orders-sheet.js'
 import { sendAlert } from './alerts.js';
+import { searchCities, getPickupPoints, calculateDelivery, triggerCdekOrderAsync } from './cdek.js';
 import { buildPaymentForm, buildReceipt, verifyResultSignature, queryOrderState } from './robokassa.js';
 import { fetchPromocodesFromSheet, loadPromocodes, findPromocode, validatePromocode, listPromocodes } from './promocodes.js';
 import { getCachedOrdersSettings } from './settings.js';
@@ -39,6 +40,14 @@ if (process.env.SENTRY_DSN) {
 
 const logger = pino();
 const app = express();
+
+const ADMIN_CHAT_IDS: Set<string> = new Set(
+  (process.env.ADMIN_CHAT_IDS || '').split(',').map(s => s.trim()).filter(Boolean)
+)
+
+function isAdminChatId(chatId: string | null | undefined): boolean {
+  return !!chatId && ADMIN_CHAT_IDS.has(chatId)
+}
 
 // нормализация номера телефона в формат +7XXXXXXXXXX
 // убирает все не-цифры, затем приводит к +7XXXXXXXXXX
@@ -326,17 +335,24 @@ app.get('/api/categories', async (_req, res) => {
 });
 
 // получение статуса заказов
-app.get('/api/settings/orders-status', async (_req, res) => {
+app.get('/api/settings/orders-status', async (req, res) => {
   try {
     const sheetId = process.env.IMPORT_SHEET_ID
     if (!sheetId) {
       logger.warn('IMPORT_SHEET_ID не задан, возвращаем ordersClosed: false')
       return res.json({ ordersClosed: false })
     }
-    
+
     logger.info('запрос статуса заказов')
     const settings = await getCachedOrdersSettings(sheetId)
     logger.info({ ordersClosed: settings.ordersClosed, closeDate: settings.closeDate }, 'статус заказов получен')
+
+    const chatId = typeof req.query.chatId === 'string' ? req.query.chatId : null
+    if (settings.ordersClosed && isAdminChatId(chatId)) {
+      logger.info({ chatId }, 'admin bypass: заказы закрыты, но пользователь в ADMIN_CHAT_IDS')
+      return res.json({ ...settings, ordersClosed: false })
+    }
+
     res.json(settings)
   } catch (error: any) {
     logger.error({ error: error?.message }, 'ошибка получения статуса заказов')
@@ -585,7 +601,7 @@ ${itemsTextForCustomer}
 Доставка: ${order.orderData.deliveryCost} ₽${priorityCustomerLine}
 Итого: ${order.orderData.total} ₽
 
-${order.orderData.deliveryRegion === 'europe' ? '📍 Адрес доставки:' : '📍 Пункт СДЭК:'}
+📍 Пункт СДЭК:
 ${escapeHtml(order.orderData.address)}
 
 ${assemblyMessage}
@@ -614,14 +630,14 @@ ${order.platform === 'max'
   : `TG: ${order.orderData.username ? escapeHtml(order.orderData.username) : 'не указан'}`
 }
 
-${order.orderData.deliveryRegion === 'europe' ? '📍 Адрес доставки:' : '📍 Пункт СДЭК:'}
+📍 Пункт СДЭК:
 ${escapeHtml(order.orderData.country)}, ${escapeHtml(order.orderData.city)}
 ${escapeHtml(order.orderData.address)}
 
 Товары:
 ${itemsTextForManager}
 
-Доставка: ${order.orderData.deliveryCost} ₽ (${order.orderData.deliveryRegion})
+Доставка: ${order.orderData.deliveryCost} ₽
 ${priorityManagerLine}Итого: ${order.orderData.total} ₽
 
 ${order.orderData.comments ? `Комментарии: ${escapeHtml(order.orderData.comments)}` : ''}
@@ -697,8 +713,12 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
       try {
         const settings = await getCachedOrdersSettings(sheetId)
         if (settings.ordersClosed) {
-          logger.warn('заказ отклонен: заказы закрыты')
-          return res.status(403).json({ error: 'orders_closed', closeDate: settings.closeDate })
+          const initDataUser = orderData.initData ? extractUserFromInitData(orderData.initData) : { id: null, displayName: null }
+          if (!isAdminChatId(initDataUser.id)) {
+            logger.warn('заказ отклонен: заказы закрыты')
+            return res.status(403).json({ error: 'orders_closed', closeDate: settings.closeDate })
+          }
+          logger.info({ chatId: initDataUser.id }, 'admin bypass: заказы закрыты, но пользователь в ADMIN_CHAT_IDS')
         }
         if (settings.priorityOrderFee !== undefined) priorityFeePct = settings.priorityOrderFee
       } catch (error: any) {
@@ -906,6 +926,8 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
       deliveryCost: deliveryCost,
       total: total, // пересчитанная сумма на бэкенде (промокод + приоритет)
       comments: orderData.comments,
+      pvzCode: typeof orderData.pvzCode === 'string' ? orderData.pvzCode : undefined,
+      cdekCityCode: typeof orderData.cdekCityCode === 'number' ? orderData.cdekCityCode : undefined,
       priorityOrder: priorityOrder && priorityFee > 0,
       priorityFee: priorityFee > 0 ? priorityFee : undefined,
       promocode: promocodeInfo
@@ -1030,6 +1052,40 @@ export async function processPaidOrder(
       { tag: 'notification', level: 'low', hint: 'покупатель не получил подтверждение — возможно бот заблокирован или неверный chat_id', code: 'CUSTOMER_NOTIFICATION_FAILED' }
     ).catch(() => {})
   }
+
+  // fire-and-forget: создаём отправление в СДЭК и отправляем трек покупателю
+  triggerCdekOrderAsync(order, async (uuid, cdekNumber) => {
+    updateCdekInfoInSheet(orderId, uuid, cdekNumber).catch(() => {})
+    const trackingUrl = `https://www.cdek.ru/track?order_id=${cdekNumber}`
+    const trackMsg = [
+      '🩷 Ваша посылочка скоро уедет к вам.',
+      'Отследить можно по ссылке:',
+      '',
+      trackingUrl,
+      '',
+      'Спасибо за заказ, всегда будем счастливы видеть ваши отзывы 🥰',
+    ].join('\n')
+    if (order.customerChatId) {
+      const result = order.platform === 'max'
+        ? await sendMaxMessage(order.customerChatId, trackMsg)
+        : await sendTelegramMessage(order.customerChatId, trackMsg)
+      if (result.ok) {
+        const notePrefix = `track: ${trackingUrl}`
+        updateOrderAdminNoteInSheet(orderId, notePrefix).catch(() => {})
+        logger.info({ orderId, cdekNumber }, 'CDEK трек отправлен покупателю')
+      } else {
+        sendAlert(
+          `CDEK трек для ${orderId} получен (${cdekNumber}), но не доставлен покупателю: ${result.errorDescription ?? 'неизвестно'}`,
+          { tag: 'cdek', level: 'moderate', code: 'CDEK_TRACK_SEND_FAILED' }
+        ).catch(() => {})
+      }
+    }
+  }).catch((e: any) => {
+    sendAlert(
+      `CDEK: необработанная ошибка при запуске triggerCdekOrderAsync для ${orderId}: ${e?.message}`,
+      { tag: 'cdek', level: 'high', code: 'CDEK_TRIGGER_UNHANDLED' }
+    ).catch(() => {})
+  })
 
   return 'ok'
 }
@@ -1355,7 +1411,7 @@ ${itemsText}
 Доставка: ${order.orderData.deliveryCost} ₽${priorityLine}
 Итого: ${order.orderData.total} ₽
 
-${order.orderData.deliveryRegion === 'europe' ? '📍 Адрес доставки:' : '📍 Пункт СДЭК:'}
+📍 Пункт СДЭК:
 ${escapeHtml(order.orderData.address)}
 
 ${assemblyMessage}
@@ -1374,6 +1430,46 @@ ${assemblyMessage}
     res.status(500).json({ error: e?.message })
   }
 })
+
+// ── CDEK endpoints ────────────────────────────────────────────────────────────
+
+app.get('/api/cdek/cities', generalLimiter, async (req, res) => {
+  const q = String(req.query.q ?? '').trim()
+  if (!q || q.length < 2) return res.status(400).json({ error: 'q must be at least 2 chars' })
+  try {
+    const cities = await searchCities(q)
+    return res.json(cities)
+  } catch (e: any) {
+    logger.warn({ error: e?.message }, 'CDEK cities error')
+    return res.status(502).json({ error: 'cdek_unavailable' })
+  }
+})
+
+app.get('/api/cdek/pvz', generalLimiter, async (req, res) => {
+  const cityCode = parseInt(String(req.query.city_code ?? ''), 10)
+  if (!cityCode) return res.status(400).json({ error: 'city_code required' })
+  try {
+    const pvz = await getPickupPoints(cityCode)
+    return res.json(pvz)
+  } catch (e: any) {
+    logger.warn({ error: e?.message, cityCode }, 'CDEK pvz error')
+    return res.status(502).json({ error: 'cdek_unavailable' })
+  }
+})
+
+app.get('/api/cdek/calculate', generalLimiter, async (req, res) => {
+  const cityCode = parseInt(String(req.query.city_code ?? ''), 10)
+  if (!cityCode) return res.status(400).json({ error: 'city_code required' })
+  try {
+    const cost = await calculateDelivery(cityCode)
+    return res.json({ delivery_sum: cost })
+  } catch (e: any) {
+    logger.warn({ error: e?.message, cityCode }, 'CDEK calculate error')
+    return res.status(502).json({ error: 'cdek_unavailable' })
+  }
+})
+
+// ── Track sending ─────────────────────────────────────────────────────────────
 
 // отправка трека покупателю (вызывается ботом из комментария под постом заказа)
 app.post('/api/orders/:orderId/send-tracking', express.json(), async (req, res) => {
