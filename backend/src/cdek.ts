@@ -89,8 +89,9 @@ export interface CdekCity {
 }
 
 export async function searchCities(query: string): Promise<CdekCity[]> {
-  const params = new URLSearchParams({ city: query, lang: 'rus', size: '7' })
-  const data = await cdekFetch('GET', `/location/cities?${params}`) as any[]
+  // /location/suggest/cities does prefix (autocomplete) matching; /location/cities?city= does exact match
+  const params = new URLSearchParams({ name: query, lang: 'rus', size: '10' })
+  const data = await cdekFetch('GET', `/location/suggest/cities?${params}`) as any[]
   if (!Array.isArray(data)) return []
   return data.map((c: any) => ({
     code: c.code as number,
@@ -126,8 +127,8 @@ export async function getPickupPoints(cityCode: number): Promise<CdekPvz[]> {
 export async function calculateDelivery(toCityCode: number): Promise<number> {
   const data = await cdekFetch('POST', '/calculator/tariff', {
     tariff_code: TARIFF_CODE,
-    from_location: { city_code: FROM_CITY_CODE },
-    to_location: { city_code: toCityCode },
+    from_location: { code: FROM_CITY_CODE },
+    to_location: { code: toCityCode },
     packages: [{ weight: PKG_WEIGHT_G, length: PKG_LENGTH_CM, width: PKG_WIDTH_CM, height: PKG_HEIGHT_CM }],
   }) as any
   const sum = data?.delivery_sum ?? data?.total_sum
@@ -158,7 +159,7 @@ export async function createCdekOrder(order: Order, pvzCode: string): Promise<Cd
   const data = await cdekFetch('POST', '/orders', {
     tariff_code: TARIFF_CODE,
     comment: `Заказ ${order.orderId}`,
-    from_location: { city_code: FROM_CITY_CODE },
+    from_location: { code: FROM_CITY_CODE },
     delivery_point: pvzCode,
     recipient: {
       name: order.orderData.fullName,
