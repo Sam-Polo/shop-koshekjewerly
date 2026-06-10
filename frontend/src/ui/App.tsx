@@ -449,6 +449,10 @@ const ProductModal = ({
               <button className="btn btn--out-of-stock" disabled>
                 Временно нет в наличии
               </button>
+            ) : ordersClosed ? (
+              <button className="btn btn--out-of-stock" disabled>
+                Заказы временно закрыты
+              </button>
             ) : (
               <>
                 <div className="cart-controls__quantity">
