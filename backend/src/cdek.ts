@@ -90,18 +90,16 @@ export interface CdekCity {
 
 export async function searchCities(query: string): Promise<CdekCity[]> {
   // /location/suggest/cities does prefix (autocomplete) matching; /location/cities?city= does exact match
+  // Response format: { code, full_name: "City, Region, Country" | "City, Country", country_code }
   const params = new URLSearchParams({ name: query, lang: 'rus', size: '10' })
   const data = await cdekFetch('GET', `/location/suggest/cities?${params}`) as any[]
   if (!Array.isArray(data)) return []
-  if (data.length > 0) {
-    console.log('[CDEK suggest] first item keys:', JSON.stringify(data[0]).slice(0, 400))
-  }
-  return data.map((c: any) => ({
-    code: c.code as number,
-    city: (c.city ?? c.name ?? c.city_name ?? c.cityName ?? '') as string,
-    region: (c.region ?? c.region_name ?? c.regionName) as string | undefined,
-    country_code: c.country_code as string | undefined,
-  }))
+  return data.map((c: any) => {
+    const parts = ((c.full_name as string) ?? '').split(', ')
+    const city = parts[0] ?? ''
+    const region = parts.length >= 3 ? parts[1] : undefined
+    return { code: c.code as number, city, region, country_code: c.country_code as string | undefined }
+  })
 }
 
 // ── Pickup points (ПВЗ) ───────────────────────────────────────────────────────

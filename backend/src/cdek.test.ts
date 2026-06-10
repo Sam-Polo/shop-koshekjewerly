@@ -10,8 +10,8 @@ let cdek: typeof import('./cdek.js')
 const TOKEN_RESP = { access_token: 'tok-123', expires_in: 3600 }
 
 const CITY_RESP = [
-  { code: 44, city: 'Москва', region: 'Московская область', country_code: 'RU' },
-  { code: 270, city: 'Санкт-Петербург', region: 'г. Санкт-Петербург', country_code: 'RU' },
+  { code: 44, full_name: 'Москва, Россия', country_code: 'RU' },
+  { code: 270, full_name: 'Санкт-Петербург, г. Санкт-Петербург, Россия', country_code: 'RU' },
 ]
 
 const PVZ_RESP = [
@@ -90,7 +90,8 @@ describe('searchCities', () => {
     ]))
     const cities = await cdek.searchCities('Мос')
     expect(cities).toHaveLength(2)
-    expect(cities[0]).toMatchObject({ code: 44, city: 'Москва', country_code: 'RU' })
+    expect(cities[0]).toMatchObject({ code: 44, city: 'Москва', region: undefined, country_code: 'RU' })
+    expect(cities[1]).toMatchObject({ code: 270, city: 'Санкт-Петербург', region: 'г. Санкт-Петербург' })
   })
 
   it('returns [] on non-array response', async () => {
