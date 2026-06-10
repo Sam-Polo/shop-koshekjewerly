@@ -95,8 +95,8 @@ export async function searchCities(query: string): Promise<CdekCity[]> {
   if (!Array.isArray(data)) return []
   return data.map((c: any) => ({
     code: c.code as number,
-    city: c.city as string,
-    region: c.region as string | undefined,
+    city: (c.city ?? c.name) as string,
+    region: (c.region ?? c.region_name) as string | undefined,
     country_code: c.country_code as string | undefined,
   }))
 }
