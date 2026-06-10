@@ -93,10 +93,13 @@ export async function searchCities(query: string): Promise<CdekCity[]> {
   const params = new URLSearchParams({ name: query, lang: 'rus', size: '10' })
   const data = await cdekFetch('GET', `/location/suggest/cities?${params}`) as any[]
   if (!Array.isArray(data)) return []
+  if (data.length > 0) {
+    console.log('[CDEK suggest] first item keys:', JSON.stringify(data[0]).slice(0, 400))
+  }
   return data.map((c: any) => ({
     code: c.code as number,
-    city: (c.city ?? c.name) as string,
-    region: (c.region ?? c.region_name) as string | undefined,
+    city: (c.city ?? c.name ?? c.city_name ?? c.cityName ?? '') as string,
+    region: (c.region ?? c.region_name ?? c.regionName) as string | undefined,
     country_code: c.country_code as string | undefined,
   }))
 }
