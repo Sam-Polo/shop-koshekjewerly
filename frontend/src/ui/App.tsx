@@ -1643,6 +1643,7 @@ export default function App() {
   const [pendingPaymentUrl, setPendingPaymentUrl] = useState<string | null>(null)
   const [telegramRequiredOpen, setTelegramRequiredOpen] = useState(false)
   const [ordersClosed, setOrdersClosed] = useState(false)
+  const [ordersClosedBanner, setOrdersClosedBanner] = useState(false)
   const [ordersCloseDate, setOrdersCloseDate] = useState<string | undefined>(undefined)
   const [ordersClosedModalOpen, setOrdersClosedModalOpen] = useState(false)
   const [bannerEnabled, setBannerEnabled] = useState(false)
@@ -1718,6 +1719,7 @@ export default function App() {
         if (response.ok) {
           const data = await response.json()
           setOrdersClosed(data.ordersClosed || false)
+          setOrdersClosedBanner(data.ordersClosedBanner ?? data.ordersClosed ?? false)
           setOrdersCloseDate(data.closeDate)
 
           if (data.banner) {
@@ -2096,7 +2098,7 @@ export default function App() {
             {bannerText}
           </div>
         )}
-        {ordersClosed && (
+        {ordersClosedBanner && (
           <div className="page-header__orders-closed">
             <p className="page-header__orders-closed-text">
               💡 Заказы временно не принимаются{ordersCloseDate ? ` до ${formatDate(ordersCloseDate)}` : ''}, но каталог по-прежнему доступен для просмотра.

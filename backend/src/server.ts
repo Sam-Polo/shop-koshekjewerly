@@ -350,7 +350,7 @@ app.get('/api/settings/orders-status', async (req, res) => {
     const chatId = typeof req.query.chatId === 'string' ? req.query.chatId : null
     if (settings.ordersClosed && isAdminChatId(chatId)) {
       logger.info({ chatId }, 'admin bypass: заказы закрыты, но пользователь в ADMIN_CHAT_IDS')
-      return res.json({ ...settings, ordersClosed: false })
+      return res.json({ ...settings, ordersClosed: false, ordersClosedBanner: true })
     }
 
     res.json(settings)
