@@ -177,7 +177,7 @@ export async function attachBarcodeToLead(leadId: number, pdfBuffer: Buffer): Pr
   const timer = setTimeout(() => ctrl.abort(), 30_000)
   let driveResponse: unknown
   try {
-    const resp = await fetch(`${getBase()}/api/v4/drive/files`, {
+    const resp = await fetch(`${getBase()}/drive/files`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${getToken()}` },
       body: formData,
