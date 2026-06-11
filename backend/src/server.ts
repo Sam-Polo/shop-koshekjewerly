@@ -12,7 +12,7 @@ import { createOrder, getOrder, updateOrderStatus, listOrders, restoreOrder, typ
 import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId, listPendingOrdersFromSheet, updateCdekInfoInSheet } from './orders-sheet.js'
 import { sendAlert } from './alerts.js';
 import { searchCities, getPickupPoints, calculateDelivery, triggerCdekOrderAsync, getCdekUuidByTrack, downloadCdekBarcode } from './cdek.js';
-import { triggerAmoCrmAsync, updateAmoCrmLeadTrack, createAmoCrmLead, attachBarcodeToLead } from './amocrm.js';
+import { triggerAmoCrmAsync, updateAmoCrmLeadTrack, updateAmoCrmLeadBarcode, createAmoCrmLead, attachBarcodeToLead } from './amocrm.js';
 import { buildPaymentForm, buildReceipt, verifyResultSignature, queryOrderState } from './robokassa.js';
 import { fetchPromocodesFromSheet, loadPromocodes, findPromocode, validatePromocode, listPromocodes } from './promocodes.js';
 import { getCachedOrdersSettings } from './settings.js';
@@ -1083,6 +1083,12 @@ export async function processPaidOrder(
           { tag: 'amocrm', level: 'low', code: 'AMOCRM_TRACK_UPDATE_FAILED' }
         ).catch(() => {})
       })
+      updateAmoCrmLeadBarcode(amoCrmLeadId, uuid, downloadCdekBarcode).catch((e: any) => {
+        sendAlert(
+          `amoCRM: не удалось прикрепить штрихкод к лиду ${amoCrmLeadId} (заказ ${orderId}): ${e?.message}`,
+          { tag: 'amocrm', level: 'low', code: 'AMOCRM_BARCODE_FAILED' }
+        ).catch(() => {})
+      })
     }
     const trackingUrl = `https://www.cdek.ru/track?order_id=${cdekNumber}`
     const trackMsg = [
@@ -1737,9 +1743,10 @@ process.on('unhandledRejection', (reason) => {
 })
 
 // ── amoCRM test endpoint (dev/debug only) ────────────────────────────────────
-// Body (optional): { cdekTrack: "10279069724" }
+// Body (optional): { cdekTrack: "10279069724", cdekUuid: "uuid-string" }
 app.post('/api/amocrm/test', express.json(), async (req, res) => {
   const cdekTrack: string | undefined = req.body?.cdekTrack
+  const cdekUuid: string | undefined = req.body?.cdekUuid
   const steps: Record<string, unknown> = {}
 
   const fakeOrder = {
@@ -1778,18 +1785,15 @@ app.post('/api/amocrm/test', express.json(), async (req, res) => {
       await updateAmoCrmLeadTrack(leadId, cdekTrack)
       steps.track = { ok: true }
 
-      try {
-        const cdekUuid = await getCdekUuidByTrack(cdekTrack)
-        if (!cdekUuid) throw new Error('UUID не найден по треку')
-        steps.cdekUuid = cdekUuid
-
-        const pdfBuffer = await downloadCdekBarcode(cdekUuid)
-        steps.barcodeSizeBytes = pdfBuffer.length
-
-        await attachBarcodeToLead(leadId, pdfBuffer)
-        steps.barcode = { ok: true }
-      } catch (e: any) {
-        steps.barcode = { ok: false, error: e?.message }
+      if (cdekUuid) {
+        try {
+          const pdfBuffer = await downloadCdekBarcode(cdekUuid)
+          steps.barcodeSizeBytes = pdfBuffer.length
+          await attachBarcodeToLead(leadId, pdfBuffer)
+          steps.barcode = { ok: true }
+        } catch (e: any) {
+          steps.barcode = { ok: false, error: e?.message }
+        }
       }
     }
 

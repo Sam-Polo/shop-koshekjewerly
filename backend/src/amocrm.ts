@@ -144,7 +144,7 @@ export async function createAmoCrmLead(order: Order): Promise<number> {
   return lead.id as number
 }
 
-// ── Update lead with CDEK track + link ───────────────────────────────────────
+// ── Update lead with CDEK track + link + barcode ─────────────────────────────
 
 export async function updateAmoCrmLeadTrack(leadId: number, cdekTrackNumber: string): Promise<void> {
   const trackingUrl = `https://www.cdek.ru/track?order_id=${cdekTrackNumber}`
@@ -156,6 +156,11 @@ export async function updateAmoCrmLeadTrack(leadId: number, cdekTrackNumber: str
   if (!fields.length) return
 
   await amoFetch('PATCH', `/leads/${leadId}`, { custom_fields_values: fields })
+}
+
+export async function updateAmoCrmLeadBarcode(leadId: number, cdekUuid: string, downloadBarcode: (uuid: string) => Promise<Buffer>): Promise<void> {
+  const pdfBuffer = await downloadBarcode(cdekUuid)
+  await attachBarcodeToLead(leadId, pdfBuffer)
 }
 
 // ── Attach barcode PDF to lead file field ─────────────────────────────────────
