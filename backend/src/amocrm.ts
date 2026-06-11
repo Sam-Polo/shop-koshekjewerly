@@ -1,5 +1,6 @@
 import { sendAlert } from './alerts.js'
 import type { Order } from './orders.js'
+import { uploadBufferToS3 } from './s3.js'
 
 const getBase = () => {
   const sub = process.env.AMOCRM_SUBDOMAIN
@@ -158,50 +159,19 @@ export async function updateAmoCrmLeadTrack(leadId: number, cdekTrackNumber: str
   await amoFetch('PATCH', `/leads/${leadId}`, { custom_fields_values: fields })
 }
 
-export async function updateAmoCrmLeadBarcode(leadId: number, cdekUuid: string, downloadBarcode: (uuid: string) => Promise<Buffer>): Promise<void> {
+export async function updateAmoCrmLeadBarcode(leadId: number, cdekUuid: string, downloadBarcode: (uuid: string) => Promise<Buffer>): Promise<string> {
   const pdfBuffer = await downloadBarcode(cdekUuid)
-  await attachBarcodeToLead(leadId, pdfBuffer)
+  const url = await uploadBufferToS3(`cdek-barcodes/${cdekUuid}.pdf`, pdfBuffer, 'application/pdf')
+  await setBarcodeUrlInLead(leadId, url)
+  return url
 }
 
-// ── Attach barcode PDF to lead file field ─────────────────────────────────────
+// ── Set barcode URL in lead url-field ─────────────────────────────────────────
 
-export async function attachBarcodeToLead(leadId: number, pdfBuffer: Buffer): Promise<{ driveResponse: unknown; patchResponse: unknown }> {
-  const fieldId = Number(process.env.AMOCRM_FIELD_BARCODE_ID) || 0
-  if (!fieldId) throw new Error('AMOCRM_FIELD_BARCODE_ID not set')
-
-  const formData = new FormData()
-  const arrayBuf = pdfBuffer.buffer.slice(pdfBuffer.byteOffset, pdfBuffer.byteOffset + pdfBuffer.byteLength) as ArrayBuffer
-  formData.append('file', new Blob([arrayBuf], { type: 'application/pdf' }), 'barcode-h6.pdf')
-
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), 30_000)
-  let driveResponse: unknown
-  try {
-    const resp = await fetch(`${getBase()}/drive/files`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${getToken()}` },
-      body: formData,
-      signal: ctrl.signal,
-    })
-    clearTimeout(timer)
-    const text = await resp.text().catch(() => '')
-    driveResponse = { status: resp.status, body: text.slice(0, 500) }
-    if (!resp.ok) throw new Error(`amoCRM drive upload HTTP ${resp.status}: ${text.slice(0, 200)}`)
-
-    let data: any
-    try { data = JSON.parse(text) } catch { throw new Error(`amoCRM drive upload: non-JSON response: ${text.slice(0, 200)}`) }
-
-    const fileUuid = data?.uuid as string | undefined
-    if (!fileUuid) throw new Error(`amoCRM: no uuid in drive upload response: ${text.slice(0, 200)}`)
-
-    const patchResponse = await amoFetch('PATCH', `/leads/${leadId}`, {
-      custom_fields_values: [{ field_id: fieldId, values: [{ value: fileUuid }] }],
-    })
-    return { driveResponse, patchResponse }
-  } catch (e) {
-    clearTimeout(timer)
-    throw Object.assign(e as Error, { driveResponse })
-  }
+async function setBarcodeUrlInLead(leadId: number, url: string): Promise<void> {
+  const f = fieldVal('AMOCRM_FIELD_BARCODE_ID', url)
+  if (!f) throw new Error('AMOCRM_FIELD_BARCODE_ID not set')
+  await amoFetch('PATCH', `/leads/${leadId}`, { custom_fields_values: [f] })
 }
 
 // ── Fire-and-forget wrapper ───────────────────────────────────────────────────

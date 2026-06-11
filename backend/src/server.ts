@@ -12,7 +12,7 @@ import { createOrder, getOrder, updateOrderStatus, listOrders, restoreOrder, typ
 import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId, listPendingOrdersFromSheet, updateCdekInfoInSheet } from './orders-sheet.js'
 import { sendAlert } from './alerts.js';
 import { searchCities, getPickupPoints, calculateDelivery, triggerCdekOrderAsync, getCdekUuidByTrack, downloadCdekBarcode } from './cdek.js';
-import { triggerAmoCrmAsync, updateAmoCrmLeadTrack, updateAmoCrmLeadBarcode, createAmoCrmLead, attachBarcodeToLead } from './amocrm.js';
+import { triggerAmoCrmAsync, updateAmoCrmLeadTrack, updateAmoCrmLeadBarcode, createAmoCrmLead } from './amocrm.js';
 import { buildPaymentForm, buildReceipt, verifyResultSignature, queryOrderState } from './robokassa.js';
 import { fetchPromocodesFromSheet, loadPromocodes, findPromocode, validatePromocode, listPromocodes } from './promocodes.js';
 import { getCachedOrdersSettings } from './settings.js';
@@ -1787,12 +1787,10 @@ app.post('/api/amocrm/test', express.json(), async (req, res) => {
 
       if (cdekUuid) {
         try {
-          const pdfBuffer = await downloadCdekBarcode(cdekUuid)
-          steps.barcodeSizeBytes = pdfBuffer.length
-          const attachResult = await attachBarcodeToLead(leadId, pdfBuffer)
-          steps.barcode = { ok: true, ...attachResult }
+          const s3Url = await updateAmoCrmLeadBarcode(leadId, cdekUuid, downloadCdekBarcode)
+          steps.barcode = { ok: true, s3Url }
         } catch (e: any) {
-          steps.barcode = { ok: false, error: e?.message, driveResponse: (e as any)?.driveResponse }
+          steps.barcode = { ok: false, error: e?.message }
         }
       }
     }
