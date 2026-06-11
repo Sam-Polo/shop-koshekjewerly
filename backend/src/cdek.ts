@@ -192,13 +192,61 @@ export async function getCdekTrackNumber(uuid: string): Promise<string | null> {
   return (data?.entity?.cdek_number as string) ?? null
 }
 
-// ── High-level: create order with retry + async track polling ─────────────────
+// ── Get order UUID by track number ────────────────────────────────────────────
 
-const RETRY_DELAYS_MS = [2_000, 4_000]
+export async function getCdekUuidByTrack(cdekNumber: string): Promise<string | null> {
+  const data = await cdekFetch('GET', `/orders?cdek_number=${encodeURIComponent(cdekNumber)}`) as any
+  return (data?.entity?.uuid as string) ?? null
+}
+
+// ── Download barcode H6 (PDF) ─────────────────────────────────────────────────
 
 async function sleep(ms: number) {
   return new Promise<void>(r => setTimeout(r, ms))
 }
+
+export async function downloadCdekBarcode(orderUuid: string): Promise<Buffer> {
+  // step 1: create print task
+  const task = await cdekFetch('POST', '/print/barcodes', {
+    orders: [{ order_uuid: orderUuid }],
+    format: 'H6',
+    lang_type: 'RUS',
+  }) as any
+  const taskUuid = task?.entity?.uuid as string | undefined
+  if (!taskUuid) throw new Error(`CDEK barcode: no task uuid, response: ${JSON.stringify(task).slice(0, 300)}`)
+
+  // step 2: poll until url is ready (up to 10 attempts × 2s)
+  let downloadUrl: string | null = null
+  for (let i = 0; i < 10; i++) {
+    await sleep(2_000)
+    const status = await cdekFetch('GET', `/print/barcodes/${taskUuid}`) as any
+    const url = status?.entity?.url as string | undefined
+    if (url) { downloadUrl = url; break }
+  }
+  if (!downloadUrl) throw new Error(`CDEK barcode: task ${taskUuid} did not produce a URL after 20s`)
+
+  // step 3: download the file
+  const token = await getToken()
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 30_000)
+  try {
+    const resp = await fetch(downloadUrl, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: ctrl.signal,
+    })
+    clearTimeout(timer)
+    if (!resp.ok) throw new Error(`CDEK barcode download HTTP ${resp.status}`)
+    const buf = await resp.arrayBuffer()
+    return Buffer.from(buf)
+  } catch (e) {
+    clearTimeout(timer)
+    throw e
+  }
+}
+
+// ── High-level: create order with retry + async track polling ─────────────────
+
+const RETRY_DELAYS_MS = [2_000, 4_000]
 
 export async function triggerCdekOrderAsync(
   order: Order,

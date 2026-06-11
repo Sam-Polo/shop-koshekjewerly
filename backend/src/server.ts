@@ -11,8 +11,8 @@ import { listProducts, upsertProducts, decreaseProductStock } from './store.js';
 import { createOrder, getOrder, updateOrderStatus, listOrders, restoreOrder, type Order, type Platform } from './orders.js';
 import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId, listPendingOrdersFromSheet, updateCdekInfoInSheet } from './orders-sheet.js'
 import { sendAlert } from './alerts.js';
-import { searchCities, getPickupPoints, calculateDelivery, triggerCdekOrderAsync } from './cdek.js';
-import { triggerAmoCrmAsync, updateAmoCrmLeadTrack, createAmoCrmLead } from './amocrm.js';
+import { searchCities, getPickupPoints, calculateDelivery, triggerCdekOrderAsync, getCdekUuidByTrack, downloadCdekBarcode } from './cdek.js';
+import { triggerAmoCrmAsync, updateAmoCrmLeadTrack, createAmoCrmLead, attachBarcodeToLead } from './amocrm.js';
 import { buildPaymentForm, buildReceipt, verifyResultSignature, queryOrderState } from './robokassa.js';
 import { fetchPromocodesFromSheet, loadPromocodes, findPromocode, validatePromocode, listPromocodes } from './promocodes.js';
 import { getCachedOrdersSettings } from './settings.js';
@@ -1737,7 +1737,11 @@ process.on('unhandledRejection', (reason) => {
 })
 
 // ── amoCRM test endpoint (dev/debug only) ────────────────────────────────────
-app.post('/api/amocrm/test', async (_req, res) => {
+// Body (optional): { cdekTrack: "10279069724" }
+app.post('/api/amocrm/test', express.json(), async (req, res) => {
+  const cdekTrack: string | undefined = req.body?.cdekTrack
+  const steps: Record<string, unknown> = {}
+
   const fakeOrder = {
     orderId: `TEST-${Date.now()}`,
     status: 'paid' as const,
@@ -1768,9 +1772,34 @@ app.post('/api/amocrm/test', async (_req, res) => {
 
   try {
     const leadId = await createAmoCrmLead(fakeOrder as any)
-    res.json({ ok: true, leadId, leadUrl: `https://${process.env.AMOCRM_SUBDOMAIN}.amocrm.ru/leads/detail/${leadId}` })
+    steps.lead = { ok: true, leadId }
+
+    if (cdekTrack) {
+      await updateAmoCrmLeadTrack(leadId, cdekTrack)
+      steps.track = { ok: true }
+
+      try {
+        const cdekUuid = await getCdekUuidByTrack(cdekTrack)
+        if (!cdekUuid) throw new Error('UUID не найден по треку')
+        steps.cdekUuid = cdekUuid
+
+        const pdfBuffer = await downloadCdekBarcode(cdekUuid)
+        steps.barcodeSizeBytes = pdfBuffer.length
+
+        await attachBarcodeToLead(leadId, pdfBuffer)
+        steps.barcode = { ok: true }
+      } catch (e: any) {
+        steps.barcode = { ok: false, error: e?.message }
+      }
+    }
+
+    res.json({
+      ok: true,
+      leadUrl: `https://${process.env.AMOCRM_SUBDOMAIN}.amocrm.ru/leads/detail/${leadId}`,
+      steps,
+    })
   } catch (e: any) {
-    res.status(500).json({ ok: false, error: e?.message })
+    res.status(500).json({ ok: false, error: e?.message, steps })
   }
 })
 

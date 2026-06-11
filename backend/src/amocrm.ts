@@ -158,6 +158,43 @@ export async function updateAmoCrmLeadTrack(leadId: number, cdekTrackNumber: str
   await amoFetch('PATCH', `/leads/${leadId}`, { custom_fields_values: fields })
 }
 
+// ── Attach barcode PDF to lead file field ─────────────────────────────────────
+
+export async function attachBarcodeToLead(leadId: number, pdfBuffer: Buffer): Promise<void> {
+  const fieldId = Number(process.env.AMOCRM_FIELD_BARCODE_ID) || 0
+  if (!fieldId) return
+
+  const formData = new FormData()
+  const arrayBuf = pdfBuffer.buffer.slice(pdfBuffer.byteOffset, pdfBuffer.byteOffset + pdfBuffer.byteLength) as ArrayBuffer
+  formData.append('file', new Blob([arrayBuf], { type: 'application/pdf' }), 'barcode-h6.pdf')
+
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 30_000)
+  try {
+    const resp = await fetch(`${getBase()}/api/v4/drive/files`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${getToken()}` },
+      body: formData,
+      signal: ctrl.signal,
+    })
+    clearTimeout(timer)
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '')
+      throw new Error(`amoCRM drive upload HTTP ${resp.status}: ${text.slice(0, 200)}`)
+    }
+    const data = await resp.json() as any
+    const fileUuid = data?.uuid as string | undefined
+    if (!fileUuid) throw new Error(`amoCRM: no uuid in drive upload response: ${JSON.stringify(data).slice(0, 200)}`)
+
+    await amoFetch('PATCH', `/leads/${leadId}`, {
+      custom_fields_values: [{ field_id: fieldId, values: [{ value: fileUuid }] }],
+    })
+  } catch (e) {
+    clearTimeout(timer)
+    throw e
+  }
+}
+
 // ── Fire-and-forget wrapper ───────────────────────────────────────────────────
 
 export async function triggerAmoCrmAsync(order: Order): Promise<number | null> {
