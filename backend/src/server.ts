@@ -1789,10 +1789,10 @@ app.post('/api/amocrm/test', express.json(), async (req, res) => {
         try {
           const pdfBuffer = await downloadCdekBarcode(cdekUuid)
           steps.barcodeSizeBytes = pdfBuffer.length
-          await attachBarcodeToLead(leadId, pdfBuffer)
-          steps.barcode = { ok: true }
+          const attachResult = await attachBarcodeToLead(leadId, pdfBuffer)
+          steps.barcode = { ok: true, ...attachResult }
         } catch (e: any) {
-          steps.barcode = { ok: false, error: e?.message }
+          steps.barcode = { ok: false, error: e?.message, driveResponse: (e as any)?.driveResponse }
         }
       }
     }

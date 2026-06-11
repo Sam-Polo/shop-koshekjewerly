@@ -165,9 +165,9 @@ export async function updateAmoCrmLeadBarcode(leadId: number, cdekUuid: string, 
 
 // ── Attach barcode PDF to lead file field ─────────────────────────────────────
 
-export async function attachBarcodeToLead(leadId: number, pdfBuffer: Buffer): Promise<void> {
+export async function attachBarcodeToLead(leadId: number, pdfBuffer: Buffer): Promise<{ driveResponse: unknown; patchResponse: unknown }> {
   const fieldId = Number(process.env.AMOCRM_FIELD_BARCODE_ID) || 0
-  if (!fieldId) return
+  if (!fieldId) throw new Error('AMOCRM_FIELD_BARCODE_ID not set')
 
   const formData = new FormData()
   const arrayBuf = pdfBuffer.buffer.slice(pdfBuffer.byteOffset, pdfBuffer.byteOffset + pdfBuffer.byteLength) as ArrayBuffer
@@ -175,6 +175,7 @@ export async function attachBarcodeToLead(leadId: number, pdfBuffer: Buffer): Pr
 
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), 30_000)
+  let driveResponse: unknown
   try {
     const resp = await fetch(`${getBase()}/api/v4/drive/files`, {
       method: 'POST',
@@ -183,20 +184,23 @@ export async function attachBarcodeToLead(leadId: number, pdfBuffer: Buffer): Pr
       signal: ctrl.signal,
     })
     clearTimeout(timer)
-    if (!resp.ok) {
-      const text = await resp.text().catch(() => '')
-      throw new Error(`amoCRM drive upload HTTP ${resp.status}: ${text.slice(0, 200)}`)
-    }
-    const data = await resp.json() as any
-    const fileUuid = data?.uuid as string | undefined
-    if (!fileUuid) throw new Error(`amoCRM: no uuid in drive upload response: ${JSON.stringify(data).slice(0, 200)}`)
+    const text = await resp.text().catch(() => '')
+    driveResponse = { status: resp.status, body: text.slice(0, 500) }
+    if (!resp.ok) throw new Error(`amoCRM drive upload HTTP ${resp.status}: ${text.slice(0, 200)}`)
 
-    await amoFetch('PATCH', `/leads/${leadId}`, {
+    let data: any
+    try { data = JSON.parse(text) } catch { throw new Error(`amoCRM drive upload: non-JSON response: ${text.slice(0, 200)}`) }
+
+    const fileUuid = data?.uuid as string | undefined
+    if (!fileUuid) throw new Error(`amoCRM: no uuid in drive upload response: ${text.slice(0, 200)}`)
+
+    const patchResponse = await amoFetch('PATCH', `/leads/${leadId}`, {
       custom_fields_values: [{ field_id: fieldId, values: [{ value: fileUuid }] }],
     })
+    return { driveResponse, patchResponse }
   } catch (e) {
     clearTimeout(timer)
-    throw e
+    throw Object.assign(e as Error, { driveResponse })
   }
 }
 
