@@ -24,3 +24,7 @@ rebuild-all.ps1
 trigger-import.bat
 trigger-import.ps1
 max_bot_adaptation.md
+*.md
+leads-fields.json
+contacts-fields.json
+pipelines.json

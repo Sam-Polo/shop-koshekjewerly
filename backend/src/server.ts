@@ -12,6 +12,7 @@ import { createOrder, getOrder, updateOrderStatus, listOrders, restoreOrder, typ
 import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId, listPendingOrdersFromSheet, updateCdekInfoInSheet } from './orders-sheet.js'
 import { sendAlert } from './alerts.js';
 import { searchCities, getPickupPoints, calculateDelivery, triggerCdekOrderAsync } from './cdek.js';
+import { triggerAmoCrmAsync, updateAmoCrmLeadTrack, createAmoCrmLead } from './amocrm.js';
 import { buildPaymentForm, buildReceipt, verifyResultSignature, queryOrderState } from './robokassa.js';
 import { fetchPromocodesFromSheet, loadPromocodes, findPromocode, validatePromocode, listPromocodes } from './promocodes.js';
 import { getCachedOrdersSettings } from './settings.js';
@@ -1068,9 +1069,21 @@ export async function processPaidOrder(
     ).catch(() => {})
   }
 
+  // создаём лид в amoCRM; lead ID нужен в CDEK-callback ниже для обновления трека
+  const amoCrmLeadId = await triggerAmoCrmAsync(order)
+
   // fire-and-forget: создаём отправление в СДЭК и отправляем трек покупателю
   triggerCdekOrderAsync(order, async (uuid, cdekNumber) => {
     updateCdekInfoInSheet(orderId, uuid, cdekNumber).catch(() => {})
+
+    if (amoCrmLeadId) {
+      updateAmoCrmLeadTrack(amoCrmLeadId, cdekNumber).catch((e: any) => {
+        sendAlert(
+          `amoCRM: не удалось обновить трек ${cdekNumber} в лиде ${amoCrmLeadId} (заказ ${orderId}): ${e?.message}`,
+          { tag: 'amocrm', level: 'low', code: 'AMOCRM_TRACK_UPDATE_FAILED' }
+        ).catch(() => {})
+      })
+    }
     const trackingUrl = `https://www.cdek.ru/track?order_id=${cdekNumber}`
     const trackMsg = [
       '🩷 Ваша посылочка скоро уедет к вам.',
@@ -1721,6 +1734,44 @@ process.on('unhandledRejection', (reason) => {
   const msg = reason instanceof Error ? reason.message : String(reason)
   logger.error({ reason: msg }, 'unhandledRejection')
   sendAlert(`unhandledRejection: ${msg}`, { tag: 'process', level: 'critical', hint: 'необработанный Promise — возможна скрытая ошибка или утечка памяти', code: 'UNHANDLED_REJECTION' }).catch(() => {})
+})
+
+// ── amoCRM test endpoint (dev/debug only) ────────────────────────────────────
+app.post('/api/amocrm/test', async (_req, res) => {
+  const fakeOrder = {
+    orderId: `TEST-${Date.now()}`,
+    status: 'paid' as const,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    platform: 'telegram' as const,
+    customerChatId: '123456789',
+    customerName: 'Тест Тестов',
+    orderData: {
+      fullName: 'Тест Тестов',
+      phone: '+79991234567',
+      username: 'test_user',
+      country: 'Россия',
+      city: 'Москва',
+      address: 'ПВЗ СДЭК: Тверская 1',
+      deliveryRegion: '',
+      deliveryCost: 350,
+      total: 5850,
+      comments: 'Тестовый комментарий к заказу',
+      pvzCode: 'MSK123',
+      cdekCityCode: 44,
+      items: [
+        { slug: 'ring-silver-01', title: 'Кольцо серебряное', price: 2500, quantity: 2 },
+        { slug: 'earrings-gold-02', title: 'Серьги золотые', price: 800, quantity: 1 },
+      ],
+    },
+  }
+
+  try {
+    const leadId = await createAmoCrmLead(fakeOrder as any)
+    res.json({ ok: true, leadId, leadUrl: `https://${process.env.AMOCRM_SUBDOMAIN}.amocrm.ru/leads/detail/${leadId}` })
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message })
+  }
 })
 
 const port = Number(process.env.PORT ?? 4000);
