@@ -209,7 +209,7 @@ export async function downloadCdekBarcode(orderUuid: string): Promise<Buffer> {
   // step 1: create print task
   const task = await cdekFetch('POST', '/print/barcodes', {
     orders: [{ order_uuid: orderUuid }],
-    format: 'H6',
+    format: 'A6',
     lang_type: 'RUS',
   }) as any
   const taskUuid = task?.entity?.uuid as string | undefined
