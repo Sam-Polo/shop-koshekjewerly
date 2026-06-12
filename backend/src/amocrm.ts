@@ -115,6 +115,7 @@ function buildLeadFields(order: Order): FieldValue[] {
 
   // Адрес доставки
   push(fieldVal('AMOCRM_FIELD_ADDRESS_ID', order.orderData.address || order.orderData.city))
+  if (order.orderData.city) push(fieldVal('AMOCRM_FIELD_CITY_ID', order.orderData.city))
 
   // Имя в заказе и Имя контакта — временно одно и то же (fullName покупателя).
   // В будущем появится разделение: имя покупателя vs имя получателя.

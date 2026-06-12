@@ -89,6 +89,7 @@ const F = {
   date:        Number(process.env.AMOCRM_FIELD_DATE_ID),
   items:       Number(process.env.AMOCRM_FIELD_ITEMS_ID),
   address:     Number(process.env.AMOCRM_FIELD_ADDRESS_ID),
+  city:        Number(process.env.AMOCRM_FIELD_CITY_ID),
   comment:     Number(process.env.AMOCRM_FIELD_COMMENT_ID),
   cdekTrack:        Number(process.env.AMOCRM_FIELD_CDEK_TRACK_ID),
   trackLink:        Number(process.env.AMOCRM_FIELD_TRACK_LINK_ID),
@@ -283,6 +284,7 @@ async function main() {
     push(F.date, Math.floor(createdAt / 1000))
     push(F.items, itemsText)
     push(F.address, address)
+    if (city) push(F.city, city)
     if (comment) push(F.comment, comment)
     // Имя в заказе и Имя контакта — временно одно и то же (fullName).
     // В будущем: разделение имя покупателя / имя получателя.
