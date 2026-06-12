@@ -187,6 +187,10 @@ async function main() {
     process.exit(1)
   }
 
+  if (!process.env.AMOCRM_FIELD_TG_LINK_ID) {
+    console.warn('⚠️  AMOCRM_FIELD_TG_LINK_ID не задан в .env — поле Telegram профиль не будет заполнено')
+  }
+
   console.log(`Читаем Telegram-экспорт: ${exportPath}`)
   const shippedOrderIds = buildShippedOrderIds(exportPath)
   console.log(`  Найдено отправленных заказов (со ✅): ${shippedOrderIds.size}`)
@@ -209,12 +213,12 @@ async function main() {
   const itemRows  = (itemsRes.data.values  || []).slice(1) as string[][]
 
   // индекс товаров по order_id
-  const itemsByOrder = new Map<string, Array<{ title: string; price: number; quantity: number }>>()
+  const itemsByOrder = new Map<string, Array<{ title: string; price: number; quantity: number; article: string }>>()
   for (const row of itemRows) {
     const oid = row[0]
     if (!oid) continue
     const bucket = itemsByOrder.get(oid) ?? []
-    bucket.push({ title: row[2] ?? '', price: parseFloat(row[3]) || 0, quantity: parseInt(row[4], 10) || 1 })
+    bucket.push({ title: row[2] ?? '', price: parseFloat(row[3]) || 0, quantity: parseInt(row[4], 10) || 1, article: row[5] ?? '' })
     itemsByOrder.set(oid, bucket)
   }
 
@@ -256,7 +260,10 @@ async function main() {
 
     const items = itemsByOrder.get(orderId) ?? []
     const itemsText = items.length
-      ? items.map(i => `${i.title}${i.quantity > 1 ? ` × ${i.quantity}` : ''} — ${i.price * i.quantity}₽`).join('\n')
+      ? items.map(i => {
+          const art = i.article ? `[${i.article}] ` : ''
+          return `${art}${i.title}${i.quantity > 1 ? ` × ${i.quantity}` : ''} — ${i.price * i.quantity}₽`
+        }).join('\n')
       : ''
 
     const customFields: any[] = []
