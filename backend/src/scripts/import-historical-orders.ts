@@ -1,23 +1,70 @@
 /**
  * One-off script: import historical paid orders from Google Sheets into amoCRM.
- * Orders from May 31, 2026 onwards. Stage is determined by track status:
- *   - cdek_track_number filled OR admin_note starts with "track:" → ОТПРАВЛЕН (142)
- *   - otherwise → НОВЫЙ, ЖДЕТ ОТПРАВКИ (86423886)
+ * Orders from May 31, 2026 onwards.
  *
- * Run: npx tsx src/scripts/import-historical-orders.ts
+ * Stage is determined by Telegram channel export:
+ *   - message for the order ends with one or more ✅ (added by manager) → ОТПРАВЛЕН
+ *   - otherwise → НОВЫЙ, ЖДЕТ ОТПРАВКИ
+ *
+ * Usage:
+ *   npx tsx src/scripts/import-historical-orders.ts <path/to/result.json>
+ *
+ * How to export: Telegram Desktop → канал → ⋮ → Export chat history →
+ *   Format: JSON, Date range: all, include all types → OK.
+ *   Файл result.json появится в выбранной папке.
  */
 
 import 'dotenv/config'
 import { google } from 'googleapis'
 import fs from 'node:fs'
 
+// ── Telegram export helpers ───────────────────────────────────────────────────
+
+/** Telegram exports text as a plain string OR as an array of entities. Flatten both. */
+function flattenTgText(text: unknown): string {
+  if (typeof text === 'string') return text
+  if (Array.isArray(text)) {
+    return text
+      .map(p => (typeof p === 'string' ? p : (p as any)?.text ?? ''))
+      .join('')
+  }
+  return ''
+}
+
+/** True if the last non-empty line of the message consists entirely of ✅ */
+function hasShippedMark(text: string): boolean {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
+  if (!lines.length) return false
+  return /^✅+$/.test(lines[lines.length - 1])
+}
+
+/**
+ * Parse Telegram Desktop JSON export and return the set of order IDs
+ * whose channel post has been marked with ✅ by the manager.
+ */
+function buildShippedOrderIds(exportPath: string): Set<string> {
+  const raw = JSON.parse(fs.readFileSync(exportPath, 'utf8'))
+  const messages: any[] = raw.messages ?? []
+  const shipped = new Set<string>()
+
+  for (const msg of messages) {
+    if (msg.type !== 'message') continue
+    const text = flattenTgText(msg.text)
+    if (!hasShippedMark(text)) continue
+    const match = text.match(/Номер:\s*(ORD-\d+)/)
+    if (match) shipped.add(match[1])
+  }
+
+  return shipped
+}
+
 // ── amoCRM config ─────────────────────────────────────────────────────────────
 
 const AMO_BASE = `https://${process.env.AMOCRM_SUBDOMAIN}.amocrm.ru`
 const AMO_TOKEN = process.env.AMOCRM_ACCESS_TOKEN!
 const PIPELINE_ID = Number(process.env.AMOCRM_PIPELINE_ID)
-const STAGE_NEW = Number(process.env.AMOCRM_STAGE_TO_SEND_ID)   // НОВЫЙ, ЖДЕТ ОТПРАВКИ
-const STAGE_SENT = 142                                            // ОТПРАВЛЕН
+const STAGE_NEW  = Number(process.env.AMOCRM_STAGE_TO_SEND_ID)   // НОВЫЙ, ЖДЕТ ОТПРАВКИ
+const STAGE_SENT = 86462242                                        // ОТПРАВЛЕН
 
 // field IDs
 const F = {
@@ -88,13 +135,22 @@ async function sleep(ms: number) {
 async function findOrCreateContact(fullName: string, phone: string, chatId: string, username: string, platform: string): Promise<number> {
   const search = await amoGet(`/contacts?query=${encodeURIComponent(phone)}&limit=1`)
   const existing = search?._embedded?.contacts?.[0]
-  if (existing?.id) return existing.id as number
+  if (existing?.id) {
+    // fix @@ bug from previous runs: patch username if needed
+    if (username && F.tgUsername) {
+      const cleanUsername = username.startsWith('@') ? username : `@${username}`
+      await amoPost(`/contacts/${existing.id}`, {
+        custom_fields_values: [{ field_id: F.tgUsername, values: [{ value: cleanUsername }] }],
+      }).catch(() => {})
+    }
+    return existing.id as number
+  }
 
   const customFields: any[] = [
     { field_code: 'PHONE', values: [{ value: phone, enum_code: 'WORK' }] },
   ]
   if (chatId && F.tgId && platform !== 'max') customFields.push({ field_id: F.tgId, values: [{ value: Number(chatId) }] })
-  if (username && F.tgUsername) customFields.push({ field_id: F.tgUsername, values: [{ value: `@${username}` }] })
+  if (username && F.tgUsername) customFields.push({ field_id: F.tgUsername, values: [{ value: username.startsWith('@') ? username : `@${username}` }] })
 
   const result = await amoPost('/contacts', [{ name: fullName, custom_fields_values: customFields }])
   const contact = result?._embedded?.contacts?.[0]
@@ -105,19 +161,38 @@ async function findOrCreateContact(fullName: string, phone: string, chatId: stri
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
+  const exportPath = process.argv[2]
+  if (!exportPath) {
+    console.error('Укажи путь к экспорту: npx tsx src/scripts/import-historical-orders.ts <result.json>')
+    console.error('')
+    console.error('Как экспортировать: Telegram Desktop → канал → ⋮ → Export chat history → JSON, все сообщения')
+    process.exit(1)
+  }
+  if (!fs.existsSync(exportPath)) {
+    console.error(`Файл не найден: ${exportPath}`)
+    process.exit(1)
+  }
+
+  console.log(`Читаем Telegram-экспорт: ${exportPath}`)
+  const shippedOrderIds = buildShippedOrderIds(exportPath)
+  console.log(`  Найдено отправленных заказов (со ✅): ${shippedOrderIds.size}`)
+  if (shippedOrderIds.size > 0) {
+    console.log(`  Примеры: ${[...shippedOrderIds].slice(0, 5).join(', ')}`)
+  }
+
   const spreadsheetId = process.env.IMPORT_SHEET_ID
   if (!spreadsheetId) throw new Error('IMPORT_SHEET_ID not set')
 
   const api = getSheetsApi()
 
-  console.log('Читаем Google Sheets...')
+  console.log('\nЧитаем Google Sheets...')
   const [ordersRes, itemsRes] = await Promise.all([
     api.spreadsheets.values.get({ spreadsheetId, range: 'orders!A:Y' }),
     api.spreadsheets.values.get({ spreadsheetId, range: 'order_items!A:G' }),
   ])
 
   const orderRows = (ordersRes.data.values || []).slice(1) as string[][]
-  const itemRows = (itemsRes.data.values || []).slice(1) as string[][]
+  const itemRows  = (itemsRes.data.values  || []).slice(1) as string[][]
 
   // индекс товаров по order_id
   const itemsByOrder = new Map<string, Array<{ title: string; price: number; quantity: number }>>()
@@ -142,22 +217,23 @@ async function main() {
   let created = 0, skipped = 0, errors = 0
 
   for (const row of toImport) {
-    const orderId     = row[0]
-    const createdAt   = row[1] ? new Date(row[1]).getTime() : Date.now()
-    const platform    = row[4] || 'telegram'
-    const chatId      = row[5] || ''
+    const orderId      = row[0]
+    const createdAt    = row[1] ? new Date(row[1]).getTime() : Date.now()
+    const platform     = row[4] || 'telegram'
+    const chatId       = row[5] || ''
     const customerName = row[6] || ''
-    const fullName    = row[7] || customerName || 'Без имени'
-    const phone       = row[8] || ''
-    const username    = row[9] || ''
-    const city        = row[11] || ''
-    const address     = row[12] || city
-    const total       = parseFloat(row[20]) || 0
-    const comment     = row[21] || ''
-    const adminNote   = row[22] || ''
-    const cdekTrack   = row[24] || ''
+    const fullName     = row[7] || customerName || 'Без имени'
+    const phone        = row[8] || ''
+    const username     = row[9] || ''
+    const city         = row[11] || ''
+    const address      = row[12] || city
+    const total        = parseFloat(row[20]) || 0
+    const comment      = row[21] || ''
+    const adminNote    = row[22] || ''
+    const cdekTrack    = row[24] || ''
 
-    const isShipped = !!cdekTrack || adminNote.startsWith('track:')
+    // этап определяется только по метке ✅ в Telegram-сообщении
+    const isShipped = shippedOrderIds.has(orderId)
     const stageId = isShipped ? STAGE_SENT : STAGE_NEW
 
     const items = itemsByOrder.get(orderId) ?? []
@@ -181,6 +257,7 @@ async function main() {
     push(F.items, itemsText)
     push(F.address, address)
     if (comment) push(F.comment, comment)
+    // трек пишем независимо от isShipped — просто для справки
     if (cdekTrack) {
       push(F.cdekTrack, cdekTrack)
       push(F.trackLink, `https://www.cdek.ru/track?order_id=${cdekTrack}`)
@@ -210,7 +287,7 @@ async function main() {
       }])
       const lead = result?._embedded?.leads?.[0]
       const stage = isShipped ? 'ОТПРАВЛЕН' : 'НОВЫЙ'
-      console.log(`  [OK] ${orderId} → лид ${lead?.id} [${stage}]${isShipped && cdekTrack ? ` трек: ${cdekTrack}` : ''}`)
+      console.log(`  [OK] ${orderId} → лид ${lead?.id} [${stage}]`)
       created++
     } catch (e: any) {
       console.error(`  [ERR] ${orderId}: ${e?.message}`)
