@@ -233,6 +233,7 @@ async function main() {
   console.log(`Найдено ${toImport.length} оплаченных заказов с 31 мая.`)
 
   let created = 0, skipped = 0, errors = 0
+  const errorLog: string[] = []
 
   for (const row of toImport) {
     const orderId      = row[0]
@@ -316,12 +317,18 @@ async function main() {
       console.log(`  [OK] ${orderId} → лид ${lead?.id} [${stage}]`)
       created++
     } catch (e: any) {
-      console.error(`  [ERR] ${orderId}: ${e?.message}`)
+      const msg = `  [ERR] ${orderId}: ${e?.message}`
+      console.error(msg)
+      errorLog.push(msg)
       errors++
     }
   }
 
   console.log(`\nГотово. Создано: ${created}, пропущено: ${skipped}, ошибок: ${errors}`)
+  if (errorLog.length > 0) {
+    console.log('\nСписок ошибок:')
+    errorLog.forEach(m => console.log(m))
+  }
 }
 
 main().catch(e => { console.error(e); process.exit(1) })
