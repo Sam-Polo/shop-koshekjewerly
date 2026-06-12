@@ -90,9 +90,9 @@ const F = {
   items:       Number(process.env.AMOCRM_FIELD_ITEMS_ID),
   address:     Number(process.env.AMOCRM_FIELD_ADDRESS_ID),
   comment:     Number(process.env.AMOCRM_FIELD_COMMENT_ID),
-  cdekTrack:   Number(process.env.AMOCRM_FIELD_CDEK_TRACK_ID),
-  trackLink:   Number(process.env.AMOCRM_FIELD_TRACK_LINK_ID),
-  tgLink:      Number(process.env.AMOCRM_FIELD_TG_LINK_ID),
+  cdekTrack:        Number(process.env.AMOCRM_FIELD_CDEK_TRACK_ID),
+  trackLink:        Number(process.env.AMOCRM_FIELD_TRACK_LINK_ID),
+  contactTgLink:    Number(process.env.AMOCRM_CONTACT_FIELD_TG_LINK_ID),
   tgId:        Number(process.env.AMOCRM_CONTACT_FIELD_TG_ID),
   tgUsername:  Number(process.env.AMOCRM_CONTACT_FIELD_TG_USERNAME),
 }
@@ -146,17 +146,17 @@ async function sleep(ms: number) {
 
 // ── Find or create contact ────────────────────────────────────────────────────
 
-async function findOrCreateContact(fullName: string, phone: string, chatId: string, username: string, platform: string): Promise<number> {
+async function findOrCreateContact(fullName: string, phone: string, chatId: string, username: string, platform: string, tgUrl: string | null): Promise<number> {
   const search = await amoGet(`/contacts?query=${encodeURIComponent(phone)}&limit=1`)
   const existing = search?._embedded?.contacts?.[0]
   if (existing?.id) {
-    // fix @@ bug from previous runs: patch username if needed
+    const patch: any[] = []
     if (username && F.tgUsername) {
       const cleanUsername = username.startsWith('@') ? username : `@${username}`
-      await amoPost(`/contacts/${existing.id}`, {
-        custom_fields_values: [{ field_id: F.tgUsername, values: [{ value: cleanUsername }] }],
-      }).catch(() => {})
+      patch.push({ field_id: F.tgUsername, values: [{ value: cleanUsername }] })
     }
+    if (tgUrl && F.contactTgLink) patch.push({ field_id: F.contactTgLink, values: [{ value: tgUrl }] })
+    if (patch.length) await amoPost(`/contacts/${existing.id}`, { custom_fields_values: patch }).catch(() => {})
     return existing.id as number
   }
 
@@ -165,6 +165,7 @@ async function findOrCreateContact(fullName: string, phone: string, chatId: stri
   ]
   if (chatId && F.tgId && platform !== 'max') customFields.push({ field_id: F.tgId, values: [{ value: Number(chatId) }] })
   if (username && F.tgUsername) customFields.push({ field_id: F.tgUsername, values: [{ value: username.startsWith('@') ? username : `@${username}` }] })
+  if (tgUrl && F.contactTgLink) customFields.push({ field_id: F.contactTgLink, values: [{ value: tgUrl }] })
 
   const result = await amoPost('/contacts', [{ name: fullName, custom_fields_values: customFields }])
   const contact = result?._embedded?.contacts?.[0]
@@ -185,10 +186,6 @@ async function main() {
   if (!fs.existsSync(exportPath)) {
     console.error(`Файл не найден: ${exportPath}`)
     process.exit(1)
-  }
-
-  if (!process.env.AMOCRM_FIELD_TG_LINK_ID) {
-    console.warn('⚠️  AMOCRM_FIELD_TG_LINK_ID не задан в .env — поле Telegram профиль не будет заполнено')
   }
 
   console.log(`Читаем Telegram-экспорт: ${exportPath}`)
@@ -282,8 +279,6 @@ async function main() {
     push(F.items, itemsText)
     push(F.address, address)
     if (comment) push(F.comment, comment)
-    const tgUrl = tgProfileUrl(username)
-    if (tgUrl) push(F.tgLink, tgUrl)
     // трек пишем независимо от isShipped — просто для справки
     if (cdekTrack) {
       push(F.cdekTrack, cdekTrack)
@@ -300,8 +295,9 @@ async function main() {
         continue
       }
 
+      const tgUrl = tgProfileUrl(username)
       await sleep(DELAY_MS)
-      const contactId = await findOrCreateContact(fullName, phone, chatId, username, platform)
+      const contactId = await findOrCreateContact(fullName, phone, chatId, username, platform, tgUrl)
 
       await sleep(DELAY_MS)
       const result = await amoPost('/leads', [{
