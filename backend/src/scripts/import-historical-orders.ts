@@ -212,12 +212,16 @@ async function main() {
     return ts >= FROM_DATE
   })
 
+  const onlyId = process.argv[3] // опционально: npx tsx ... result.json ORD-xxx
+  if (onlyId) console.log(`Фильтр: только ${onlyId}`)
+
   console.log(`Найдено ${toImport.length} оплаченных заказов с 31 мая.`)
 
   let created = 0, skipped = 0, errors = 0
 
   for (const row of toImport) {
     const orderId      = row[0]
+    if (onlyId && orderId !== onlyId) continue
     const createdAt    = row[1] ? new Date(row[1]).getTime() : Date.now()
     const platform     = row[4] || 'telegram'
     const chatId       = row[5] || ''
@@ -260,7 +264,7 @@ async function main() {
     // трек пишем независимо от isShipped — просто для справки
     if (cdekTrack) {
       push(F.cdekTrack, cdekTrack)
-      push(F.trackLink, `https://www.cdek.ru/track?order_id=${cdekTrack}`)
+      push(F.trackLink, `https://lk.cdek.ru/order-history/${cdekTrack}/view`)
     } else if (adminNote.startsWith('track:')) {
       const url = adminNote.replace(/^track:\s*/, '').split('\n')[0].trim()
       push(F.trackLink, url)

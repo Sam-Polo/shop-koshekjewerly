@@ -148,7 +148,7 @@ export async function createAmoCrmLead(order: Order): Promise<number> {
 // ── Update lead with CDEK track + link + barcode ─────────────────────────────
 
 export async function updateAmoCrmLeadTrack(leadId: number, cdekTrackNumber: string): Promise<void> {
-  const trackingUrl = `https://www.cdek.ru/track?order_id=${cdekTrackNumber}`
+  const trackingUrl = `https://lk.cdek.ru/order-history/${cdekTrackNumber}/view`
   const fields: FieldValue[] = []
   const f1 = fieldVal('AMOCRM_FIELD_CDEK_TRACK_ID', cdekTrackNumber)
   const f2 = fieldVal('AMOCRM_FIELD_TRACK_LINK_ID', trackingUrl)
