@@ -66,11 +66,10 @@ const PIPELINE_ID = Number(process.env.AMOCRM_PIPELINE_ID)
 const STAGE_NEW  = Number(process.env.AMOCRM_STAGE_TO_SEND_ID)   // НОВЫЙ, ЖДЕТ ОТПРАВКИ
 const STAGE_SENT = 86462242                                        // ОТПРАВЛЕН
 
-/** Best available Telegram profile URL: t.me/username or tg://user?id deep link */
-function tgProfileUrl(username: string, chatId: string): string | null {
-  if (username) return `https://t.me/${username.replace(/^@/, '')}`
-  if (chatId) return `tg://user?id=${chatId}`
-  return null
+/** Telegram profile URL — only available when username is known */
+function tgProfileUrl(username: string): string | null {
+  const clean = username.replace(/^@/, '').trim()
+  return clean ? `https://t.me/${clean}` : null
 }
 
 /** Build CDEK LK manager URL from a track number or any customer-facing CDEK URL */
@@ -276,7 +275,7 @@ async function main() {
     push(F.items, itemsText)
     push(F.address, address)
     if (comment) push(F.comment, comment)
-    const tgUrl = tgProfileUrl(username, chatId)
+    const tgUrl = tgProfileUrl(username)
     if (tgUrl) push(F.tgLink, tgUrl)
     // трек пишем независимо от isShipped — просто для справки
     if (cdekTrack) {
