@@ -28,3 +28,4 @@ max_bot_adaptation.md
 leads-fields.json
 contacts-fields.json
 pipelines.json
+backend/src/scripts/result.json
