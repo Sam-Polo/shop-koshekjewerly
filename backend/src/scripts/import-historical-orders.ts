@@ -93,6 +93,10 @@ const F = {
   cdekTrack:        Number(process.env.AMOCRM_FIELD_CDEK_TRACK_ID),
   trackLink:        Number(process.env.AMOCRM_FIELD_TRACK_LINK_ID),
   contactTgLink:    Number(process.env.AMOCRM_CONTACT_FIELD_TG_LINK_ID),
+  orderName:        Number(process.env.AMOCRM_FIELD_ORDER_NAME_ID),
+  contactName:      Number(process.env.AMOCRM_FIELD_CONTACT_NAME_ID),
+  deliveryType:     Number(process.env.AMOCRM_FIELD_DELIVERY_TYPE_ID),
+  deliveryCost:     Number(process.env.AMOCRM_FIELD_DELIVERY_COST_ID),
   tgId:        Number(process.env.AMOCRM_CONTACT_FIELD_TG_ID),
   tgUsername:  Number(process.env.AMOCRM_CONTACT_FIELD_TG_USERNAME),
 }
@@ -280,6 +284,13 @@ async function main() {
     push(F.items, itemsText)
     push(F.address, address)
     if (comment) push(F.comment, comment)
+    // Имя в заказе и Имя контакта — временно одно и то же (fullName).
+    // В будущем: разделение имя покупателя / имя получателя.
+    push(F.orderName, fullName)
+    push(F.contactName, fullName)
+    // Тип доставки — временно всегда СДЭК ПВЗ.
+    push(F.deliveryType, 'СДЭК ПВЗ')
+    push(F.deliveryCost, parseFloat(row[14]) || 0)  // row[14] = delivery_cost
     // трек пишем независимо от isShipped — просто для справки
     if (cdekTrack) {
       push(F.cdekTrack, cdekTrack)
@@ -309,7 +320,7 @@ async function main() {
         custom_fields_values: customFields,
         _embedded: {
           contacts: [{ id: contactId, is_main: true }],
-          tags: [{ name: 'выгрузка тг бот с 31 мая' }],
+          tags: [{ name: 'тг бот с 31 мая' }],
         },
       }])
       const lead = result?._embedded?.leads?.[0]

@@ -116,6 +116,18 @@ function buildLeadFields(order: Order): FieldValue[] {
   // Адрес доставки
   push(fieldVal('AMOCRM_FIELD_ADDRESS_ID', order.orderData.address || order.orderData.city))
 
+  // Имя в заказе и Имя контакта — временно одно и то же (fullName покупателя).
+  // В будущем появится разделение: имя покупателя vs имя получателя.
+  push(fieldVal('AMOCRM_FIELD_ORDER_NAME_ID', order.orderData.fullName))
+  push(fieldVal('AMOCRM_FIELD_CONTACT_NAME_ID', order.orderData.fullName))
+
+  // Тип доставки — временно всегда СДЭК ПВЗ.
+  // В будущем: самовывоз, курьер и другие варианты.
+  push(fieldVal('AMOCRM_FIELD_DELIVERY_TYPE_ID', 'СДЭК ПВЗ'))
+
+  // Стоимость доставки
+  push(fieldVal('AMOCRM_FIELD_DELIVERY_COST_ID', order.orderData.deliveryCost))
+
   // Комментарий покупателя
   if (order.orderData.comments) push(fieldVal('AMOCRM_FIELD_COMMENT_ID', order.orderData.comments))
 
