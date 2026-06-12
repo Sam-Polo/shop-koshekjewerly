@@ -66,6 +66,13 @@ const PIPELINE_ID = Number(process.env.AMOCRM_PIPELINE_ID)
 const STAGE_NEW  = Number(process.env.AMOCRM_STAGE_TO_SEND_ID)   // НОВЫЙ, ЖДЕТ ОТПРАВКИ
 const STAGE_SENT = 86462242                                        // ОТПРАВЛЕН
 
+/** Build CDEK LK manager URL from a track number or any customer-facing CDEK URL */
+function cdekLkUrl(trackOrUrl: string): string {
+  const match = trackOrUrl.match(/(?:order_id=|\/order\/)(\d+)/)
+  const track = match ? match[1] : trackOrUrl.trim()
+  return `https://lk.cdek.ru/order-history/${track}/view`
+}
+
 // field IDs
 const F = {
   source:      Number(process.env.AMOCRM_FIELD_SOURCE_ID),
@@ -264,10 +271,10 @@ async function main() {
     // трек пишем независимо от isShipped — просто для справки
     if (cdekTrack) {
       push(F.cdekTrack, cdekTrack)
-      push(F.trackLink, `https://lk.cdek.ru/order-history/${cdekTrack}/view`)
+      push(F.trackLink, cdekLkUrl(cdekTrack))
     } else if (adminNote.startsWith('track:')) {
-      const url = adminNote.replace(/^track:\s*/, '').split('\n')[0].trim()
-      push(F.trackLink, url)
+      const raw = adminNote.replace(/^track:\s*/, '').split('\n')[0].trim()
+      push(F.trackLink, cdekLkUrl(raw))
     }
 
     try {
