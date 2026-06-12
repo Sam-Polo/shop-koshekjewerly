@@ -287,7 +287,10 @@ async function main() {
         pipeline_id: PIPELINE_ID,
         status_id: stageId,
         custom_fields_values: customFields,
-        _embedded: { contacts: [{ id: contactId, is_main: true }] },
+        _embedded: {
+          contacts: [{ id: contactId, is_main: true }],
+          tags: [{ name: 'выгрузка тг бот с 31 мая' }],
+        },
       }])
       const lead = result?._embedded?.leads?.[0]
       const stage = isShipped ? 'ОТПРАВЛЕН' : 'НОВЫЙ'
