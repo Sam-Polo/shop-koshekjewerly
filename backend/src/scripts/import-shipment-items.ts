@@ -129,16 +129,17 @@ async function main() {
   const leads = isFinite(limit) ? allLeads.slice(0, limit) : allLeads
 
   let written = 0
-  let skipped = 0
+  let skippedStage = 0
   let unknown = 0
-  const manualReview: string[] = []
+  const noItems: string[] = []    // лиды без состава
+  const manualReview: string[] = [] // нераспознанный формат
 
   for (const lead of leads) {
     const stageId: number = lead.status_id
     const status = STAGE_MAP[stageId]
 
     if (status === 'skip' || status === undefined) {
-      skipped++
+      skippedStage++
       continue
     }
 
@@ -152,24 +153,26 @@ async function main() {
       ? isoDate(lead.updated_at)
       : ''
 
-    if (!orderId || !rawItems) {
-      const note = `lead ${lead.id}: нет orderId или состава`
-      manualReview.push(note)
-      unknown++
+    if (!rawItems) {
+      const effectiveId = orderId ?? `AMO-${lead.id}`
+      noItems.push(`lead ${lead.id} (${effectiveId})`)
       continue
     }
+
+    // leads without an order number get a surrogate key so they're still counted in reports
+    const effectiveOrderId = orderId ?? `AMO-${lead.id}`
 
     const { items, format } = parseAmoCrmComposition(rawItems)
 
     if (format === 'unknown' || items.length === 0) {
-      const note = `lead ${lead.id} (${orderId}): не распознан формат — "${rawItems.slice(0, 80)}"`
+      const note = `lead ${lead.id} (${effectiveOrderId}): не распознан формат — "${rawItems.slice(0, 80)}"`
       manualReview.push(note)
       unknown++
       continue
     }
 
     const rows: ShipmentItem[] = items.map(item => ({
-      order_id:    orderId,
+      order_id:    effectiveOrderId,
       source,
       article:     item.article,
       qty:         item.qty,
@@ -178,7 +181,7 @@ async function main() {
       ship_date:   shipDate,
     }))
 
-    console.log(`  [${format.toUpperCase()}] ${orderId} [${status}] → ${rows.length} позиц.`)
+    console.log(`  [${format.toUpperCase()}] ${effectiveOrderId} [${status}] → ${rows.length} позиц.`)
     rows.forEach(r => console.log(`    article=${r.article} qty=${r.qty}`))
 
     if (!isDryRun) {
@@ -189,11 +192,17 @@ async function main() {
   }
 
   console.log()
-  console.log(`Готово. Позиций записано: ${written}, лидов пропущено: ${skipped}, нераспознано: ${unknown}`)
+  console.log(`Готово. Позиций записано: ${written}, без состава: ${noItems.length}, закрыто/неизвестный этап: ${skippedStage}, нераспознано: ${unknown}`)
+
+  if (noItems.length > 0) {
+    console.log()
+    console.log('=== БЕЗ СОСТАВА (пропущены) ===')
+    noItems.forEach(m => console.log(m))
+  }
 
   if (manualReview.length > 0) {
     console.log()
-    console.log('=== ПРОВЕРИТЬ ВРУЧНУЮ ===')
+    console.log('=== ПРОВЕРИТЬ ВРУЧНУЮ (нераспознан формат) ===')
     manualReview.forEach(m => console.log(m))
   }
 }

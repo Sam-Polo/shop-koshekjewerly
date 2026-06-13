@@ -76,25 +76,23 @@ export function handleAmoCrmWebhook(req: Request, res: Response): void {
       logger.info({ leadId, statusId }, 'amoCRM webhook: stage change in our pipeline')
 
       const orderId = await fetchLeadOrderNumber(leadId)
+      // leads without an order number use the same surrogate key as the import script
+      const effectiveOrderId = orderId ?? `AMO-${leadId}`
+
       if (!orderId) {
-        logger.warn({ leadId }, 'amoCRM webhook: order number not found in lead')
-        sendAlert(
-          `amoCRM webhook: лид ${leadId} сменил этап на ${statusId}, но поле 774543 (№ заказа) пусто — shipment_items не обновлён`,
-          { tag: 'amocrm', level: 'moderate', code: 'AMOCRM_WEBHOOK_NO_ORDER_ID' }
-        ).catch(() => {})
-        continue
+        logger.info({ leadId, effectiveOrderId }, 'amoCRM webhook: no order number, using surrogate key')
       }
 
       const shipDate = new Date().toISOString().slice(0, 10)
       const newStatus = SENT_STAGES.has(statusId) ? 'sent' : 'returned'
 
       try {
-        const updated = await markOrderAsSent(orderId, shipDate)
-        logger.info({ leadId, orderId, newStatus, updated }, 'amoCRM webhook: shipment_items updated')
+        const updated = await markOrderAsSent(effectiveOrderId, shipDate)
+        logger.info({ leadId, effectiveOrderId, newStatus, updated }, 'amoCRM webhook: shipment_items updated')
       } catch (e: any) {
-        logger.error({ leadId, orderId, err: e?.message }, 'amoCRM webhook: failed to update shipment_items')
+        logger.error({ leadId, effectiveOrderId, err: e?.message }, 'amoCRM webhook: failed to update shipment_items')
         sendAlert(
-          `amoCRM webhook: не удалось обновить статус отправки для заказа ${orderId}: ${e?.message}`,
+          `amoCRM webhook: не удалось обновить статус отправки для заказа ${effectiveOrderId}: ${e?.message}`,
           { tag: 'amocrm', level: 'moderate', code: 'AMOCRM_WEBHOOK_SHEET_UPDATE_FAILED' }
         ).catch(() => {})
       }
