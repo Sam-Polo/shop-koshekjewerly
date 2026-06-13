@@ -187,6 +187,93 @@ async function setBarcodeUrlInLead(leadId: number, url: string): Promise<void> {
   await amoFetch('PATCH', `/leads/${leadId}`, { custom_fields_values: [f] })
 }
 
+// ── Find lead by «Номер заказа» + sync CDEK data (used by CDEK webhook) ───────
+
+/** Читает значение текстового кастомного поля из объекта лида (или null если пусто). */
+function readLeadField(lead: any, fieldId: number): string | null {
+  if (!fieldId) return null
+  const cf = lead?.custom_fields_values?.find((f: any) => Number(f.field_id) === fieldId)
+  const v = cf?.values?.[0]?.value
+  return v !== undefined && v !== null && v !== '' ? String(v) : null
+}
+
+export interface LeadCdekState {
+  id: number
+  track: string | null
+  trackLink: string | null
+  barcode: string | null
+}
+
+/** Ищет лид по полю «Номер заказа» (точное совпадение). query ищет по подстроке — фильтруем сами. */
+export async function findLeadByOrderNumber(orderNumber: string): Promise<LeadCdekState | null> {
+  const numberFieldId = Number(process.env.AMOCRM_FIELD_ORDER_NUMBER_ID)
+  if (!numberFieldId) throw new Error('AMOCRM_FIELD_ORDER_NUMBER_ID not set')
+  const search = await amoFetch('GET', `/leads?query=${encodeURIComponent(orderNumber)}&limit=10`) as any
+  const leads: any[] = search?._embedded?.leads ?? []
+  const lead = leads.find(l => readLeadField(l, numberFieldId) === orderNumber)
+  if (!lead?.id) return null
+  return {
+    id: lead.id as number,
+    track:     readLeadField(lead, Number(process.env.AMOCRM_FIELD_CDEK_TRACK_ID)),
+    trackLink: readLeadField(lead, Number(process.env.AMOCRM_FIELD_TRACK_LINK_ID)),
+    barcode:   readLeadField(lead, Number(process.env.AMOCRM_FIELD_BARCODE_ID)),
+  }
+}
+
+export type CdekSyncResult =
+  | { matched: false }
+  | {
+      matched: true
+      leadId: number
+      action: 'other-track-skip' | 'noop' | 'updated'
+      wroteTrack: boolean
+      wroteLink: boolean
+      wroteBarcode: boolean
+    }
+
+/**
+ * Идемпотентная синхронизация трека/ссылки/штрихкода в лид по номеру заказа.
+ * Дозаполняет только ПУСТЫЕ поля. Если в лиде стоит ДРУГОЙ трек — не трогаем.
+ * Штрихкод (дорогая операция со скачиванием) качаем только если поле пусто.
+ */
+export async function syncCdekToLead(
+  orderNumber: string,
+  cdekNumber: string,
+  cdekUuid: string,
+  downloadBarcode: (uuid: string) => Promise<Buffer>
+): Promise<CdekSyncResult> {
+  const lead = await findLeadByOrderNumber(orderNumber)
+  if (!lead) return { matched: false }
+
+  // в лиде уже стоит другой трек — это не наш заказ / ручная правка, не перетираем
+  if (lead.track && lead.track !== cdekNumber) {
+    return { matched: true, leadId: lead.id, action: 'other-track-skip', wroteTrack: false, wroteLink: false, wroteBarcode: false }
+  }
+
+  const trackingUrl = `https://lk.cdek.ru/order-history/${cdekNumber}/view`
+  const fields: FieldValue[] = []
+  let wroteTrack = false
+  let wroteLink = false
+  if (!lead.track) {
+    const f = fieldVal('AMOCRM_FIELD_CDEK_TRACK_ID', cdekNumber)
+    if (f) { fields.push(f); wroteTrack = true }
+  }
+  if (!lead.trackLink) {
+    const f = fieldVal('AMOCRM_FIELD_TRACK_LINK_ID', trackingUrl)
+    if (f) { fields.push(f); wroteLink = true }
+  }
+  if (fields.length) await amoFetch('PATCH', `/leads/${lead.id}`, { custom_fields_values: fields })
+
+  let wroteBarcode = false
+  if (!lead.barcode) {
+    await updateAmoCrmLeadBarcode(lead.id, cdekUuid, downloadBarcode)
+    wroteBarcode = true
+  }
+
+  const touched = wroteTrack || wroteLink || wroteBarcode
+  return { matched: true, leadId: lead.id, action: touched ? 'updated' : 'noop', wroteTrack, wroteLink, wroteBarcode }
+}
+
 // ── Fire-and-forget wrapper ───────────────────────────────────────────────────
 
 export async function triggerAmoCrmAsync(order: Order): Promise<number | null> {

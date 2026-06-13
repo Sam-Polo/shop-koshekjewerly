@@ -12,7 +12,7 @@ import { createOrder, getOrder, updateOrderStatus, listOrders, restoreOrder, typ
 import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId, listPendingOrdersFromSheet, updateCdekInfoInSheet } from './orders-sheet.js'
 import { sendAlert } from './alerts.js';
 import { searchCities, getPickupPoints, calculateDelivery, triggerCdekOrderAsync, getCdekUuidByTrack, downloadCdekBarcode } from './cdek.js';
-import { triggerAmoCrmAsync, updateAmoCrmLeadTrack, updateAmoCrmLeadBarcode, createAmoCrmLead } from './amocrm.js';
+import { triggerAmoCrmAsync, updateAmoCrmLeadTrack, updateAmoCrmLeadBarcode, createAmoCrmLead, syncCdekToLead } from './amocrm.js';
 import { buildPaymentForm, buildReceipt, verifyResultSignature, queryOrderState } from './robokassa.js';
 import { fetchPromocodesFromSheet, loadPromocodes, findPromocode, validatePromocode, listPromocodes } from './promocodes.js';
 import { getCachedOrdersSettings } from './settings.js';
@@ -1529,6 +1529,55 @@ app.get('/api/cdek/calculate', generalLimiter, async (req, res) => {
     logger.warn({ error: e?.message, cityCode }, 'CDEK calculate error')
     return res.status(502).json({ error: 'cdek_unavailable', detail: e?.message?.slice(0, 300) })
   }
+})
+
+// CDEK webhook (type=ORDER_STATUS): подтягивает трек/ссылку/штрихкод в Тильдины лиды.
+// Связка по полю «Номер заказа» (attributes.number = «Номер ИМ»).
+// CDEK шлёт POST на каждую смену статуса — отвечаем 200 МГНОВЕННО, обработку
+// (поиск лида + скачивание штрихкода ~20с) делаем в фоне, иначе CDEK словит таймаут и заретраит.
+// Опциональная защита: если задан CDEK_WEBHOOK_SECRET — требуем ?token=… в URL подписки.
+app.post('/api/cdek/webhook', express.json(), (req, res) => {
+  const secret = process.env.CDEK_WEBHOOK_SECRET
+  if (secret && req.query.token !== secret) {
+    return res.status(403).json({ error: 'forbidden' })
+  }
+  res.status(200).json({ ok: true }) // ACK немедленно, до обработки
+
+  // TEMP: сырое тело вебхука — снять после проверки структуры на первом реальном срабатывании
+  logger.info({ cdekWebhookRaw: req.body, query: req.query }, 'CDEK webhook raw payload')
+
+  const body: any = req.body
+  if (body?.type !== 'ORDER_STATUS') return
+
+  const attrs = body?.attributes ?? {}
+  const cdekNumber = String(attrs.cdek_number ?? '').trim()
+  const orderNumber = String(attrs.number ?? '').trim()
+  const uuid = String(body?.uuid ?? '').trim()
+
+  // трек ещё не присвоен, нет нашего номера заказа или uuid — обрабатывать нечего
+  if (!cdekNumber || !orderNumber || !uuid) return
+
+  syncCdekToLead(orderNumber, cdekNumber, uuid, downloadCdekBarcode)
+    .then(result => {
+      if (!result.matched) {
+        logger.info({ orderNumber, cdekNumber }, 'CDEK webhook: лид не найден (возможно бот-заказ) — пропуск')
+        return
+      }
+      if (result.action === 'other-track-skip') {
+        logger.warn({ orderNumber, cdekNumber, leadId: result.leadId }, 'CDEK webhook: в лиде другой трек — пропуск')
+        return
+      }
+      logger.info(
+        { orderNumber, cdekNumber, leadId: result.leadId, wroteTrack: result.wroteTrack, wroteLink: result.wroteLink, wroteBarcode: result.wroteBarcode },
+        `CDEK webhook: ${result.action}`
+      )
+    })
+    .catch((e: any) => {
+      sendAlert(
+        `CDEK webhook: ошибка синхронизации заказа ${orderNumber} (трек ${cdekNumber}): ${e?.message}`,
+        { tag: 'cdek', level: 'moderate', hint: 'Тильдин лид не получил трек/штрихкод — можно дослать повторным вебхуком или вручную', code: 'CDEK_WEBHOOK_SYNC_FAILED' }
+      ).catch(() => {})
+    })
 })
 
 // ── Track sending ─────────────────────────────────────────────────────────────
