@@ -139,16 +139,41 @@ async function main() {
     const lead = byTrack.get(debugTrack)
     if (!lead) {
       console.log(`[DEBUG] Трек ${debugTrack} не найден в индексе тильдовских лидов`)
-    } else {
-      const existingVal = getFieldValue(lead, ORDER_NUMBER_FIELD_ID)
-      console.log(`[DEBUG] Лид ${lead.id} для трека ${debugTrack}:`)
-      console.log(`  name: "${lead.name}"`)
-      console.log(`  getFieldValue(${ORDER_NUMBER_FIELD_ID}) = ${JSON.stringify(existingVal)}  → ${existingVal ? 'SKIP (уже заполнено)' : 'PATCH (пустое)'}`)
-      console.log(`  custom_fields_values:`)
-      for (const f of lead.custom_fields_values ?? []) {
-        const marker = f.field_id === ORDER_NUMBER_FIELD_ID ? ' ← ORDER_NUMBER' : f.field_id === CDEK_TRACK_FIELD_ID ? ' ← CDEK_TRACK' : ''
-        console.log(`    field_id=${f.field_id}  value=${JSON.stringify(f.values?.[0]?.value)}${marker}`)
-      }
+      return
+    }
+
+    const existingVal = getFieldValue(lead, ORDER_NUMBER_FIELD_ID)
+    console.log(`[DEBUG] Лид ${lead.id} для трека ${debugTrack}:`)
+    console.log(`  name: "${lead.name}"`)
+    console.log(`  getFieldValue(${ORDER_NUMBER_FIELD_ID}) = ${JSON.stringify(existingVal)}  → ${existingVal ? 'SKIP (уже заполнено)' : 'PATCH (пустое)'}`)
+    console.log(`  custom_fields_values:`)
+    for (const f of lead.custom_fields_values ?? []) {
+      const marker = f.field_id === ORDER_NUMBER_FIELD_ID ? ' ← ORDER_NUMBER' : f.field_id === CDEK_TRACK_FIELD_ID ? ' ← CDEK_TRACK' : ''
+      console.log(`    field_id=${f.field_id}  value=${JSON.stringify(f.values?.[0]?.value)}${marker}`)
+    }
+
+    // find the orderId for this track from CSV
+    const csvRow = pairs.find(([t]) => t === debugTrack)
+    if (!csvRow) {
+      console.log(`[DEBUG] Трек ${debugTrack} не найден в CSV`)
+      return
+    }
+    const [, orderId] = csvRow
+    console.log(`  CSV orderId: "${orderId}"`)
+
+    if (existingVal) {
+      console.log(`[DEBUG] Пропуск — поле уже заполнено`)
+      return
+    }
+
+    console.log(`[DEBUG] Применяем PATCH...`)
+    try {
+      await amoPatch(`/leads/${lead.id}`, {
+        custom_fields_values: [{ field_id: ORDER_NUMBER_FIELD_ID, values: [{ value: orderId }] }],
+      })
+      console.log(`[DEBUG] PATCH успешен → лид ${lead.id} получил номер заказа "${orderId}"`)
+    } catch (e: any) {
+      console.error(`[DEBUG] PATCH ОШИБКА: ${e?.message}`)
     }
     return
   }
