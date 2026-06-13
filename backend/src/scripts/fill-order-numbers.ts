@@ -1,13 +1,13 @@
 /**
  * One-off script: fill missing order numbers in Tilda leads from a CSV mapping.
  *
- * Tilda leads were imported without order numbers. This script reads a CSV with
- * (track_number → order_number) pairs and patches the amoCRM lead found by that track.
+ * Approach: load ALL "Тильда импорт" leads upfront, build an in-memory index
+ * by CDEK track number, then match against the CSV. This avoids relying on
+ * amoCRM query search which does not reliably index numeric custom field values.
  *
  * Safety guards:
- *   - Only touches leads named "Тильда импорт" (skips bot leads and any other)
- *   - Skips leads that already have an order number filled (non-Tilda may appear in search)
- *   - Warns and skips if query returns 2+ leads for one track (ambiguous)
+ *   - Only touches leads named "Тильда импорт"
+ *   - Skips leads that already have an order number filled
  *
  * Usage:
  *   npx tsx src/scripts/fill-order-numbers.ts <mapping.csv>
@@ -22,6 +22,7 @@ import fs from 'node:fs'
 const AMO_BASE = `https://${process.env.AMOCRM_SUBDOMAIN}.amocrm.ru`
 const AMO_TOKEN = process.env.AMOCRM_ACCESS_TOKEN!
 const ORDER_NUMBER_FIELD_ID = Number(process.env.AMOCRM_FIELD_ORDER_NUMBER_ID)
+const CDEK_TRACK_FIELD_ID   = Number(process.env.AMOCRM_FIELD_CDEK_TRACK_ID)
 const TILDA_LEAD_NAME = 'Тильда импорт'
 const DELAY_MS = 350
 
@@ -34,7 +35,10 @@ async function amoGet(path: string): Promise<any> {
     headers: { Authorization: `Bearer ${AMO_TOKEN}` },
   })
   if (resp.status === 204) return null
-  if (!resp.ok) return null
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '')
+    throw new Error(`amoCRM GET ${path} → ${resp.status}: ${text.slice(0, 200)}`)
+  }
   return resp.json()
 }
 
@@ -48,6 +52,28 @@ async function amoPatch(path: string, body: unknown): Promise<void> {
     const text = await resp.text().catch(() => '')
     throw new Error(`amoCRM PATCH ${path} → ${resp.status}: ${text.slice(0, 300)}`)
   }
+}
+
+function getFieldValue(lead: any, fieldId: number): string | null {
+  const f = (lead.custom_fields_values ?? []).find((f: any) => f.field_id === fieldId)
+  return f?.values?.[0]?.value ?? null
+}
+
+async function fetchAllTildaLeads(): Promise<any[]> {
+  const all: any[] = []
+  let page = 1
+  while (true) {
+    await sleep(DELAY_MS)
+    const data = await amoGet(
+      `/leads?query=${encodeURIComponent(TILDA_LEAD_NAME)}&limit=250&page=${page}&with=custom_fields`
+    )
+    const leads: any[] = data?._embedded?.leads ?? []
+    if (leads.length === 0) break
+    all.push(...leads.filter((l: any) => l.name === TILDA_LEAD_NAME))
+    if (leads.length < 250) break
+    page++
+  }
+  return all
 }
 
 function parseCSV(content: string): Array<[string, string]> {
@@ -80,62 +106,44 @@ async function main() {
     console.error(`Файл не найден: ${csvPath}`)
     process.exit(1)
   }
-  if (!ORDER_NUMBER_FIELD_ID) {
-    console.error('AMOCRM_FIELD_ORDER_NUMBER_ID не задан')
-    process.exit(1)
-  }
+  if (!ORDER_NUMBER_FIELD_ID) { console.error('AMOCRM_FIELD_ORDER_NUMBER_ID не задан'); process.exit(1) }
+  if (!CDEK_TRACK_FIELD_ID)   { console.error('AMOCRM_FIELD_CDEK_TRACK_ID не задан');   process.exit(1) }
 
   const pairs = parseCSV(fs.readFileSync(csvPath, 'utf8'))
   console.log(`CSV загружен: ${pairs.length} строк`)
+
+  console.log(`\nЗагружаем все лиды "${TILDA_LEAD_NAME}" из amoCRM...`)
+  const tildaLeads = await fetchAllTildaLeads()
+  console.log(`Найдено тильдовских лидов: ${tildaLeads.length}`)
+
+  // build index: track_number → lead (warn on duplicates)
+  const byTrack = new Map<string, any>()
+  for (const lead of tildaLeads) {
+    const track = getFieldValue(lead, CDEK_TRACK_FIELD_ID)
+    if (!track) continue
+    if (byTrack.has(track)) {
+      console.warn(`[WARN] дублирующийся трек ${track}: лиды ${byTrack.get(track).id} и ${lead.id}`)
+    } else {
+      byTrack.set(track, lead)
+    }
+  }
+  console.log(`Лидов с треком: ${byTrack.size}\n`)
 
   let updated = 0, skipped = 0, warnings = 0
   const warnLog: string[] = []
 
   for (const [track, orderId] of pairs) {
-    await sleep(DELAY_MS)
+    const lead = byTrack.get(track)
 
-    let data: any
-    try {
-      data = await amoGet(`/leads?query=${encodeURIComponent(track)}&limit=5&with=custom_fields`)
-    } catch (e: any) {
-      const msg = `[ERR] ${track}: ошибка запроса — ${e?.message}`
-      console.error(msg)
-      warnLog.push(msg)
-      warnings++
-      continue
-    }
-
-    const leads: any[] = data?._embedded?.leads ?? []
-
-    if (leads.length === 0) {
-      const msg = `[WARN] ${track} → лид не найден`
+    if (!lead) {
+      const msg = `[WARN] ${track} → лид не найден среди тильдовских`
       console.warn(msg)
       warnLog.push(msg)
       warnings++
       continue
     }
 
-    if (leads.length > 1) {
-      const ids = leads.map((l: any) => l.id).join(', ')
-      const msg = `[WARN] ${track} → найдено ${leads.length} лидов (${ids}), пропускаем`
-      console.warn(msg)
-      warnLog.push(msg)
-      warnings++
-      continue
-    }
-
-    const lead = leads[0]
-
-    if (lead.name !== TILDA_LEAD_NAME) {
-      console.log(`[SKIP] ${track} → лид ${lead.id} не тильдовский (name="${lead.name}")`)
-      skipped++
-      continue
-    }
-
-    const existing = lead.custom_fields_values
-      ?.find((f: any) => f.field_id === ORDER_NUMBER_FIELD_ID)
-      ?.values?.[0]?.value
-
+    const existing = getFieldValue(lead, ORDER_NUMBER_FIELD_ID)
     if (existing) {
       console.log(`[SKIP] ${track} → лид ${lead.id} уже имеет номер заказа "${existing}"`)
       skipped++
