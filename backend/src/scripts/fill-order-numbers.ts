@@ -12,9 +12,8 @@
  * Usage:
  *   npx tsx src/scripts/fill-order-numbers.ts <mapping.csv>
  *
- * CSV format (comma or semicolon, with or without header row):
- *   track_number,order_number
- *   10280035120,ORD-1234567890
+ * CSV format (comma or semicolon, any number of columns, header row required):
+ *   must contain columns named exactly "Track number" and "Номер заказа"
  */
 
 import 'dotenv/config'
@@ -55,17 +54,26 @@ function parseCSV(content: string): Array<[string, string]> {
   const lines = content.split(/\r?\n/).filter(l => l.trim())
   if (!lines.length) return []
   const delim = lines[0].includes(';') ? ';' : ','
-  const rows = lines.map(l => l.split(delim).map(c => c.trim().replace(/^"|"$/g, '')))
-  // skip header row if first cell is not a digit string (i.e. looks like a column name)
-  const start = /^\d+$/.test(rows[0]?.[0] ?? '') ? 0 : 1
-  return rows.slice(start).filter(r => r[0] && r[1]).map(r => [r[0], r[1]])
+  const parse = (l: string) => l.split(delim).map(c => c.trim().replace(/^"|"$/g, ''))
+
+  const header = parse(lines[0]).map(h => h.toLowerCase())
+  const trackCol = header.findIndex(h => h === 'track number')
+  const orderCol = header.findIndex(h => h === 'номер заказа')
+
+  if (trackCol === -1) throw new Error('Колонка "Track number" не найдена в заголовке CSV')
+  if (orderCol === -1) throw new Error('Колонка "Номер заказа" не найдена в заголовке CSV')
+
+  return lines.slice(1)
+    .map(parse)
+    .filter(r => r[trackCol] && r[orderCol])
+    .map(r => [r[trackCol], r[orderCol]])
 }
 
 async function main() {
   const csvPath = process.argv[2]
   if (!csvPath) {
     console.error('Usage: npx tsx src/scripts/fill-order-numbers.ts <mapping.csv>')
-    console.error('CSV format: track_number,order_number')
+    console.error('CSV должен содержать колонки "Track number" и "Номер заказа"')
     process.exit(1)
   }
   if (!fs.existsSync(csvPath)) {
