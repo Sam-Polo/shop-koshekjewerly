@@ -108,6 +108,13 @@ describe('processPaidOrder', () => {
       decreaseProductStock: vi.fn().mockReturnValue(true),
     }))
     vi.mock('./alerts.js', () => ({ sendAlert: vi.fn().mockResolvedValue(undefined) }))
+    vi.mock('./amocrm.js', () => ({
+      triggerAmoCrmAsync: vi.fn().mockResolvedValue(12345),
+      updateAmoCrmLeadTrack: vi.fn().mockResolvedValue(undefined),
+      updateAmoCrmLeadBarcode: vi.fn().mockResolvedValue('https://s3.test/barcode.pdf'),
+      createAmoCrmLead: vi.fn().mockResolvedValue(12345),
+      syncCdekToLead: vi.fn().mockResolvedValue({ matched: false }),
+    }))
 
     process.env.TG_BOT_TOKEN = 'test-token'
     process.env.TG_MANAGER_CHAT_ID = '111111'

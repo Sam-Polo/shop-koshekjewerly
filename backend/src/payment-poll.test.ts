@@ -50,6 +50,13 @@ vi.mock('./promocodes.js', () => ({
   listPromocodes: vi.fn().mockReturnValue([]),
 }))
 vi.mock('./alerts.js', () => ({ sendAlert: vi.fn().mockResolvedValue(undefined) }))
+vi.mock('./amocrm.js', () => ({
+  triggerAmoCrmAsync: vi.fn().mockResolvedValue(12345),
+  updateAmoCrmLeadTrack: vi.fn().mockResolvedValue(undefined),
+  updateAmoCrmLeadBarcode: vi.fn().mockResolvedValue('https://s3.test/barcode.pdf'),
+  createAmoCrmLead: vi.fn().mockResolvedValue(12345),
+  syncCdekToLead: vi.fn().mockResolvedValue({ matched: false }),
+}))
 
 const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => '' })
 vi.stubGlobal('fetch', fetchMock)

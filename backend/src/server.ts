@@ -1020,14 +1020,19 @@ export async function processPaidOrder(
   const robokassaAmount = parseFloat(outSum)
   const orderAmount = order.orderData.total
 
-  if (Math.abs(robokassaAmount - orderAmount) > 0.01) {
+  // Сумма ОБЯЗАНА быть валидным положительным числом И совпадать с заказом.
+  // Критично: пустой/битый OutSum (например из OpStateExt при polling) даёт NaN,
+  // а Math.abs(NaN - x) > 0.01 === false — без явной проверки заказ прошёл бы как
+  // оплаченный с непроверенной суммой. Поэтому NaN/≤0 отбраковываем отдельно.
+  const amountValid = Number.isFinite(robokassaAmount) && robokassaAmount > 0
+  if (!amountValid || Math.abs(robokassaAmount - orderAmount) > 0.01) {
     logger.error({
-      invId, orderId, robokassaAmount, orderAmount,
-      difference: Math.abs(robokassaAmount - orderAmount)
-    }, 'processPaidOrder: сумма от Робокассы не совпадает с суммой заказа')
+      invId, orderId, robokassaAmount, orderAmount, amountValid,
+      difference: amountValid ? Math.abs(robokassaAmount - orderAmount) : null
+    }, 'processPaidOrder: сумма от Робокассы невалидна или не совпадает с суммой заказа')
     sendAlert(
-      `Несовпадение суммы! InvId: ${invId}, ожидалось ${orderAmount}₽, получено ${robokassaAmount}₽`,
-      { tag: 'robokassa', level: 'high', hint: 'сумма от Robokassa не совпадает с заказом — нужна ручная проверка', code: 'AMOUNT_MISMATCH' }
+      `Сумма не подтверждена! InvId: ${invId}, ожидалось ${orderAmount}₽, получено "${outSum}". Заказ НЕ помечен оплаченным.`,
+      { tag: 'robokassa', level: 'high', hint: 'сумма от Robokassa пустая/битая или не совпадает с заказом — нужна ручная проверка', code: 'AMOUNT_MISMATCH' }
     ).catch(() => {})
     return 'amount_mismatch'
   }
@@ -1790,21 +1795,33 @@ export async function checkPendingOrders(): Promise<void> {
       const state = await queryOrderState(invId)
       if (!state) continue
 
-      if (state.stateCode === 100) {
-        // stateCode 100 = платёж проведён успешно — Result URL был пропущен (Render sleep/restart)
-        logger.info({ orderId: order.orderId, invId, outSum: state.outSum, stateCode: state.stateCode }, '1.2: Робокасса подтверждает оплату — обрабатываем')
+      // ТОЛЬКО stateCode 100 = платёж завершён и зачислен (оплачено окончательно).
+      // Любой другой код (5 не оплачен, 10 отменён, 50 зачисление в процессе,
+      // 60 возврат, 80 приостановлен) — НЕ оплачен, тихо пропускаем. Консервативно:
+      // лучше пропустить реально оплаченный (придёт на след. опросе как 100), чем
+      // пометить неоплаченный. Это самый важный инвариант polling-обработчика.
+      if (state.stateCode !== 100) {
+        logger.info({ orderId: order.orderId, invId, stateCode: state.stateCode }, '1.2: заказ не оплачен (stateCode≠100), пропускаем')
+        continue
+      }
+
+      // Result URL был пропущен (Render sleep/restart) — обрабатываем оплату.
+      // processPaidOrder сам проверит сумму (включая NaN/битый OutSum) и идемпотентность.
+      // Алерт шлём ПО ФАКТУ результата, а не заранее.
+      logger.info({ orderId: order.orderId, invId, outSum: state.outSum, stateCode: state.stateCode }, '1.2: Робокасса подтверждает оплату (stateCode=100) — обрабатываем')
+      const result = await processPaidOrder(order, state.outSum, invId, order.orderId)
+      if (result === 'ok') {
         sendAlert(
-          `1.2: ${order.orderId} — оплачен, но Result URL был пропущен. Polling спас заказ.`,
+          `1.2: ${order.orderId} — оплачен, Result URL был пропущен. Polling спас заказ.`,
           { tag: '1.2', level: 'high', hint: 'webhook от Робокассы не дошёл до бэкенда (Render sleep или рестарт во время оплаты)', code: 'RESULT_URL_MISSED' }
         ).catch(() => {})
-        const result = await processPaidOrder(order, state.outSum, invId, order.orderId)
-        if (result === 'amount_mismatch') {
-          sendAlert(`⚠️ 1.2: ${order.orderId} — расхождение суммы при polling`, { tag: '1.2', level: 'moderate', hint: 'сумма от Robokassa при опросе не совпала с заказом — нужна ручная проверка', code: 'POLLING_AMOUNT_MISMATCH' }).catch(() => {})
-        }
-      } else {
-        // stateCode 5 (не оплачен), 10 (отменён), 20 (hold), 50 (зачисление), 60 (отказ), 80 (приостановлен) — тихо пропускаем
-        logger.info({ orderId: order.orderId, invId, stateCode: state.stateCode }, '1.2: заказ не оплачен, пропускаем')
+      } else if (result === 'amount_mismatch') {
+        sendAlert(
+          `⚠️ 1.2: ${order.orderId} — stateCode=100, но сумма не подтверждена (OutSum="${state.outSum}"). Заказ НЕ обработан.`,
+          { tag: '1.2', level: 'high', hint: 'OpStateExt вернул оплату, но OutSum пустой/не совпал — возможен сбой парсинга XML; проверьте вручную', code: 'POLLING_AMOUNT_MISMATCH' }
+        ).catch(() => {})
       }
+      // 'already_paid' — гонка с Result URL, ничего не делаем
     } catch (e: any) {
       logger.warn({ orderId: order.orderId, error: e?.message }, '1.2: ошибка при опросе OpStateExt')
     }
