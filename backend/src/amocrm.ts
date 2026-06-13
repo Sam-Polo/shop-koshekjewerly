@@ -353,17 +353,43 @@ export async function syncCdekToLead(
   return { matched: true, leadId: lead.id, action: touched ? 'updated' : 'noop', wroteTrack, wroteLink, wroteBarcode }
 }
 
-// ── Fire-and-forget wrapper ───────────────────────────────────────────────────
+// ── Fire-and-forget wrapper с ретраями и идемпотентностью ─────────────────────
 
+const AMO_RETRY_DELAYS_MS = [2_000, 5_000] // паузы между 3 попытками
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(r => setTimeout(r, ms))
+}
+
+/**
+ * Гарантированная (насколько возможно) доставка заказа в amoCRM.
+ * - Идемпотентность: если лид с этим номером заказа уже есть — не дублируем.
+ * - 3 попытки с backoff на случай transient-сбоя amoCRM (502/429/таймаут).
+ * - После исчерпания попыток — критичный алерт (заказ есть только в Sheets).
+ * Никогда не бросает исключение.
+ */
 export async function triggerAmoCrmAsync(order: Order): Promise<number | null> {
+  // защита от дублей при повторной обработке оплаты / восстановлении из Sheets
   try {
-    const leadId = await createAmoCrmLead(order)
-    return leadId
-  } catch (e: any) {
-    sendAlert(
-      `amoCRM: не удалось создать лид для заказа ${order.orderId}: ${e?.message}`,
-      { tag: 'amocrm', level: 'moderate', hint: 'заказ есть в Google Sheets, потеря только в amoCRM', code: 'AMOCRM_LEAD_CREATE_FAILED' }
-    ).catch(() => {})
-    return null
+    const existing = await findLeadByOrderNumber(order.orderId)
+    if (existing) return existing.id
+  } catch {
+    // поиск не критичен — если упал, просто пытаемся создать
   }
+
+  let lastErr: any = null
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      return await createAmoCrmLead(order)
+    } catch (e: any) {
+      lastErr = e
+      if (attempt < 3) await sleep(AMO_RETRY_DELAYS_MS[attempt - 1])
+    }
+  }
+
+  sendAlert(
+    `amoCRM: НЕ удалось создать лид для заказа ${order.orderId} после 3 попыток: ${lastErr?.message}`,
+    { tag: 'amocrm', level: 'critical', hint: 'заказ есть в Google Sheets, но НЕ попал в CRM — создайте лид вручную', code: 'AMOCRM_LEAD_CREATE_FAILED' }
+  ).catch(() => {})
+  return null
 }

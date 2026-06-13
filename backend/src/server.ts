@@ -836,6 +836,11 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
         throw new Error(`Товар ${item.slug} не найден или неактивен`)
       }
 
+      if (product.coming_drop) {
+        logger.warn({ slug: item.slug }, 'товар в ожидании дропа, заказ отклонен')
+        throw new Error(`Товар ${item.slug} недоступен (в ожидании дропа)`)
+      }
+
       // используем актуальную цену и название с бэкенда, игнорируем данные от клиента
       // если есть discount_price_rub - используем её, иначе price_rub
       const actualPrice = product.discount_price_rub !== undefined && product.discount_price_rub > 0
@@ -1069,13 +1074,25 @@ export async function processPaidOrder(
     ).catch(() => {})
   }
 
-  // создаём лид в amoCRM; lead ID нужен в CDEK-callback ниже для обновления трека
-  const amoCrmLeadId = await triggerAmoCrmAsync(order)
+  // менеджер НЕ увидел заказ в канале — критично для отгрузки
+  if (delivery && !delivery.manager.ok) {
+    logger.error({ invId, orderId, reason: delivery.manager.errorDescription }, 'уведомление менеджеру не доставлено')
+    sendAlert(
+      `Заказ ${orderId} (${robokassaAmount}₽) НЕ доставлен в канал менеджера: ${delivery.manager.errorDescription ?? 'неизвестно'}`,
+      { tag: 'notification', level: 'high', hint: 'менеджер не увидит заказ — проверьте, что бот в канале и TG_ORDERS_CHANNEL_ID/MANAGER_CHAT_ID верны', code: 'MANAGER_NOTIFICATION_FAILED' }
+    ).catch(() => {})
+  }
+
+  // создаём лид в amoCRM параллельно — НЕ блокируем ответ Робокассе ретраями.
+  // lead ID нужен в CDEK-callback ниже (он срабатывает через несколько секунд,
+  // к этому моменту промис уже разрешится). triggerAmoCrmAsync не бросает.
+  const amoCrmLeadPromise = triggerAmoCrmAsync(order)
 
   // fire-and-forget: создаём отправление в СДЭК и отправляем трек покупателю
   triggerCdekOrderAsync(order, async (uuid, cdekNumber) => {
     updateCdekInfoInSheet(orderId, uuid, cdekNumber).catch(() => {})
 
+    const amoCrmLeadId = await amoCrmLeadPromise
     if (amoCrmLeadId) {
       updateAmoCrmLeadTrack(amoCrmLeadId, cdekNumber).catch((e: any) => {
         sendAlert(
