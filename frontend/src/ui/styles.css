@@ -307,11 +307,11 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
   line-height: 1.4;
 }
 .product-card--coming-drop {
-  box-shadow: 0 0 0 2px #5e6623, 0 0 16px rgba(94, 102, 35, 0.28);
+  box-shadow: 0 4px 20px rgba(94, 102, 35, 0.42);
 }
 .product-card--coming-drop:hover {
   transform: none;
-  box-shadow: 0 0 0 2px #5e6623, 0 0 16px rgba(94, 102, 35, 0.28);
+  box-shadow: 0 4px 20px rgba(94, 102, 35, 0.42);
 }
 .product-card__drop-overlay { display: none; }
 .product-card__drop-badge {
