@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { api, getToken, saveToken, removeToken } from './api'
-import { generateSlug, formatArticle, parseArticle, normalizeArticle } from './utils'
+import { generateSlug, formatArticle, parseArticle, normalizeArticle, rewriteImageUrl } from './utils'
 import PromocodesPage from './PromocodesPage'
 import CategoriesPage from './CategoriesPage'
 import BasesPage, { type AdminPage } from './BasesPage'
@@ -751,7 +751,7 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
                         <div className="product-images">
                           {product.images.length > 0 ? (
                             <>
-                              <img src={product.images[0]} alt={product.title} />
+                              <img src={rewriteImageUrl(product.images[0])} alt={product.title} />
                               {product.badge_text && (
                                 <div className="product-card-badge">
                                   {product.badge_text}
@@ -1097,7 +1097,7 @@ function ProductModal({
                           onTouchStart={(e) => handleImageTouch(e, originalIndex >= 0 ? originalIndex : idx)}
                         >
                           <img
-                            src={img}
+                            src={rewriteImageUrl(img)}
                             alt={`${product.title} ${idx + 1}`}
                             className="clickable-image"
                           />
@@ -1287,7 +1287,7 @@ function SortableImageItem({
       {...listeners}
     >
       <img
-        src={img}
+        src={rewriteImageUrl(img)}
         alt={`${productTitle} ${index + 1}`}
         draggable={false}
       />
@@ -1351,7 +1351,7 @@ function SortableProductCard({
         <div className="product-images">
           {product.images.length > 0 ? (
             <>
-              <img src={product.images[0]} alt={product.title} />
+              <img src={rewriteImageUrl(product.images[0])} alt={product.title} />
               {product.badge_text && (
                 <div className="product-card-badge">
                   {product.badge_text}
@@ -1429,7 +1429,7 @@ function SortableFormImageItem({
       {...attributes}
       {...listeners}
     >
-      <img src={img} alt={`Фото ${index + 1}`} draggable={false} />
+      <img src={rewriteImageUrl(img)} alt={`Фото ${index + 1}`} draggable={false} />
       <div className="image-preview-actions">
         <button
           type="button"
@@ -1474,7 +1474,7 @@ function ImageFullscreen({
       </button>
       <div className="fullscreen-image-container" onClick={(e) => e.stopPropagation()}>
         <img
-          src={images[currentIndex]}
+          src={rewriteImageUrl(images[currentIndex])}
           alt={`${productTitle} ${currentIndex + 1}`}
           className="fullscreen-image"
         />

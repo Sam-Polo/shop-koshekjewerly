@@ -1,3 +1,10 @@
+const OLD_IMG_BASE = 'https://s3.twcstorage.ru/koshekjewerly-s3-bucket'
+const NEW_IMG_BASE = 'https://storage.yandexcloud.net/koshekjewerly'
+export function rewriteImageUrl(url: string): string {
+  if (!url) return url
+  return url.startsWith(OLD_IMG_BASE) ? NEW_IMG_BASE + url.slice(OLD_IMG_BASE.length) : url
+}
+
 // генерация UUID v4 с fallback для не-secure контекстов (HTTP без HTTPS).
 // crypto.randomUUID доступен только в secure context (HTTPS, localhost).
 export function genUuid(): string {
