@@ -132,15 +132,22 @@ async function main() {
   console.log(`Лидов с треком: ${byTrack.size}\n`)
 
   if (debugTrack) {
+    console.log(`[DEBUG] Конфигурация:`)
+    console.log(`  ORDER_NUMBER_FIELD_ID = ${ORDER_NUMBER_FIELD_ID}  (env: ${process.env.AMOCRM_FIELD_ORDER_NUMBER_ID})`)
+    console.log(`  CDEK_TRACK_FIELD_ID   = ${CDEK_TRACK_FIELD_ID}   (env: ${process.env.AMOCRM_FIELD_CDEK_TRACK_ID})`)
+
     const lead = byTrack.get(debugTrack)
     if (!lead) {
       console.log(`[DEBUG] Трек ${debugTrack} не найден в индексе тильдовских лидов`)
     } else {
+      const existingVal = getFieldValue(lead, ORDER_NUMBER_FIELD_ID)
       console.log(`[DEBUG] Лид ${lead.id} для трека ${debugTrack}:`)
       console.log(`  name: "${lead.name}"`)
+      console.log(`  getFieldValue(${ORDER_NUMBER_FIELD_ID}) = ${JSON.stringify(existingVal)}  → ${existingVal ? 'SKIP (уже заполнено)' : 'PATCH (пустое)'}`)
       console.log(`  custom_fields_values:`)
       for (const f of lead.custom_fields_values ?? []) {
-        console.log(`    field_id=${f.field_id}  value=${JSON.stringify(f.values?.[0]?.value)}  enum_id=${f.values?.[0]?.enum_id ?? '—'}`)
+        const marker = f.field_id === ORDER_NUMBER_FIELD_ID ? ' ← ORDER_NUMBER' : f.field_id === CDEK_TRACK_FIELD_ID ? ' ← CDEK_TRACK' : ''
+        console.log(`    field_id=${f.field_id}  value=${JSON.stringify(f.values?.[0]?.value)}${marker}`)
       }
     }
     return
