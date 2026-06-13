@@ -2246,17 +2246,21 @@ export default function App() {
                       </div>
                       <div className="product-card__info">
                         <h3 className="product-card__title">{product.title}</h3>
-                        <div className="product-card__price">
-                          {product.discount_price_rub !== undefined && product.discount_price_rub > 0 ? (
-                            <>
-                              <span className="product-card__price-old">{product.price_rub} ₽</span>
-                              <span className="product-card__price-new">{product.discount_price_rub} ₽</span>
-                            </>
-                          ) : (
-                            <span>{product.price_rub} ₽</span>
-                          )}
-                        </div>
-          </div>
+                        {comingDrop ? (
+                          <p className="product-card__coming-drop-label">в ожидании дропа</p>
+                        ) : (
+                          <div className="product-card__price">
+                            {product.discount_price_rub !== undefined && product.discount_price_rub > 0 ? (
+                              <>
+                                <span className="product-card__price-old">{product.price_rub} ₽</span>
+                                <span className="product-card__price-new">{product.discount_price_rub} ₽</span>
+                              </>
+                            ) : (
+                              <span>{product.price_rub} ₽</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </motion.div>
                   )})}
                 </motion.div>
