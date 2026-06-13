@@ -223,6 +223,21 @@ export async function createAmoCrmLead(order: Order): Promise<number> {
   const normalStageId = Number(process.env.AMOCRM_STAGE_TO_SEND_ID) || undefined
   const priorityStageId = Number(process.env.AMOCRM_STAGE_PRIORITY_ID) || undefined
 
+  // без воронки лид уйдёт в воронку по умолчанию (не KOSHEK) — заказ «не туда».
+  if (!pipelineId) {
+    sendAlert(
+      `amoCRM: AMOCRM_PIPELINE_ID не задан — лид ${order.orderId} уйдёт в воронку по умолчанию, а не в KOSHEK`,
+      { tag: 'amocrm', level: 'high', hint: 'добавьте AMOCRM_PIPELINE_ID в Render env', code: 'AMOCRM_PIPELINE_MISSING' }
+    ).catch(() => {})
+  }
+  // без обычного этапа лид сядет в первый этап воронки, а не в «НОВЫЙ, ЖДЕТ ОТПРАВКИ».
+  if (!normalStageId) {
+    sendAlert(
+      `amoCRM: AMOCRM_STAGE_TO_SEND_ID не задан — лид ${order.orderId} уйдёт в первый этап воронки, а не в «НОВЫЙ, ЖДЕТ ОТПРАВКИ»`,
+      { tag: 'amocrm', level: 'high', hint: 'добавьте AMOCRM_STAGE_TO_SEND_ID в Render env', code: 'AMOCRM_STAGE_MISSING' }
+    ).catch(() => {})
+  }
+
   // приоритетный заказ → отдельный этап. Если он не настроен, лид уйдёт в обычный
   // этап (флаг 776409 всё равно проставится), но это конфиг-ошибка → high-алерт.
   let stageId = normalStageId
