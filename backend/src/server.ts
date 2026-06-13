@@ -1083,16 +1083,16 @@ export async function processPaidOrder(
     ).catch(() => {})
   }
 
-  // создаём лид в amoCRM параллельно — НЕ блокируем ответ Робокассе ретраями.
-  // lead ID нужен в CDEK-callback ниже (он срабатывает через несколько секунд,
-  // к этому моменту промис уже разрешится). triggerAmoCrmAsync не бросает.
-  const amoCrmLeadPromise = triggerAmoCrmAsync(order)
+  // создаём лид в amoCRM ДО продолжения: оплата уже подтверждена Робокассой,
+  // и мы гарантируем, что попытка (с 3 ретраями) завершится. Повторный callback
+  // от Робокассы дубль не создаст — triggerAmoCrmAsync идемпотентен по номеру заказа.
+  // lead ID нужен в CDEK-callback ниже для обновления трека.
+  const amoCrmLeadId = await triggerAmoCrmAsync(order)
 
   // fire-and-forget: создаём отправление в СДЭК и отправляем трек покупателю
   triggerCdekOrderAsync(order, async (uuid, cdekNumber) => {
     updateCdekInfoInSheet(orderId, uuid, cdekNumber).catch(() => {})
 
-    const amoCrmLeadId = await amoCrmLeadPromise
     if (amoCrmLeadId) {
       updateAmoCrmLeadTrack(amoCrmLeadId, cdekNumber).catch((e: any) => {
         sendAlert(
