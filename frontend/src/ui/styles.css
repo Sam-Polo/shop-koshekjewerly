@@ -316,7 +316,7 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 .product-card__drop-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.14);
+  background: rgba(0, 0, 0, 0.26);
   pointer-events: none;
   z-index: 5;
 }
