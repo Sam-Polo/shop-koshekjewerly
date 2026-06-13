@@ -222,8 +222,20 @@ export async function createAmoCrmLead(order: Order): Promise<number> {
   const pipelineId = Number(process.env.AMOCRM_PIPELINE_ID) || undefined
   const normalStageId = Number(process.env.AMOCRM_STAGE_TO_SEND_ID) || undefined
   const priorityStageId = Number(process.env.AMOCRM_STAGE_PRIORITY_ID) || undefined
-  // приоритетный заказ → отдельный этап (если задан); иначе обычный
-  const stageId = order.orderData.priorityOrder && priorityStageId ? priorityStageId : normalStageId
+
+  // приоритетный заказ → отдельный этап. Если он не настроен, лид уйдёт в обычный
+  // этап (флаг 776409 всё равно проставится), но это конфиг-ошибка → high-алерт.
+  let stageId = normalStageId
+  if (order.orderData.priorityOrder) {
+    if (priorityStageId) {
+      stageId = priorityStageId
+    } else {
+      sendAlert(
+        `amoCRM: приоритетный заказ ${order.orderId}, но AMOCRM_STAGE_PRIORITY_ID не задан — лид уйдёт в обычный этап`,
+        { tag: 'amocrm', level: 'high', hint: 'добавьте AMOCRM_STAGE_PRIORITY_ID в Render env', code: 'AMOCRM_PRIORITY_STAGE_MISSING' }
+      ).catch(() => {})
+    }
+  }
 
   const contactId = await findOrCreateContact(order)
 
