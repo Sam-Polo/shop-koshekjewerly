@@ -59,6 +59,44 @@ function fieldEnum(fieldEnvKey: string, enumEnvKey: string): FieldValue | null {
   return { field_id: fieldId, values: [{ enum_id: enumId }] }
 }
 
+// ── Env validation — отсутствие ID любого поля CRM = критичный алерт ───────────
+
+const REQUIRED_FIELD_ENV_KEYS = [
+  'AMOCRM_FIELD_SOURCE_ID',
+  'AMOCRM_ENUM_SOURCE_TELEGRAM',
+  'AMOCRM_ENUM_SOURCE_MAX',
+  'AMOCRM_FIELD_ORDER_NUMBER_ID',
+  'AMOCRM_FIELD_DATE_ID',
+  'AMOCRM_FIELD_ITEMS_ID',
+  'AMOCRM_FIELD_ADDRESS_ID',
+  'AMOCRM_FIELD_CITY_ID',
+  'AMOCRM_FIELD_ORDER_NAME_ID',
+  'AMOCRM_FIELD_CONTACT_NAME_ID',
+  'AMOCRM_FIELD_DELIVERY_TYPE_ID',
+  'AMOCRM_FIELD_DELIVERY_COST_ID',
+  'AMOCRM_FIELD_COMMENT_ID',
+  'AMOCRM_FIELD_CDEK_TRACK_ID',
+  'AMOCRM_FIELD_TRACK_LINK_ID',
+  'AMOCRM_FIELD_BARCODE_ID',
+  'AMOCRM_CONTACT_FIELD_TG_ID',
+  'AMOCRM_CONTACT_FIELD_TG_USERNAME',
+  'AMOCRM_CONTACT_FIELD_TG_LINK_ID',
+] as const
+
+/** Все env-переменные с ID полей amoCRM должны быть заданы. Любая отсутствующая → критичный алерт. */
+function checkRequiredFieldEnv(): void {
+  const missing = REQUIRED_FIELD_ENV_KEYS.filter(k => {
+    const v = process.env[k]
+    return !v || Number.isNaN(Number(v)) || Number(v) === 0
+  })
+  if (missing.length) {
+    sendAlert(
+      `amoCRM: не заданы env-переменные полей CRM: ${missing.join(', ')} — эти поля не будут заполнены в лиде/контакте`,
+      { tag: 'amocrm', level: 'critical', hint: 'добавьте недостающие переменные в Render env', code: 'AMOCRM_FIELD_ENV_MISSING' }
+    ).catch(() => {})
+  }
+}
+
 // ── Find or create contact ────────────────────────────────────────────────────
 
 async function findOrCreateContact(order: Order): Promise<number> {
@@ -70,6 +108,14 @@ async function findOrCreateContact(order: Order): Promise<number> {
   const cleanUsername = username ? `@${username.replace(/^@/, '')}` : null
   // ссылка на профиль только при наличии username
   const tgUrl = username ? `https://t.me/${username.replace(/^@/, '')}` : null
+
+  // нет username → ссылку на профиль не сохраняем (это норма), но фиксируем low-алертом
+  if (!username) {
+    sendAlert(
+      `amoCRM: у заказа ${order.orderId} нет username — ссылка на профиль не сохранена`,
+      { tag: 'amocrm', level: 'low', code: 'AMOCRM_NO_TG_USERNAME' }
+    ).catch(() => {})
+  }
 
   const search = await amoFetch('GET', `/contacts?query=${encodeURIComponent(phone)}&limit=1`) as any
   const existing = search?._embedded?.contacts?.[0]
@@ -163,6 +209,8 @@ function buildLeadFields(order: Order): FieldValue[] {
 // ── Create lead ───────────────────────────────────────────────────────────────
 
 export async function createAmoCrmLead(order: Order): Promise<number> {
+  checkRequiredFieldEnv()
+
   const pipelineId = Number(process.env.AMOCRM_PIPELINE_ID) || undefined
   const stageId = Number(process.env.AMOCRM_STAGE_TO_SEND_ID) || undefined
 
