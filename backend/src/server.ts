@@ -1557,27 +1557,43 @@ app.post('/api/cdek/webhook', express.json(), (req, res) => {
   // трек ещё не присвоен, нет нашего номера заказа или uuid — обрабатывать нечего
   if (!cdekNumber || !orderNumber || !uuid) return
 
-  syncCdekToLead(orderNumber, cdekNumber, uuid, downloadCdekBarcode)
-    .then(result => {
-      if (!result.matched) {
-        logger.info({ orderNumber, cdekNumber }, 'CDEK webhook: лид не найден (возможно бот-заказ) — пропуск')
+  // amoCRM индексирует свежесозданные лиды для query с задержкой (секунды-минуты),
+  // а filter по кастомному полю v4 не поддерживает — query единственный путь.
+  // Поэтому на первом вебхуке (CREATED) лид может ещё не находиться → ретраим в фоне.
+  // Render не засыпает между попытками: бот пингует его каждые 5 мин (keepAlive).
+  void (async () => {
+    const delays = [0, 45_000, 120_000, 240_000] // 0, 45с, 2мин, 4мин (≈6.5 мин суммарно)
+    for (let i = 0; i < delays.length; i++) {
+      if (delays[i]) await new Promise(r => setTimeout(r, delays[i]))
+      let result
+      try {
+        result = await syncCdekToLead(orderNumber, cdekNumber, uuid, downloadCdekBarcode)
+      } catch (e: any) {
+        sendAlert(
+          `CDEK webhook: ошибка синхронизации заказа ${orderNumber} (трек ${cdekNumber}): ${e?.message}`,
+          { tag: 'cdek', level: 'moderate', hint: 'Тильдин лид не получил трек/штрихкод', code: 'CDEK_WEBHOOK_SYNC_FAILED' }
+        ).catch(() => {})
         return
       }
-      if (result.action === 'other-track-skip') {
-        logger.warn({ orderNumber, cdekNumber, leadId: result.leadId }, 'CDEK webhook: в лиде другой трек — пропуск')
+      if (result.matched) {
+        if (result.action === 'other-track-skip') {
+          logger.warn({ orderNumber, cdekNumber, leadId: result.leadId }, 'CDEK webhook: в лиде другой трек — пропуск')
+        } else {
+          logger.info(
+            { orderNumber, cdekNumber, leadId: result.leadId, wroteTrack: result.wroteTrack, wroteLink: result.wroteLink, wroteBarcode: result.wroteBarcode, attempt: i + 1 },
+            `CDEK webhook: ${result.action}`
+          )
+        }
         return
       }
-      logger.info(
-        { orderNumber, cdekNumber, leadId: result.leadId, wroteTrack: result.wroteTrack, wroteLink: result.wroteLink, wroteBarcode: result.wroteBarcode },
-        `CDEK webhook: ${result.action}`
-      )
-    })
-    .catch((e: any) => {
-      sendAlert(
-        `CDEK webhook: ошибка синхронизации заказа ${orderNumber} (трек ${cdekNumber}): ${e?.message}`,
-        { tag: 'cdek', level: 'moderate', hint: 'Тильдин лид не получил трек/штрихкод — можно дослать повторным вебхуком или вручную', code: 'CDEK_WEBHOOK_SYNC_FAILED' }
-      ).catch(() => {})
-    })
+      // лид ещё не найден (вероятно не проиндексирован) — ждём следующую попытку
+    }
+    logger.warn({ orderNumber, cdekNumber }, 'CDEK webhook: лид не найден после ретраев')
+    sendAlert(
+      `CDEK webhook: лид для заказа ${orderNumber} (трек ${cdekNumber}) не найден за ~6 мин. Возможно бот-заказ или Тильда не создала лид.`,
+      { tag: 'cdek', level: 'low', hint: 'если это Тильда-заказ — дозаполните трек вручную или дождитесь следующего статуса CDEK', code: 'CDEK_WEBHOOK_LEAD_NOT_FOUND' }
+    ).catch(() => {})
+  })()
 })
 
 // ── Track sending ─────────────────────────────────────────────────────────────
