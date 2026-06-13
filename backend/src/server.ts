@@ -18,6 +18,7 @@ import { fetchPromocodesFromSheet, loadPromocodes, findPromocode, validatePromoc
 import { getCachedOrdersSettings } from './settings.js';
 import { getCachedCategories } from './categories.js';
 import { loadPendingNotifications, addPendingNotification, claimPendingNotifications } from './pending-notifications.js';
+import { handleTildaOrder } from './tilda-webhook.js';
 import {
   fetchBasesFromSheet,
   fetchPendantsFromSheet,
@@ -1624,6 +1625,10 @@ app.post('/api/cdek/webhook', express.json(), (req, res) => {
     ).catch(() => {})
   })()
 })
+
+// ── Tilda order webhook ───────────────────────────────────────────────────────
+
+app.post('/api/tilda/order', express.json({ type: '*/*' }), express.urlencoded({ extended: true }), handleTildaOrder)
 
 // ── Track sending ─────────────────────────────────────────────────────────────
 
