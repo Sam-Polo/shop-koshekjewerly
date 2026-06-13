@@ -1378,20 +1378,24 @@ function SortableProductCard({
           <h3>{product.title}</h3>
           <div className="product-meta">
             {product.article && <span>Артикул: {product.article}</span>}
-            <span>
-              Цена: {product.discount_price_rub !== undefined && product.discount_price_rub > 0 ? (
-                <>
-                  <span style={{ textDecoration: 'line-through', opacity: 0.6, marginRight: '8px' }}>
-                    {product.price_rub} ₽
-                  </span>
-                  <span style={{ color: '#bf9243', fontWeight: 600 }}>
-                    {product.discount_price_rub} ₽
-                  </span>
-                </>
-              ) : (
-                `${product.price_rub} ₽`
-              )}
-            </span>
+            {product.coming_drop ? (
+              <span className="product-card-coming-drop-label">в ожидании дропа</span>
+            ) : (
+              <span>
+                Цена: {product.discount_price_rub !== undefined && product.discount_price_rub > 0 ? (
+                  <>
+                    <span style={{ textDecoration: 'line-through', opacity: 0.6, marginRight: '8px' }}>
+                      {product.price_rub} ₽
+                    </span>
+                    <span style={{ color: '#bf9243', fontWeight: 600 }}>
+                      {product.discount_price_rub} ₽
+                    </span>
+                  </>
+                ) : (
+                  `${product.price_rub} ₽`
+                )}
+              </span>
+            )}
             <span className={product.active ? 'active' : 'inactive'}>
               {product.active ? 'Активен' : 'Неактивен'}
             </span>
