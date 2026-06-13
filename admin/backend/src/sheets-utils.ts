@@ -18,6 +18,7 @@ export type SheetProduct = {
   active: boolean
   stock?: number
   article?: string
+  coming_drop?: boolean
 }
 
 // получение авторизации для Google Sheets (с правами на чтение и запись)
@@ -49,7 +50,7 @@ export function normalizeSheetName(category: string): string {
 }
 
 // колонки листа товаров категории
-const PRODUCT_SHEET_HEADERS = ['slug', 'title', 'description', 'price_rub', 'discount_price_rub', 'badge_text', 'images', 'active', 'stock', 'article']
+const PRODUCT_SHEET_HEADERS = ['slug', 'title', 'description', 'price_rub', 'discount_price_rub', 'badge_text', 'images', 'active', 'stock', 'article', 'coming_drop']
 
 // проверка/создание листа товаров для категории (с заголовками)
 export async function ensureProductSheet(
@@ -75,7 +76,7 @@ export async function ensureProductSheet(
     })
     await sheets.spreadsheets.values.update({
       spreadsheetId: sheetId,
-      range: `${sheetName}!A1:J1`,
+      range: `${sheetName}!A1:K1`,
       valueInputOption: 'USER_ENTERED',
       requestBody: {
         values: [PRODUCT_SHEET_HEADERS]
@@ -173,7 +174,8 @@ export async function appendProductToSheet(
   if (headerIndex.active !== undefined) row[headerIndex.active] = product.active ? 1 : 0
   if (headerIndex.stock !== undefined) row[headerIndex.stock] = product.stock !== undefined ? product.stock : ''
   if (headerIndex.article !== undefined) row[headerIndex.article] = product.article || ''
-  
+  if (headerIndex.coming_drop !== undefined) row[headerIndex.coming_drop] = product.coming_drop ? 1 : ''
+
   // добавляем строку в конец листа
   await sheets.spreadsheets.values.append({
     spreadsheetId: sheetId,
@@ -224,7 +226,8 @@ export async function updateProductInSheet(
   if (headerIndex.active !== undefined) row[headerIndex.active] = product.active ? 1 : 0
   if (headerIndex.stock !== undefined) row[headerIndex.stock] = product.stock !== undefined ? product.stock : ''
   if (headerIndex.article !== undefined) row[headerIndex.article] = product.article || ''
-  
+  if (headerIndex.coming_drop !== undefined) row[headerIndex.coming_drop] = product.coming_drop ? 1 : ''
+
   // обновляем строку
   await sheets.spreadsheets.values.update({
     spreadsheetId: sheetId,

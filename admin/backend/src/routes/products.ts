@@ -196,7 +196,8 @@ router.post('/', async (req, res) => {
         : [],
       active: productData.active !== undefined ? Boolean(productData.active) : true,
       stock: productData.stock !== undefined ? Number(productData.stock) : undefined,
-      article: newArticleNorm || productData.article?.trim() || undefined
+      article: newArticleNorm || productData.article?.trim() || undefined,
+      coming_drop: productData.coming_drop === true,
     }
 
     for (const cat of normalizedCategories) {
@@ -338,7 +339,8 @@ router.put('/:slug', async (req, res) => {
         : [],
       active: productData.active !== undefined ? Boolean(productData.active) : true,
       stock: productData.stock !== undefined ? Number(productData.stock) : undefined,
-      article: oldProduct.article
+      article: oldProduct.article,
+      coming_drop: productData.coming_drop === true,
     }
 
     const oldCategories = oldProduct.categories || [oldProduct.category]

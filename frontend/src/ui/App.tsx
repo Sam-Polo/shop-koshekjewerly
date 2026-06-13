@@ -73,6 +73,7 @@ type Product = {
   active: boolean
   stock?: number
   article?: string // артикул товара
+  coming_drop?: boolean
 }
 
 type RegularCartItem = {
@@ -378,7 +379,9 @@ const ProductModal = ({
         {/* фото-галерея */}
         {product.images && product.images.length > 0 && (
           <div className="product-modal__gallery">
-            {product.badge_text && (
+            {product.coming_drop ? (
+              <div className="product-modal__drop-badge">в ожидании дропа</div>
+            ) : product.badge_text && (
               <div className="product-modal__badge">
                 {product.badge_text}
               </div>
@@ -445,7 +448,11 @@ const ProductModal = ({
           )}
           
           <div className="product-modal__cart-controls">
-            {product.stock !== undefined && product.stock === 0 ? (
+            {product.coming_drop ? (
+              <button className="btn btn--coming-drop" disabled>
+                в ожидании дропа
+              </button>
+            ) : product.stock !== undefined && product.stock === 0 ? (
               <button className="btn btn--out-of-stock" disabled>
                 Временно нет в наличии
               </button>
@@ -2207,10 +2214,11 @@ export default function App() {
                 >
                   {filteredProducts.map(product => {
                     const outOfStock = product.stock !== undefined && product.stock === 0
+                    const comingDrop = product.coming_drop === true
                     return (
                     <motion.div
                       key={product.slug}
-                      className={`product-card${outOfStock ? ' product-card--out-of-stock' : ''}`}
+                      className={`product-card${outOfStock ? ' product-card--out-of-stock' : ''}${comingDrop ? ' product-card--coming-drop' : ''}`}
                       onClick={() => setSelectedProduct(product)}
                       variants={itemVariants}
                     >
@@ -2219,15 +2227,24 @@ export default function App() {
                           src={product.images && product.images.length > 0 ? product.images[0] : ''}
                           alt={product.title}
                         />
-                        {product.badge_text && !outOfStock && (
-                          <div className="product-card__badge">
-                            {product.badge_text}
-                          </div>
-                        )}
-                        {outOfStock && (
-                          <div className="product-card__oos-badge">
-                            временно нет в наличии
-                          </div>
+                        {comingDrop ? (
+                          <>
+                            <div className="product-card__drop-overlay" />
+                            <div className="product-card__drop-badge">в ожидании дропа</div>
+                          </>
+                        ) : (
+                          <>
+                            {product.badge_text && !outOfStock && (
+                              <div className="product-card__badge">
+                                {product.badge_text}
+                              </div>
+                            )}
+                            {outOfStock && (
+                              <div className="product-card__oos-badge">
+                                временно нет в наличии
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
                       <div className="product-card__info">

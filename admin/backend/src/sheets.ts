@@ -18,6 +18,7 @@ export type SheetProduct = {
   active: boolean
   stock?: number
   article?: string
+  coming_drop?: boolean
   /** порядок товара в каждом листе (ключ — имя категории, значение — индекс строки) */
   orderInCategory?: Record<string, number>
 }
@@ -82,6 +83,8 @@ async function fetchSheetRange(
     const stockRaw = stockIdx !== -1 ? String(get('stock')).trim() : ''
     const stockParsed = stockRaw === '' ? NaN : Number(String(stockRaw).replace(',', '.'))
     const stock = Number.isFinite(stockParsed) ? stockParsed : undefined
+    const comingDropRaw = String(get('coming_drop') || '').trim().toLowerCase()
+    const coming_drop = comingDropRaw === 'true' || comingDropRaw === '1' || comingDropRaw === 'yes' ? true : undefined
     // артикул: в таблице хранится как число без ведущих нулей (100, 1) — нормализуем к "0100", "0001"
     const articleRaw = get('article')
     const articleStr = String(articleRaw ?? '').trim()
@@ -105,8 +108,9 @@ async function fetchSheetRange(
       active,
       stock: Number.isFinite(stock) ? stock : undefined,
       article: article || undefined,
+      coming_drop,
     }
-    
+
     if (!item.title || !item.slug) continue
     item.orderInCategory = { [categoryName]: i }
     out.push(item)
@@ -129,7 +133,7 @@ export async function fetchProductsFromSheet(sheetId: string): Promise<SheetProd
   
   for (const sheetName of sheetNames) {
     try {
-      const range = `${sheetName.trim()}!A1:K1000`
+      const range = `${sheetName.trim()}!A1:L1000`
       const products = await fetchSheetRange(auth, sheetId, range, sheetName.trim())
       const sheetKey = sheetName.trim()
       for (const p of products) {
@@ -153,6 +157,7 @@ export async function fetchProductsFromSheet(sheetId: string): Promise<SheetProd
             existing.active = p.active
             existing.stock = p.stock
             existing.article = p.article
+            existing.coming_drop = p.coming_drop
             existing.id = p.id
           }
         } else {

@@ -120,6 +120,7 @@ type Product = {
   active: boolean
   stock?: number
   article?: string
+  coming_drop?: boolean
   /** порядок в каждой категории (ключ — категория, значение — индекс строки в листе) */
   orderInCategory?: Record<string, number>
 }
@@ -1175,6 +1176,12 @@ function ProductModal({
                   <span className="detail-value">{product.stock}</span>
                 </div>
               )}
+              {product.coming_drop && (
+                <div className="detail-row">
+                  <span className="detail-label">Ожидание дропа:</span>
+                  <span className="detail-value" style={{ color: '#5e6623', fontWeight: 600 }}>Да</span>
+                </div>
+              )}
               
               <div className="detail-row">
                 <span className="detail-label">Статус:</span>
@@ -1951,6 +1958,23 @@ function ProductFormModal({
                 onChange={(e) => handleChange('stock', e.target.value ? parseInt(e.target.value) : undefined)}
                 placeholder="Количество товара в наличии"
               />
+            </div>
+          </div>
+
+          <div className="form-row">
+            <div className="form-group">
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={!!formData.coming_drop}
+                  onChange={(e) => handleChange('coming_drop', e.target.checked)}
+                  style={{ width: 18, height: 18, accentColor: '#5e6623', cursor: 'pointer' }}
+                />
+                В ожидании дропа
+              </label>
+              {formData.coming_drop && (
+                <small style={{ color: '#5e6623' }}>Товар будет недоступен для заказа с бейджем «В ожидании дропа»</small>
+              )}
             </div>
           </div>
 

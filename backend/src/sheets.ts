@@ -14,6 +14,7 @@ export type SheetProduct = {
   active: boolean
   stock?: number
   article?: string // артикул товара (4-значный, уникальный)
+  coming_drop?: boolean
 }
 
 function getAuthFromEnv() {
@@ -64,6 +65,8 @@ async function fetchSheetRange(auth: any, sheetId: string, range: string, catego
     const stockParsed = stockRaw === '' ? NaN : Number(stockRaw.replace(',', '.'))
     const stock = Number.isFinite(stockParsed) ? stockParsed : undefined
     const article = String(get('article') || '').trim() || undefined
+    const comingDropRaw = String(get('coming_drop') || '').trim().toLowerCase()
+    const coming_drop = comingDropRaw === 'true' || comingDropRaw === '1' || comingDropRaw === 'yes' ? true : undefined
     const item: SheetProduct = {
       id: String(get('id') || '').trim() || undefined,
       slug: String(get('slug')).trim(),
@@ -77,6 +80,7 @@ async function fetchSheetRange(auth: any, sheetId: string, range: string, catego
       active,
       stock: Number.isFinite(stock) ? stock : undefined,
       article: article || undefined,
+      coming_drop,
     }
     // простая валидация
     if (!item.title || !item.slug) continue
@@ -115,8 +119,8 @@ export async function fetchProductsFromSheet(sheetId: string): Promise<SheetProd
 
   for (const sheetName of sheetNames) {
     try {
-      // читаем диапазон A1:J1000 из каждого листа (добавлена колонка article в конце)
-      const range = `${sheetName.trim()}!A1:J1000`
+      // читаем диапазон A1:K1000 из каждого листа (добавлена колонка coming_drop в конце)
+      const range = `${sheetName.trim()}!A1:K1000`
       const products = await fetchSheetRange(auth, sheetId, range, sheetName.trim())
       allProducts.push(...products)
     } catch (e: any) {
