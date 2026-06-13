@@ -112,6 +112,8 @@ async function main() {
   const pairs = parseCSV(fs.readFileSync(csvPath, 'utf8'))
   console.log(`CSV загружен: ${pairs.length} строк`)
 
+  const debugTrack = process.argv[3] === '--debug' ? process.argv[4] : null
+
   console.log(`\nЗагружаем все лиды "${TILDA_LEAD_NAME}" из amoCRM...`)
   const tildaLeads = await fetchAllTildaLeads()
   console.log(`Найдено тильдовских лидов: ${tildaLeads.length}`)
@@ -128,6 +130,21 @@ async function main() {
     }
   }
   console.log(`Лидов с треком: ${byTrack.size}\n`)
+
+  if (debugTrack) {
+    const lead = byTrack.get(debugTrack)
+    if (!lead) {
+      console.log(`[DEBUG] Трек ${debugTrack} не найден в индексе тильдовских лидов`)
+    } else {
+      console.log(`[DEBUG] Лид ${lead.id} для трека ${debugTrack}:`)
+      console.log(`  name: "${lead.name}"`)
+      console.log(`  custom_fields_values:`)
+      for (const f of lead.custom_fields_values ?? []) {
+        console.log(`    field_id=${f.field_id}  value=${JSON.stringify(f.values?.[0]?.value)}  enum_id=${f.values?.[0]?.enum_id ?? '—'}`)
+      }
+    }
+    return
+  }
 
   let updated = 0, skipped = 0, warnings = 0
   const warnLog: string[] = []
