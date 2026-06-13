@@ -64,16 +64,38 @@ function fieldEnum(fieldEnvKey: string, enumEnvKey: string): FieldValue | null {
 async function findOrCreateContact(order: Order): Promise<number> {
   const { fullName, phone, username } = order.orderData
   const chatId = order.customerChatId
+  const platform = order.platform ?? 'telegram'
+
+  // нормализуем username: ровно один ведущий @
+  const cleanUsername = username ? `@${username.replace(/^@/, '')}` : null
+  // ссылка на профиль только при наличии username
+  const tgUrl = username ? `https://t.me/${username.replace(/^@/, '')}` : null
 
   const search = await amoFetch('GET', `/contacts?query=${encodeURIComponent(phone)}&limit=1`) as any
   const existing = search?._embedded?.contacts?.[0]
-  if (existing?.id) return existing.id as number
+  if (existing?.id) {
+    // дозаполняем username и tg-ссылку у вернувшегося клиента (не критично если упадёт)
+    const patch: FieldValue[] = []
+    const u = fieldVal('AMOCRM_CONTACT_FIELD_TG_USERNAME', cleanUsername)
+    const l = fieldVal('AMOCRM_CONTACT_FIELD_TG_LINK_ID', tgUrl)
+    if (u) patch.push(u)
+    if (l) patch.push(l)
+    if (patch.length) {
+      await amoFetch('PATCH', `/contacts/${existing.id}`, { custom_fields_values: patch }).catch(() => {})
+    }
+    return existing.id as number
+  }
 
   const customFields: FieldValue[] = []
-  const f1 = fieldVal('AMOCRM_CONTACT_FIELD_TG_ID', chatId ? Number(chatId) : null)
-  const f2 = fieldVal('AMOCRM_CONTACT_FIELD_TG_USERNAME', username ? `@${username}` : null)
-  if (f1) customFields.push(f1)
-  if (f2) customFields.push(f2)
+  // Telegram ID — только для telegram (для MAX chatId это максовский id, не телеграмный)
+  if (platform !== 'max') {
+    const fId = fieldVal('AMOCRM_CONTACT_FIELD_TG_ID', chatId ? Number(chatId) : null)
+    if (fId) customFields.push(fId)
+  }
+  const fUser = fieldVal('AMOCRM_CONTACT_FIELD_TG_USERNAME', cleanUsername)
+  const fLink = fieldVal('AMOCRM_CONTACT_FIELD_TG_LINK_ID', tgUrl)
+  if (fUser) customFields.push(fUser)
+  if (fLink) customFields.push(fLink)
 
   const created = await amoFetch('POST', '/contacts', [
     {
@@ -107,9 +129,12 @@ function buildLeadFields(order: Order): FieldValue[] {
   // Дата — Unix timestamp в секундах
   push(fieldVal('AMOCRM_FIELD_DATE_ID', Math.floor(order.createdAt / 1000)))
 
-  // Состав заказа
+  // Состав заказа — артикул в формате [0123] перед названием
   const items = order.orderData.items
-    .map(i => `${i.title}${i.quantity > 1 ? ` × ${i.quantity}` : ''} — ${i.price * i.quantity}₽`)
+    .map(i => {
+      const art = i.article ? `[${i.article}] ` : ''
+      return `${art}${i.title}${i.quantity > 1 ? ` × ${i.quantity}` : ''} — ${i.price * i.quantity}₽`
+    })
     .join('\n')
   push(fieldVal('AMOCRM_FIELD_ITEMS_ID', items))
 
@@ -143,11 +168,17 @@ export async function createAmoCrmLead(order: Order): Promise<number> {
 
   const contactId = await findOrCreateContact(order)
 
+  // тег по платформе: «макс бот» для MAX, «тг бот» для Telegram
+  const tagName = order.platform === 'max' ? 'макс бот' : 'тг бот'
+
   const leadBody: Record<string, unknown> = {
     name: `${order.orderData.fullName} — ${order.orderData.total}₽`,
     price: order.orderData.total,
     custom_fields_values: buildLeadFields(order),
-    _embedded: { contacts: [{ id: contactId, is_main: true }] },
+    _embedded: {
+      contacts: [{ id: contactId, is_main: true }],
+      tags: [{ name: tagName }],
+    },
   }
   if (pipelineId) leadBody.pipeline_id = pipelineId
   if (stageId) leadBody.status_id = stageId
