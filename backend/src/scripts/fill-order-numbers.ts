@@ -76,21 +76,54 @@ async function fetchAllTildaLeads(): Promise<any[]> {
   return all
 }
 
-function parseCSV(content: string): Array<[string, string]> {
-  const lines = content.split(/\r?\n/).filter(l => l.trim())
-  if (!lines.length) return []
-  const delim = lines[0].includes(';') ? ';' : ','
-  const parse = (l: string) => l.split(delim).map(c => c.trim().replace(/^"|"$/g, ''))
+function parseCSVRows(content: string, delim: string): string[][] {
+  const rows: string[][] = []
+  let row: string[] = []
+  let cell = ''
+  let inQuotes = false
 
-  const header = parse(lines[0]).map(h => h.toLowerCase())
+  for (let i = 0; i < content.length; i++) {
+    const ch = content[i]
+    const next = content[i + 1]
+
+    if (inQuotes) {
+      if (ch === '"' && next === '"') { cell += '"'; i++ }
+      else if (ch === '"') { inQuotes = false }
+      else { cell += ch }
+    } else {
+      if (ch === '"') {
+        inQuotes = true
+      } else if (ch === delim) {
+        row.push(cell.trim()); cell = ''
+      } else if (ch === '\r' && next === '\n') {
+        row.push(cell.trim()); rows.push(row); row = []; cell = ''; i++
+      } else if (ch === '\n') {
+        row.push(cell.trim()); rows.push(row); row = []; cell = ''
+      } else {
+        cell += ch
+      }
+    }
+  }
+  if (cell || row.length) { row.push(cell.trim()); if (row.some(c => c)) rows.push(row) }
+  return rows
+}
+
+function parseCSV(content: string): Array<[string, string]> {
+  if (!content.trim()) return []
+  const firstLine = content.split(/\r?\n/)[0]
+  const delim = firstLine.includes(';') ? ';' : ','
+
+  const rows = parseCSVRows(content, delim)
+  if (!rows.length) return []
+
+  const header = rows[0].map(h => h.toLowerCase())
   const trackCol = header.findIndex(h => h === 'track number')
   const orderCol = header.findIndex(h => h === 'номер заказа')
 
   if (trackCol === -1) throw new Error('Колонка "Track number" не найдена в заголовке CSV')
   if (orderCol === -1) throw new Error('Колонка "Номер заказа" не найдена в заголовке CSV')
 
-  return lines.slice(1)
-    .map(parse)
+  return rows.slice(1)
     .filter(r => r[trackCol] && r[orderCol])
     .map(r => [r[trackCol], r[orderCol]])
 }
