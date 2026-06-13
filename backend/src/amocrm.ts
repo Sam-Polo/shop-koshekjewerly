@@ -75,6 +75,8 @@ const REQUIRED_FIELD_ENV_KEYS = [
   'AMOCRM_FIELD_DELIVERY_TYPE_ID',
   'AMOCRM_FIELD_DELIVERY_COST_ID',
   'AMOCRM_FIELD_COMMENT_ID',
+  'AMOCRM_FIELD_PROMOCODE_ID',
+  'AMOCRM_FIELD_PRIORITY_ID',
   'AMOCRM_FIELD_CDEK_TRACK_ID',
   'AMOCRM_FIELD_TRACK_LINK_ID',
   'AMOCRM_FIELD_BARCODE_ID',
@@ -203,6 +205,12 @@ function buildLeadFields(order: Order): FieldValue[] {
   // Комментарий покупателя
   if (order.orderData.comments) push(fieldVal('AMOCRM_FIELD_COMMENT_ID', order.orderData.comments))
 
+  // Использованный промокод (text) — пишем только если применён
+  if (order.orderData.promocode?.code) push(fieldVal('AMOCRM_FIELD_PROMOCODE_ID', order.orderData.promocode.code))
+
+  // Приоритетный заказ — checkbox (флаг). Ставим true только для приоритетных.
+  if (order.orderData.priorityOrder) push(fieldVal('AMOCRM_FIELD_PRIORITY_ID', true))
+
   return fields
 }
 
@@ -212,7 +220,10 @@ export async function createAmoCrmLead(order: Order): Promise<number> {
   checkRequiredFieldEnv()
 
   const pipelineId = Number(process.env.AMOCRM_PIPELINE_ID) || undefined
-  const stageId = Number(process.env.AMOCRM_STAGE_TO_SEND_ID) || undefined
+  const normalStageId = Number(process.env.AMOCRM_STAGE_TO_SEND_ID) || undefined
+  const priorityStageId = Number(process.env.AMOCRM_STAGE_PRIORITY_ID) || undefined
+  // приоритетный заказ → отдельный этап (если задан); иначе обычный
+  const stageId = order.orderData.priorityOrder && priorityStageId ? priorityStageId : normalStageId
 
   const contactId = await findOrCreateContact(order)
 
