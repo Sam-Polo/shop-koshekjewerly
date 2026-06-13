@@ -6,6 +6,7 @@ import CategoriesPage from './CategoriesPage'
 import BasesPage, { type AdminPage } from './BasesPage'
 import PendantsPage from './PendantsPage'
 import StatisticsPage from './StatisticsPage'
+import ShipmentsPage from './ShipmentsPage'
 import CustomersPage from './CustomersPage'
 import SettingsPage from './SettingsPage'
 import {
@@ -537,6 +538,12 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
             onClick={() => onNavigate?.('statistics')}
           >
             Статистика
+          </button>
+          <button
+            className="nav-btn"
+            onClick={() => onNavigate?.('shipments')}
+          >
+            Учёт
           </button>
           <button
             className="nav-btn"
@@ -2178,6 +2185,8 @@ export default function App() {
           <PendantsPage onNavigate={handlePageChange} />
         ) : currentPage === 'statistics' ? (
           <StatisticsPage onNavigate={handlePageChange} />
+        ) : currentPage === 'shipments' ? (
+          <ShipmentsPage onNavigate={handlePageChange} />
         ) : currentPage === 'customers' ? (
           <CustomersPage onNavigate={handlePageChange} />
         ) : currentPage === 'settings' ? (

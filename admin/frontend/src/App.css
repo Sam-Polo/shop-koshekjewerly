@@ -3674,3 +3674,47 @@
     justify-content: flex-start;
   }
 }
+
+/* ── Учёт отправок (ShipmentsPage) ───────────────────────────────────────── */
+
+.btn-tab {
+  padding: 0.4rem 0.85rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.88rem;
+  transition: background 0.15s, border-color 0.15s;
+}
+.btn-tab:hover { background: #f0ede6; border-color: #bf9243; }
+.btn-tab.active { background: #bf9243; color: #fff; border-color: #bf9243; font-weight: 600; }
+
+.shipments-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+.shipments-table th,
+.shipments-table td {
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid #e8e3d8;
+  text-align: left;
+}
+.shipments-table th {
+  background: #f8f5ee;
+  font-weight: 600;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #555;
+}
+.shipments-table tr.row-pending { background: #fffbf2; }
+.shipments-table tr:hover { background: #f8f5ee; }
+.shipments-table code {
+  font-family: monospace;
+  background: #ede8df;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+}

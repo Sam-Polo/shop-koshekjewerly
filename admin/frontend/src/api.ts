@@ -310,6 +310,13 @@ export const api = {
 
   async getStatsCategories() {
     return fetchWithAuth('/api/stats/categories')
+  },
+
+  async getShipments(params: { from?: string; to?: string; source?: string } = {}) {
+    const qs = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => { if (v) qs.set(k, v) })
+    const suffix = qs.toString() ? `?${qs.toString()}` : ''
+    return fetchWithAuth(`/api/shipments${suffix}`)
   }
 }
 

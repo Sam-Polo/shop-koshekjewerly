@@ -20,7 +20,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { genUuid } from './utils'
 import './App.css'
 
-export type AdminPage = 'products' | 'promocodes' | 'categories' | 'bases' | 'pendants' | 'statistics' | 'customers' | 'settings'
+export type AdminPage = 'products' | 'promocodes' | 'categories' | 'bases' | 'pendants' | 'statistics' | 'shipments' | 'customers' | 'settings'
 
 type Base = {
   id: string
