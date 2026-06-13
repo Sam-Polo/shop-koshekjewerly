@@ -1562,9 +1562,11 @@ app.post('/api/cdek/webhook', express.json(), (req, res) => {
   // Поэтому на первом вебхуке (CREATED) лид может ещё не находиться → ретраим в фоне.
   // Render не засыпает между попытками: бот пингует его каждые 5 мин (keepAlive).
   void (async () => {
-    const delays = [0, 45_000, 120_000, 240_000] // 0, 45с, 2мин, 4мин (≈6.5 мин суммарно)
+    // первая попытка через минуту: на вебхуке CREATED лид Тильды ещё не в поисковом индексе amoCRM,
+    // моментальный query — заведомо промах. Если не найдём за все попытки — дотянет следующий статус CDEK.
+    const delays = [60_000, 120_000, 240_000, 300_000] // 1, 2, 4, 5 мин — последняя попытка на ~12-й мин
     for (let i = 0; i < delays.length; i++) {
-      if (delays[i]) await new Promise(r => setTimeout(r, delays[i]))
+      await new Promise(r => setTimeout(r, delays[i]))
       let result
       try {
         result = await syncCdekToLead(orderNumber, cdekNumber, uuid, downloadCdekBarcode)
@@ -1590,7 +1592,7 @@ app.post('/api/cdek/webhook', express.json(), (req, res) => {
     }
     logger.warn({ orderNumber, cdekNumber }, 'CDEK webhook: лид не найден после ретраев')
     sendAlert(
-      `CDEK webhook: лид для заказа ${orderNumber} (трек ${cdekNumber}) не найден за ~6 мин. Возможно бот-заказ или Тильда не создала лид.`,
+      `CDEK webhook: лид для заказа ${orderNumber} (трек ${cdekNumber}) не найден за ~12 мин. Возможно бот-заказ или Тильда не создала лид.`,
       { tag: 'cdek', level: 'low', hint: 'если это Тильда-заказ — дозаполните трек вручную или дождитесь следующего статуса CDEK', code: 'CDEK_WEBHOOK_LEAD_NOT_FOUND' }
     ).catch(() => {})
   })()
