@@ -307,13 +307,19 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
   line-height: 1.4;
 }
 .product-card--coming-drop {
-  box-shadow: 0 4px 20px rgba(94, 102, 35, 0.42);
+  box-shadow: 0 4px 26px rgba(212, 128, 224, 0.6);
 }
 .product-card--coming-drop:hover {
   transform: none;
-  box-shadow: 0 4px 20px rgba(94, 102, 35, 0.42);
+  box-shadow: 0 4px 26px rgba(212, 128, 224, 0.6);
 }
-.product-card__drop-overlay { display: none; }
+.product-card__drop-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.14);
+  pointer-events: none;
+  z-index: 5;
+}
 .product-card__drop-badge {
   position: absolute;
   bottom: 0;
