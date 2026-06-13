@@ -1543,13 +1543,16 @@ app.post('/api/cdek/webhook', express.json(), (req, res) => {
   }
   res.status(200).json({ ok: true }) // ACK немедленно, до обработки
 
-  // TEMP: сырое тело вебхука — снять после проверки структуры на первом реальном срабатывании
-  logger.info({ cdekWebhookRaw: req.body, query: req.query }, 'CDEK webhook raw payload')
-
   const body: any = req.body
+  const attrs = body?.attributes ?? {}
+  // компактный лог приёма КАЖДОГО вебхука (без токена) — видим прохождение; исход логируется ниже отдельно
+  logger.info(
+    { type: body?.type, number: attrs.number, cdek_number: attrs.cdek_number, code: attrs.code, uuid: body?.uuid },
+    'CDEK webhook received'
+  )
+
   if (body?.type !== 'ORDER_STATUS') return
 
-  const attrs = body?.attributes ?? {}
   const cdekNumber = String(attrs.cdek_number ?? '').trim()
   const orderNumber = String(attrs.number ?? '').trim()
   const uuid = String(body?.uuid ?? '').trim()
