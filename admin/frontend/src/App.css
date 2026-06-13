@@ -758,6 +758,29 @@
   white-space: nowrap;
 }
 
+.product-card-drop-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+  z-index: 5;
+}
+.product-card-drop-badge {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #5e6623;
+  color: white;
+  padding: 3px 16px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  z-index: 10;
+  white-space: nowrap;
+}
 .product-card-oos-badge {
   position: absolute;
   inset: 0;

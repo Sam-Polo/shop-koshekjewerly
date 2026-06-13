@@ -752,15 +752,24 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
                           {product.images.length > 0 ? (
                             <>
                               <img src={rewriteImageUrl(product.images[0])} alt={product.title} />
-                              {product.badge_text && (
-                                <div className="product-card-badge">
-                                  {product.badge_text}
-                                </div>
-                              )}
-                              {product.stock !== undefined && product.stock === 0 && (
-                                <div className="product-card-oos-badge">
-                                  нет в наличии
-                                </div>
+                              {product.coming_drop ? (
+                                <>
+                                  <div className="product-card-drop-overlay" />
+                                  <div className="product-card-drop-badge">в ожидании дропа</div>
+                                </>
+                              ) : (
+                                <>
+                                  {product.badge_text && (
+                                    <div className="product-card-badge">
+                                      {product.badge_text}
+                                    </div>
+                                  )}
+                                  {product.stock !== undefined && product.stock === 0 && (
+                                    <div className="product-card-oos-badge">
+                                      нет в наличии
+                                    </div>
+                                  )}
+                                </>
                               )}
                             </>
                           ) : (
@@ -1352,7 +1361,12 @@ function SortableProductCard({
           {product.images.length > 0 ? (
             <>
               <img src={rewriteImageUrl(product.images[0])} alt={product.title} />
-              {product.badge_text && (
+              {product.coming_drop ? (
+                <>
+                  <div className="product-card-drop-overlay" />
+                  <div className="product-card-drop-badge">в ожидании дропа</div>
+                </>
+              ) : product.badge_text && (
                 <div className="product-card-badge">
                   {product.badge_text}
                 </div>

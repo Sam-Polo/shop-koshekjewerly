@@ -144,6 +144,34 @@ export async function findProductRow(
   return null
 }
 
+// добавляет отсутствующие колонки в заголовок листа (нужно при первом сохранении нового поля)
+async function patchMissingColumns(
+  auth: any,
+  sheetId: string,
+  sheetName: string,
+  headers: string[],
+  headerIndex: Record<string, number>,
+  requiredColumns: string[]
+): Promise<{ headers: string[]; headerIndex: Record<string, number> }> {
+  const missing = requiredColumns.filter(col => headerIndex[col] === undefined)
+  if (missing.length === 0) return { headers, headerIndex }
+
+  const sheets = google.sheets({ version: 'v4', auth })
+  const newHeaders = [...headers, ...missing]
+  const newHeaderIndex = { ...headerIndex }
+  missing.forEach((col, i) => { newHeaderIndex[col] = headers.length + i })
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: sheetId,
+    range: `${sheetName}!A1:Z1`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: [newHeaders] }
+  })
+
+  logger.info({ sheetName, added: missing }, 'добавлены отсутствующие колонки в лист')
+  return { headers: newHeaders, headerIndex: newHeaderIndex }
+}
+
 // добавление товара в лист
 export async function appendProductToSheet(
   auth: any,
@@ -156,12 +184,13 @@ export async function appendProductToSheet(
   // нормализуем имя листа
   const normalizedSheetName = normalizeSheetName(sheetName)
   
-  // получаем заголовки
-  const { headers, headerIndex } = await getSheetHeaders(auth, sheetId, normalizedSheetName)
-  
+  // получаем заголовки и при необходимости добавляем отсутствующие колонки
+  const rawH = await getSheetHeaders(auth, sheetId, normalizedSheetName)
+  const { headers, headerIndex } = await patchMissingColumns(auth, sheetId, normalizedSheetName, rawH.headers, rawH.headerIndex, ['coming_drop'])
+
   // формируем строку данных
   const row: any[] = new Array(headers.length).fill('')
-  
+
   // заполняем данные по индексам колонок
   if (headerIndex.id !== undefined) row[headerIndex.id] = product.id || ''
   if (headerIndex.slug !== undefined) row[headerIndex.slug] = product.slug
@@ -208,12 +237,13 @@ export async function updateProductInSheet(
     throw new Error(`Товар со slug "${oldSlug}" не найден в листе "${normalizedSheetName}"`)
   }
   
-  // получаем заголовки
-  const { headers, headerIndex } = await getSheetHeaders(auth, sheetId, normalizedSheetName)
-  
+  // получаем заголовки и при необходимости добавляем отсутствующие колонки
+  const rawH2 = await getSheetHeaders(auth, sheetId, normalizedSheetName)
+  const { headers, headerIndex } = await patchMissingColumns(auth, sheetId, normalizedSheetName, rawH2.headers, rawH2.headerIndex, ['coming_drop'])
+
   // формируем строку данных
   const row: any[] = new Array(headers.length).fill('')
-  
+
   // заполняем данные
   if (headerIndex.id !== undefined) row[headerIndex.id] = product.id || ''
   if (headerIndex.slug !== undefined) row[headerIndex.slug] = product.slug
