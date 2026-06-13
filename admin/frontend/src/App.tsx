@@ -1626,7 +1626,8 @@ function ProductFormModal({
       active: product?.active !== undefined ? product.active : true,
       stock: isEdit ? (product!.stock ?? undefined) : 1000,
       article: initialArticle,
-      images: product?.images || []
+      images: product?.images || [],
+      coming_drop: product?.coming_drop ?? false
     }
   })
 
