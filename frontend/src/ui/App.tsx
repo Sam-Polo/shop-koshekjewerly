@@ -380,7 +380,10 @@ const ProductModal = ({
         {product.images && product.images.length > 0 && (
           <div className="product-modal__gallery">
             {product.coming_drop ? (
-              <div className="product-modal__drop-badge">в ожидании дропа</div>
+              <>
+                <div className="product-modal__drop-overlay" />
+                <div className="product-modal__drop-badge">в ожидании дропа</div>
+              </>
             ) : product.badge_text && (
               <div className="product-modal__badge">
                 {product.badge_text}

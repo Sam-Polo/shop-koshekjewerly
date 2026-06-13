@@ -758,28 +758,43 @@
   white-space: nowrap;
 }
 
+@keyframes drop-shimmer {
+  0%   { transform: skewX(-20deg) translateX(-300%); }
+  60%  { transform: skewX(-20deg) translateX(500%); }
+  100% { transform: skewX(-20deg) translateX(500%); }
+}
 .product-card-drop-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.18);
+  overflow: hidden;
   pointer-events: none;
   z-index: 5;
 }
+.product-card-drop-overlay::after {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: 0;
+  width: 40%;
+  height: 200%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.14), transparent);
+  animation: drop-shimmer 4s ease-in-out infinite;
+}
 .product-card-drop-badge {
   position: absolute;
-  top: 6px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: #5e6623;
-  color: white;
-  padding: 3px 16px;
-  border-radius: 20px;
-  font-size: 12px;
+  bottom: 10px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  color: #fff;
+  font-size: 9px;
   font-weight: 600;
+  letter-spacing: 3px;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  text-shadow: 0 1px 6px rgba(0,0,0,0.8), 0 0 12px rgba(0,0,0,0.5);
+  pointer-events: none;
   z-index: 10;
-  white-space: nowrap;
+  padding: 0 6px;
 }
 .product-card-oos-badge {
   position: absolute;
