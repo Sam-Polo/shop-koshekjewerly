@@ -207,85 +207,110 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
 
         {error && <div className="sh-error">{error}</div>}
 
-        {/* Circular counters */}
-        <div className="sh-counters">
-          <ArcCounter value={totals.pending} total={totalAll} label="К отправке"
-            color="#db2777" track="rgba(244,114,182,0.22)" />
-          <ArcCounter value={totals.in_work} total={totalAll} label="В работе"
-            color="#ea580c" track="rgba(251,146,60,0.22)" />
-          <ArcCounter value={totals.assembled} total={totalAll} label="Собран"
-            color="#0284c7" track="rgba(56,189,248,0.22)" />
-          <ArcCounter value={totals.sent} total={totalAll} label="Отправлено"
-            color="#7c3aed" track="rgba(139,92,246,0.2)" />
-          <ArcCounter value={totals.returned} total={totalAll} label="Возвращено"
-            color="#059669" track="rgba(16,185,129,0.2)" />
-        </div>
-
-        {/* Source chips */}
-        {visibleSources.length > 1 && (
-          <div className="sh-chips">
-            {visibleSources.map(([src, counts]) => (
-              <button
-                key={src}
-                className={`sh-chip ${activeSources.has(src) ? 'sh-chip--on' : ''}`}
-                onClick={() => toggleSource(src)}
-              >
-                {SOURCE_LABELS[src] ?? src}
-                <span className="sh-chip-num">{counts.pending + counts.in_work + counts.assembled + counts.sent}</span>
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Items table */}
-        {report && summary.length === 0 && (
-          <div className="sh-empty">Нет заказов за этот день</div>
-        )}
-
-        {summary.length > 0 && (
-          <div className="sh-card">
-            <table className="sh-table">
-              <thead>
-                <tr>
-                  <th>Артикул</th>
-                  <th>Название</th>
-                  <th className="sh-th-p">К отправке</th>
-                  {hasInWork    && <th className="sh-th-w">В работе</th>}
-                  {hasAssembled && <th className="sh-th-a">Собран</th>}
-                  <th className="sh-th-s">Отправлено</th>
-                  {hasReturned  && <th className="sh-th-r">Возвращено</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {summary.map(item => (
-                  <tr key={item.article} className={item.pending + item.in_work + item.assembled > 0 ? 'sh-row-hot' : ''}>
-                    <td><span className="sh-art">{item.article}</span></td>
-                    <td className="sh-name">{item.title || <span className="sh-muted">—</span>}</td>
-                    <td className="sh-td-p">
-                      {item.pending > 0 ? <strong>{item.pending}</strong> : <span className="sh-muted">—</span>}
-                    </td>
-                    {hasInWork && (
-                      <td className="sh-td-w">
-                        {item.in_work > 0 ? item.in_work : <span className="sh-muted">—</span>}
-                      </td>
-                    )}
-                    {hasAssembled && (
-                      <td className="sh-td-a">
-                        {item.assembled > 0 ? item.assembled : <span className="sh-muted">—</span>}
-                      </td>
-                    )}
-                    <td className="sh-td-s">
-                      {item.sent > 0 ? item.sent : <span className="sh-muted">—</span>}
-                    </td>
-                    {hasReturned && (
-                      <td className="sh-td-r">
-                        {item.returned > 0 ? item.returned : <span className="sh-muted">—</span>}
-                      </td>
-                    )}
-                  </tr>
+        {/* Skeleton — first load only (no data yet) */}
+        {loading && !report && (
+          <>
+            <div className="sh-counters">
+              {[0,1,2,3,4].map(i => (
+                <div key={i} className="sh-counter">
+                  <div className="sh-skeleton-ring" />
+                  <div className="sh-skeleton-label" />
+                </div>
+              ))}
+            </div>
+            <div className="sh-card">
+              <table className="sh-table"><tbody>
+                {[0,1,2,3,4].map(i => (
+                  <tr key={i}><td colSpan={6}><div className="sh-skeleton-row" style={{ width: `${70 + i * 5}%` }} /></td></tr>
                 ))}
-              </tbody>
-            </table>
+              </tbody></table>
+            </div>
+          </>
+        )}
+
+        {/* Content — show with dim overlay while refreshing */}
+        {report && (
+          <div className={loading ? 'sh-content sh-content--loading' : 'sh-content'}>
+            {/* Circular counters */}
+            <div className="sh-counters">
+              <ArcCounter value={totals.pending} total={totalAll} label="К отправке"
+                color="#db2777" track="rgba(244,114,182,0.22)" />
+              <ArcCounter value={totals.in_work} total={totalAll} label="В работе"
+                color="#ea580c" track="rgba(251,146,60,0.22)" />
+              <ArcCounter value={totals.assembled} total={totalAll} label="Собран"
+                color="#0284c7" track="rgba(56,189,248,0.22)" />
+              <ArcCounter value={totals.sent} total={totalAll} label="Отправлено"
+                color="#7c3aed" track="rgba(139,92,246,0.2)" />
+              <ArcCounter value={totals.returned} total={totalAll} label="Возвращено"
+                color="#059669" track="rgba(16,185,129,0.2)" />
+            </div>
+
+            {/* Source chips */}
+            {visibleSources.length > 1 && (
+              <div className="sh-chips">
+                {visibleSources.map(([src, counts]) => (
+                  <button
+                    key={src}
+                    className={`sh-chip ${activeSources.has(src) ? 'sh-chip--on' : ''}`}
+                    onClick={() => toggleSource(src)}
+                  >
+                    {SOURCE_LABELS[src] ?? src}
+                    <span className="sh-chip-num">{counts.pending + counts.in_work + counts.assembled + counts.sent}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Items table */}
+            {summary.length === 0 && (
+              <div className="sh-empty">Нет заказов за этот день</div>
+            )}
+            {summary.length > 0 && (
+              <div className="sh-card">
+                <table className="sh-table">
+                  <thead>
+                    <tr>
+                      <th>Артикул</th>
+                      <th>Название</th>
+                      <th className="sh-th-p">К отправке</th>
+                      {hasInWork    && <th className="sh-th-w">В работе</th>}
+                      {hasAssembled && <th className="sh-th-a">Собран</th>}
+                      <th className="sh-th-s">Отправлено</th>
+                      {hasReturned  && <th className="sh-th-r">Возвращено</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {summary.map(item => (
+                      <tr key={item.article} className={item.pending + item.in_work + item.assembled > 0 ? 'sh-row-hot' : ''}>
+                        <td><span className="sh-art">{item.article}</span></td>
+                        <td className="sh-name">{item.title || <span className="sh-muted">—</span>}</td>
+                        <td className="sh-td-p">
+                          {item.pending > 0 ? <strong>{item.pending}</strong> : <span className="sh-muted">—</span>}
+                        </td>
+                        {hasInWork && (
+                          <td className="sh-td-w">
+                            {item.in_work > 0 ? item.in_work : <span className="sh-muted">—</span>}
+                          </td>
+                        )}
+                        {hasAssembled && (
+                          <td className="sh-td-a">
+                            {item.assembled > 0 ? item.assembled : <span className="sh-muted">—</span>}
+                          </td>
+                        )}
+                        <td className="sh-td-s">
+                          {item.sent > 0 ? item.sent : <span className="sh-muted">—</span>}
+                        </td>
+                        {hasReturned && (
+                          <td className="sh-td-r">
+                            {item.returned > 0 ? item.returned : <span className="sh-muted">—</span>}
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
       </div>

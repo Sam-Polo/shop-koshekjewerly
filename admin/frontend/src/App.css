@@ -4028,6 +4028,41 @@
   font-size: 0.95rem;
 }
 
+/* ── content loading dim ── */
+.sh-content {
+  transition: opacity 0.18s;
+}
+.sh-content--loading {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+/* ── skeleton ── */
+@keyframes sh-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+.sh-skeleton-ring {
+  width: 88px; height: 88px;
+  border-radius: 50%;
+  background: rgba(109,40,217,0.1);
+  animation: sh-pulse 1.4s ease-in-out infinite;
+}
+.sh-skeleton-label {
+  width: 56px; height: 10px;
+  border-radius: 6px;
+  background: rgba(109,40,217,0.08);
+  animation: sh-pulse 1.4s ease-in-out infinite 0.2s;
+}
+.sh-skeleton-row {
+  height: 14px;
+  border-radius: 6px;
+  background: rgba(109,40,217,0.07);
+  animation: sh-pulse 1.4s ease-in-out infinite;
+  margin: 0.55rem 0;
+}
+
 /* ── responsive ── */
 @media (max-width: 600px) {
   .sh-page { padding: 1rem 0.75rem 2rem; }
