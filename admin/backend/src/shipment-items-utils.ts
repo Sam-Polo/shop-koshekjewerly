@@ -1,7 +1,7 @@
 import { google } from 'googleapis'
 import fs from 'node:fs'
 import pino from 'pino'
-import { fetchProductsFromSheet } from '../sheets.js'
+import { fetchProductsFromSheet } from './sheets.js'
 
 const logger = pino()
 
@@ -134,7 +134,7 @@ export async function buildShipmentsReport(opts: {
 
   // aggregate by article
   const byArticle = new Map<string, ShipmentSummaryItem>()
-  const bySource: Record<string, { pending: number; sent: number }> = {}
+  const bySource: Record<string, { pending: number; in_work: number; assembled: number; sent: number }> = {}
 
   for (const row of filtered) {
     if (!row.article) continue
