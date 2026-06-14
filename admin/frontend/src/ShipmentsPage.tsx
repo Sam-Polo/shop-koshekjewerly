@@ -86,7 +86,9 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
   const [error,   setError]   = useState('')
 
   const responseCache = useRef<Map<string, ShipmentsReport>>(new Map())
-  const dateInputRef  = useRef<HTMLInputElement>(null)
+  const dateInputRef    = useRef<HTMLInputElement>(null)
+  const dateFromRef     = useRef<HTMLInputElement>(null)
+  const dateToRef       = useRef<HTMLInputElement>(null)
 
   const setPeriod = useCallback((days: number) => {
     const today = todayIso()
@@ -279,6 +281,33 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
               {p.label}
             </button>
           ))}
+        </div>
+
+        {/* Custom date range */}
+        <div className="sh-custom-range">
+          <span className="sh-custom-range-label">С</span>
+          <input
+            ref={dateFromRef}
+            type="date"
+            className="sh-custom-date"
+            value={dateFrom}
+            max={dateTo}
+            onChange={e => {
+              if (e.target.value) { setDateFrom(e.target.value); setActivePeriod(null) }
+            }}
+          />
+          <span className="sh-custom-sep">—</span>
+          <input
+            ref={dateToRef}
+            type="date"
+            className="sh-custom-date"
+            value={dateTo}
+            min={dateFrom}
+            max={todayIso()}
+            onChange={e => {
+              if (e.target.value) { setDateTo(e.target.value); setActivePeriod(null) }
+            }}
+          />
         </div>
 
         {error && <div className="sh-error">{error}</div>}

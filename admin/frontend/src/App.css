@@ -3751,9 +3751,8 @@
   align-items: center;
   justify-content: center;
   gap: 0.6rem;
-  margin-top: 2rem;
   max-width: 520px;
-  margin: 0 auto 2.25rem;
+  margin: 2rem auto 0.75rem;
   padding: 0.5rem 0.75rem;
   background: rgba(255,255,255,0.8);
   border: 1px solid rgba(139,92,246,0.18);
@@ -3899,7 +3898,42 @@
   display: flex;
   justify-content: center;
   gap: 0.4rem;
-  margin: 0.65rem auto 1.5rem;
+  margin: 0.5rem auto 0.6rem;
+}
+
+/* ── custom date range ── */
+.sh-custom-range {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin: 0 auto 1.75rem;
+  flex-wrap: wrap;
+}
+.sh-custom-range-label {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: rgba(45,26,94,0.45);
+}
+.sh-custom-date {
+  padding: 0.3rem 0.65rem;
+  background: rgba(255,255,255,0.82);
+  border: 1px solid rgba(139,92,246,0.22);
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #3b2668;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.sh-custom-date:hover {
+  border-color: rgba(139,92,246,0.45);
+  background: rgba(255,255,255,0.95);
+}
+.sh-custom-sep {
+  font-size: 0.82rem;
+  color: rgba(45,26,94,0.35);
 }
 .sh-pchip {
   padding: 0.28rem 0.85rem;
