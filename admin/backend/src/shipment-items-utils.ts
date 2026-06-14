@@ -7,6 +7,18 @@ const logger = pino()
 
 const SHEET_NAME = 'shipment_items'
 
+// In-memory cache — avoids hitting Google Sheets on every filter/nav change
+const ROWS_TTL   = 30_000   // 30s
+const TITLES_TTL = 300_000  // 5 min (product catalog changes rarely)
+
+let rowsCache:   { data: ShipmentRow[];       at: number } | null = null
+let titlesCache: { data: Map<string, string>; at: number } | null = null
+
+export function invalidateShipmentsCache() {
+  rowsCache   = null
+  titlesCache = null
+}
+
 type ShipStatus = 'pending' | 'in_work' | 'assembled' | 'sent' | 'returned'
 type ShipSource = 'telegram' | 'tilda' | 'max'
 
@@ -55,7 +67,12 @@ function getSpreadsheetId(): string {
   return id
 }
 
-async function readShipmentRows(): Promise<ShipmentRow[]> {
+async function readShipmentRows(nocache = false): Promise<ShipmentRow[]> {
+  const now = Date.now()
+  if (!nocache && rowsCache && (now - rowsCache.at) < ROWS_TTL) {
+    logger.debug('shipment rows: cache hit')
+    return rowsCache.data
+  }
   const auth = getAuth()
   const sheets = google.sheets({ version: 'v4', auth })
   const res = await sheets.spreadsheets.values.get({
@@ -63,7 +80,7 @@ async function readShipmentRows(): Promise<ShipmentRow[]> {
     range: `${SHEET_NAME}!A:G`,
   })
   const rows = (res.data.values ?? []).slice(1)
-  return rows
+  const data = rows
     .filter(r => r[0])
     .map(r => ({
       order_id:    String(r[0] ?? ''),
@@ -74,15 +91,22 @@ async function readShipmentRows(): Promise<ShipmentRow[]> {
       ship_status: (r[5] ?? 'pending') as ShipStatus,
       ship_date:   String(r[6] ?? ''),
     }))
+  rowsCache = { data, at: now }
+  return data
 }
 
-/** Reads article→title map from product catalog (reuses existing fetchProductsFromSheet). */
-async function readArticleTitleMap(): Promise<Map<string, string>> {
+async function readArticleTitleMap(nocache = false): Promise<Map<string, string>> {
+  const now = Date.now()
+  if (!nocache && titlesCache && (now - titlesCache.at) < TITLES_TTL) {
+    logger.debug('article titles: cache hit')
+    return titlesCache.data
+  }
   const products = await fetchProductsFromSheet(getSpreadsheetId())
   const map = new Map<string, string>()
   for (const p of products) {
     if (p.article && p.title) map.set(p.article, p.title)
   }
+  titlesCache = { data: map, at: now }
   return map
 }
 
@@ -90,10 +114,11 @@ export async function buildShipmentsReport(opts: {
   from?: string  // YYYY-MM-DD inclusive
   to?: string    // YYYY-MM-DD inclusive
   source?: string
+  nocache?: boolean
 }): Promise<ShipmentsReport> {
   const [rows, articleMap] = await Promise.all([
-    readShipmentRows(),
-    readArticleTitleMap(),
+    readShipmentRows(opts.nocache),
+    readArticleTitleMap(opts.nocache),
   ])
 
   const filtered = rows.filter(r => {

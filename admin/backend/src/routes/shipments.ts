@@ -11,8 +11,8 @@ router.use(requireAuth)
 // GET /api/shipments?from=YYYY-MM-DD&to=YYYY-MM-DD&source=telegram|tilda|max
 router.get('/', async (req, res) => {
   try {
-    const { from, to, source } = req.query as Record<string, string>
-    const report = await buildShipmentsReport({ from, to, source })
+    const { from, to, source, nocache } = req.query as Record<string, string>
+    const report = await buildShipmentsReport({ from, to, source, nocache: nocache === '1' })
     res.json(report)
   } catch (e: any) {
     logger.error({ err: e?.message, stack: e?.stack }, 'shipments report error')

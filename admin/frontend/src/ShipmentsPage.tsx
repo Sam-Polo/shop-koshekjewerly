@@ -75,7 +75,7 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (nocache = false) => {
     setLoading(true)
     setError('')
     try {
@@ -83,7 +83,7 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
 
       const results = await Promise.all(
         srcList.map(src =>
-          api.getShipments({ from: selectedIso, to: selectedIso, ...(src ? { source: src } : {}) })
+          api.getShipments({ from: selectedIso, to: selectedIso, ...(src ? { source: src } : {}), ...(nocache ? { nocache: true } : {}) })
         )
       )
 
@@ -195,7 +195,7 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
             aria-label="Следующий день"
           >›</button>
 
-          <button className="sh-refresh-btn" onClick={load} disabled={loading} title="Обновить">
+          <button className="sh-refresh-btn" onClick={() => load(true)} disabled={loading} title="Обновить">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"
               strokeLinecap="round" strokeLinejoin="round"
               className={loading ? 'spinning' : ''}>
