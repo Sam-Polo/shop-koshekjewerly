@@ -13,7 +13,7 @@ import { createOrder, getOrder, updateOrderStatus, listOrders, restoreOrder, typ
 import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId, listPendingOrdersFromSheet, updateCdekInfoInSheet, updatePochtaInfoInSheet } from './orders-sheet.js'
 import { sendAlert } from './alerts.js';
 import { searchCities, getPickupPoints, calculateDelivery, triggerCdekOrderAsync, getCdekUuidByTrack, downloadCdekBarcode } from './cdek.js';
-import { calculateTariff as calculatePochtaTariff, triggerPochtaOrderAsync, downloadF7p } from './pochta.js';
+import { calculateTariff as calculatePochtaTariff, triggerPochtaOrderAsync, downloadF7p, getCountries as getPochtaCountries } from './pochta.js';
 import { triggerAmoCrmAsync, updateAmoCrmLeadTrack, updateAmoCrmLeadBarcode, createAmoCrmLead, syncCdekToLead } from './amocrm.js';
 import { buildPaymentForm, buildReceipt, verifyResultSignature, queryOrderState } from './robokassa.js';
 import { fetchPromocodesFromSheet, loadPromocodes, findPromocode, validatePromocode, listPromocodes } from './promocodes.js';
@@ -1674,6 +1674,17 @@ app.get('/api/cdek/calculate', generalLimiter, async (req, res) => {
 })
 
 // ── Pochta (EMS) endpoints ────────────────────────────────────────────────────
+
+// актуальный справочник стран Почты (id = ОКСМ), кэш 24ч; фронт имеет статический фолбэк
+app.get('/api/pochta/countries', generalLimiter, async (_req, res) => {
+  try {
+    const countries = await getPochtaCountries()
+    return res.json(countries)
+  } catch (e: any) {
+    logger.warn({ error: e?.message }, 'Pochta countries error')
+    return res.status(502).json({ error: 'pochta_unavailable' })
+  }
+})
 
 // расчёт стоимости международной EMS-доставки по коду страны (ОКСМ)
 app.get('/api/pochta/calculate', generalLimiter, async (req, res) => {

@@ -62,10 +62,47 @@ const order = {
 beforeEach(async () => {
   pochta = await import('./pochta.js')
   pochta._resetAuthCache()
+  pochta._resetCountriesCache()
 })
 
 afterEach(() => {
   vi.restoreAllMocks()
+})
+
+describe('getCountries', () => {
+  const DICT_RESP = {
+    country: [
+      { id: 276, name: 'ГЕРМАНИЯ' },
+      { id: 840, name: 'СОЕДИНЕННЫЕ ШТАТЫ' },
+      { id: 1, name: '' }, // без имени — отфильтровывается
+    ],
+  }
+
+  it('maps id→code, title-cases name, sorts and filters', async () => {
+    vi.stubGlobal('fetch', mockFetch([{ ok: true, body: DICT_RESP }]))
+    const list = await pochta.getCountries()
+    expect(list).toEqual([
+      { code: 276, name: 'Германия' },
+      { code: 840, name: 'Соединенные Штаты' },
+    ])
+  })
+
+  it('caches result (no second fetch)', async () => {
+    vi.stubGlobal('fetch', mockFetch([{ ok: true, body: DICT_RESP }]))
+    await pochta.getCountries()
+    await pochta.getCountries()
+    expect((fetch as any).mock.calls).toHaveLength(1)
+  })
+
+  it('throws on HTTP error', async () => {
+    vi.stubGlobal('fetch', mockFetch([{ ok: false, body: {} }]))
+    await expect(pochta.getCountries()).rejects.toThrow('HTTP 400')
+  })
+
+  it('throws on empty dictionary', async () => {
+    vi.stubGlobal('fetch', mockFetch([{ ok: true, body: { country: [] } }]))
+    await expect(pochta.getCountries()).rejects.toThrow('пустой справочник')
+  })
 })
 
 describe('checkRequiredPochtaEnv', () => {

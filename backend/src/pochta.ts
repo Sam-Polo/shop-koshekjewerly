@@ -136,6 +136,53 @@ export async function calculateTariff(countryCode: number, weight = PKG_WEIGHT_G
   return Math.ceil((rate + vat) / 100)
 }
 
+// ── Справочник стран (публичный калькулятор, без авторизации) ──────────────────
+// tariff.pochta.ru/v1/dictionary/country отдаёт актуальный список направлений Почты.
+// id страны == код ОКСМ (276=Германия, 840=США …) — он же идёт как mail-direct.
+// Открытый эндпоинт (CORS нет → ходим с бэкенда), кэшируем на 24ч.
+
+export interface PochtaCountry { code: number; name: string }
+
+const COUNTRY_DICT_URL = 'https://tariff.pochta.ru/v1/dictionary/country'
+let _countriesCache: PochtaCountry[] | null = null
+let _countriesExpiresAt = 0
+
+// exported for tests
+export function _resetCountriesCache() {
+  _countriesCache = null
+  _countriesExpiresAt = 0
+}
+
+/** «ГЕРМАНИЯ» → «Германия», «СОЕДИНЕННЫЕ ШТАТЫ» → «Соединенные Штаты». */
+function titleCaseCountry(s: string): string {
+  return s.toLowerCase().replace(/(^|[\s\-(«])([а-яёa-z])/g, (_, p, c) => p + (c as string).toUpperCase())
+}
+
+export async function getCountries(): Promise<PochtaCountry[]> {
+  if (_countriesCache && Date.now() < _countriesExpiresAt) return _countriesCache
+
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 12_000)
+  try {
+    const resp = await fetch(COUNTRY_DICT_URL, { signal: ctrl.signal })
+    clearTimeout(timer)
+    if (!resp.ok) throw new Error(`Pochta countries HTTP ${resp.status}`)
+    const data = await resp.json() as any
+    const list = Array.isArray(data?.country) ? data.country : []
+    const mapped: PochtaCountry[] = list
+      .filter((x: any) => typeof x?.id === 'number' && x?.name)
+      .map((x: any) => ({ code: x.id as number, name: titleCaseCountry(String(x.name)) }))
+      .sort((a: PochtaCountry, b: PochtaCountry) => a.name.localeCompare(b.name, 'ru'))
+    if (!mapped.length) throw new Error('Pochta countries: пустой справочник')
+    _countriesCache = mapped
+    _countriesExpiresAt = Date.now() + 24 * 3600 * 1000
+    return mapped
+  } catch (e) {
+    clearTimeout(timer)
+    throw e
+  }
+}
+
 // ── Создание заказа в backlog ──────────────────────────────────────────────────
 
 export interface PochtaOrderResult {

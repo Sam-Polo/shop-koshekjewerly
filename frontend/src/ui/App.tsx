@@ -783,34 +783,30 @@ const DeliveryRegionModal = ({
             <h3 className="delivery-region__title">Куда доставить заказ?</h3>
             <div className="delivery-region__options">
               <button type="button" className="delivery-region__option" onClick={() => setStep('ru-method')}>
-                <span className="delivery-region__option-icon">🇷🇺</span>
                 <span className="delivery-region__option-label">Россия и СНГ</span>
                 <span className="delivery-region__option-desc">Самовывоз или доставка СДЭК</span>
               </button>
               <button type="button" className="delivery-region__option" onClick={() => onSelect('ems')}>
-                <span className="delivery-region__option-icon">✈️</span>
                 <span className="delivery-region__option-label">Международные перевозки</span>
                 <span className="delivery-region__option-desc">EMS Почта России</span>
               </button>
             </div>
-            <button type="button" className="checkout-form__back" onClick={onBack}>← В корзину</button>
+            <button type="button" className="delivery-region__back" onClick={onBack}>← В корзину</button>
           </>
         ) : (
           <>
             <h3 className="delivery-region__title">Способ получения</h3>
             <div className="delivery-region__options">
-              <button type="button" className="delivery-region__option" onClick={() => onSelect('pickup')}>
-                <span className="delivery-region__option-icon">📦</span>
-                <span className="delivery-region__option-label">Самовывоз</span>
-                <span className="delivery-region__option-desc">{PICKUP_ADDRESS} · бесплатно</span>
-              </button>
               <button type="button" className="delivery-region__option" onClick={() => onSelect('cdek')}>
-                <span className="delivery-region__option-icon">🚚</span>
                 <span className="delivery-region__option-label">СДЭК</span>
                 <span className="delivery-region__option-desc">Доставка в пункт выдачи</span>
               </button>
+              <button type="button" className="delivery-region__option" onClick={() => onSelect('pickup')}>
+                <span className="delivery-region__option-label">Самовывоз</span>
+                <span className="delivery-region__option-desc">{PICKUP_ADDRESS} · бесплатно</span>
+              </button>
             </div>
-            <button type="button" className="checkout-form__back" onClick={() => setStep('region')}>← Назад</button>
+            <button type="button" className="delivery-region__back" onClick={() => setStep('region')}>← Назад</button>
           </>
         )}
       </div>
@@ -854,6 +850,8 @@ const CheckoutForm = ({
   const [emsCity, setEmsCity] = useState('')
   const [emsStreet, setEmsStreet] = useState('')
   const [emsIndex, setEmsIndex] = useState('')
+  // актуальный список стран с бэкенда (справочник Почты), статический COUNTRIES — фолбэк
+  const [countries, setCountries] = useState<Country[]>(COUNTRIES)
 
   // CDEK
   const [cityQuery, setCityQuery] = useState('')
@@ -915,6 +913,16 @@ const CheckoutForm = ({
       }
     } catch {}
   }, [])
+
+  // подгружаем актуальный справочник стран Почты (только для EMS); при сбое — статический фолбэк
+  useEffect(() => {
+    if (!isEms) return
+    const apiUrl = import.meta.env.VITE_API_URL || ''
+    fetch(`${apiUrl}/api/pochta/countries`)
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then((data: Country[]) => { if (Array.isArray(data) && data.length) setCountries(data) })
+      .catch(() => {}) // оставляем статический список
+  }, [isEms])
 
   // регистрируем пользователя при открытии мини-аппа (для рассылки)
   useEffect(() => {
@@ -1017,7 +1025,7 @@ const CheckoutForm = ({
   }
 
   const handleCountrySelect = (code: number) => {
-    const c = COUNTRIES.find(x => x.code === code) ?? null
+    const c = countries.find(x => x.code === code) ?? null
     setEmsCountry(c)
     if (errors.country) setErrors(prev => ({ ...prev, country: '' }))
     if (c) calcEmsCost(c)
@@ -1292,7 +1300,7 @@ const CheckoutForm = ({
 
         {isPickup && (
           <div className="checkout-form__pickup-info">
-            <div className="checkout-form__pickup-title">📦 Самовывоз</div>
+            <div className="checkout-form__pickup-title">Самовывоз</div>
             <div className="checkout-form__pickup-address">{PICKUP_ADDRESS}</div>
             <div className="checkout-form__pickup-note">Заберите заказ по адресу. Доставка — бесплатно.</div>
           </div>
@@ -1307,7 +1315,7 @@ const CheckoutForm = ({
               onChange={e => handleCountrySelect(Number(e.target.value))}
             >
               <option value="" disabled>Выберите страну</option>
-              {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
+              {countries.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
             </select>
             {errors.country && <span className="checkout-form__error">{errors.country}</span>}
           </label>
