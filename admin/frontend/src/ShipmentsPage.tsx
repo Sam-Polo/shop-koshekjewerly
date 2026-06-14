@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { api, removeToken } from './api'
 import type { AdminPage } from './BasesPage'
 
@@ -8,6 +8,7 @@ type Totals = { pending: number; in_work: number; assembled: number; sent: numbe
 type ShipmentsReport = { summary: SummaryItem[]; bySource: BySource; totals: Totals }
 
 const SOURCE_LABELS: Record<string, string> = { telegram: 'Telegram', tilda: 'Тильда', max: 'Max' }
+const ALL_SOURCES = ['telegram', 'tilda', 'max'] as const
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10)
@@ -33,7 +34,6 @@ function shiftIso(iso: string, delta: number) {
   return d.toISOString().slice(0, 10)
 }
 
-// SVG arc progress counter
 function ArcCounter({ value, total, label, color, track }: {
   value: number; total: number; label: string; color: string; track: string
 }) {
@@ -60,7 +60,9 @@ function ArcCounter({ value, total, label, color, track }: {
         </svg>
         <div className="sh-counter-inner">
           <span className="sh-counter-num">{value}</span>
-          <span className="sh-counter-pct" style={{ color }}>{total > 0 ? `${Math.round(pct * 100)}%` : ''}</span>
+          {total > 0 && (
+            <span className="sh-counter-pct" style={{ color }}>{Math.round(pct * 100)}%</span>
+          )}
         </div>
       </div>
       <div className="sh-counter-label">{label}</div>
@@ -75,7 +77,24 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
+  // client-side response cache: key = "date|sources"
+  const responseCache = useRef<Map<string, ShipmentsReport>>(new Map())
+  const dateInputRef  = useRef<HTMLInputElement>(null)
+
   const load = useCallback(async (nocache = false) => {
+    const cacheKey = `${selectedIso}|${[...activeSources].sort().join(',')}`
+
+    if (!nocache) {
+      const cached = responseCache.current.get(cacheKey)
+      if (cached) {
+        setReport(cached)
+        setError('')
+        return
+      }
+    } else {
+      responseCache.current.delete(cacheKey)
+    }
+
     setLoading(true)
     setError('')
     try {
@@ -83,42 +102,49 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
 
       const results = await Promise.all(
         srcList.map(src =>
-          api.getShipments({ from: selectedIso, to: selectedIso, ...(src ? { source: src } : {}), ...(nocache ? { nocache: true } : {}) })
+          api.getShipments({
+            from: selectedIso,
+            to: selectedIso,
+            ...(src ? { source: src } : {}),
+            ...(nocache ? { nocache: true } : {}),
+          })
         )
       )
 
+      let merged: ShipmentsReport
       if (srcList.length === 1) {
-        setReport(results[0])
-        return
+        merged = results[0]
+      } else {
+        const articleMap = new Map<string, SummaryItem>()
+        const totals: Totals = { pending: 0, in_work: 0, assembled: 0, sent: 0, returned: 0 }
+        const bySource: BySource = {}
+        for (const r of results) {
+          for (const item of r.summary) {
+            const ex = articleMap.get(item.article)
+            if (ex) {
+              ex.pending   += item.pending
+              ex.in_work   += item.in_work
+              ex.assembled += item.assembled
+              ex.sent      += item.sent
+              ex.returned  += item.returned
+            } else articleMap.set(item.article, { ...item })
+          }
+          totals.pending   += r.totals.pending
+          totals.in_work   += r.totals.in_work
+          totals.assembled += r.totals.assembled
+          totals.sent      += r.totals.sent
+          totals.returned  += r.totals.returned
+          Object.assign(bySource, r.bySource)
+        }
+        merged = {
+          summary: [...articleMap.values()].sort((a, b) => b.pending - a.pending),
+          totals,
+          bySource,
+        }
       }
 
-      // merge multi-source results
-      const articleMap = new Map<string, SummaryItem>()
-      const totals: Totals = { pending: 0, in_work: 0, assembled: 0, sent: 0, returned: 0 }
-      const bySource: BySource = {}
-      for (const r of results) {
-        for (const item of r.summary) {
-          const ex = articleMap.get(item.article)
-          if (ex) {
-            ex.pending   += item.pending
-            ex.in_work   += item.in_work
-            ex.assembled += item.assembled
-            ex.sent      += item.sent
-            ex.returned  += item.returned
-          } else articleMap.set(item.article, { ...item })
-        }
-        totals.pending   += r.totals.pending
-        totals.in_work   += r.totals.in_work
-        totals.assembled += r.totals.assembled
-        totals.sent      += r.totals.sent
-        totals.returned  += r.totals.returned
-        Object.assign(bySource, r.bySource)
-      }
-      setReport({
-        summary: [...articleMap.values()].sort((a, b) => b.pending - a.pending),
-        totals,
-        bySource,
-      })
+      responseCache.current.set(cacheKey, merged)
+      setReport(merged)
     } catch (e: any) {
       setError(e.message || 'Ошибка загрузки')
     } finally {
@@ -141,17 +167,22 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
     })
   }
 
+  const openDatePicker = () => {
+    const el = dateInputRef.current
+    if (!el) return
+    if (typeof (el as any).showPicker === 'function') (el as any).showPicker()
+    else el.click()
+  }
+
   const totals = report?.totals ?? { pending: 0, in_work: 0, assembled: 0, sent: 0, returned: 0 }
   const totalAll = totals.pending + totals.in_work + totals.assembled + totals.sent + totals.returned
   const bySource = report?.bySource ?? {}
   const summary = report?.summary ?? []
-  const hasInWork   = summary.some(s => s.in_work > 0)
+  const hasInWork    = summary.some(s => s.in_work > 0)
   const hasAssembled = summary.some(s => s.assembled > 0)
-  const hasReturned = summary.some(s => s.returned > 0)
+  const hasReturned  = summary.some(s => s.returned > 0)
   const dayLabel = formatDayLabel(selectedIso)
-  const isToday = selectedIso === todayIso()
-
-  const visibleSources = Object.entries(bySource).filter(([, c]) => c.pending + c.in_work + c.assembled + c.sent > 0)
+  const isToday  = selectedIso === todayIso()
 
   return (
     <div className="admin-container">
@@ -177,16 +208,17 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
         <div className="sh-day-nav">
           <button className="sh-nav-arrow" onClick={() => navigate(-1)} aria-label="Предыдущий день">‹</button>
 
-          <label className="sh-day-label-wrap" title="Выбрать дату">
+          <div className="sh-day-label-wrap" onClick={openDatePicker} title="Выбрать дату">
             <span className="sh-day-text">{dayLabel}</span>
             <input
+              ref={dateInputRef}
               type="date"
               className="sh-date-pick"
               value={selectedIso}
               max={todayIso()}
               onChange={e => { if (e.target.value && e.target.value <= todayIso()) setSelectedIso(e.target.value) }}
             />
-          </label>
+          </div>
 
           <button
             className="sh-nav-arrow"
@@ -228,40 +260,36 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
           </>
         )}
 
-        {/* Content — show with dim overlay while refreshing */}
+        {/* Content — dim while refreshing */}
         {report && (
           <div className={loading ? 'sh-content sh-content--loading' : 'sh-content'}>
-            {/* Circular counters */}
+
             <div className="sh-counters">
-              <ArcCounter value={totals.pending} total={totalAll} label="К отправке"
-                color="#db2777" track="rgba(244,114,182,0.22)" />
-              <ArcCounter value={totals.in_work} total={totalAll} label="В работе"
-                color="#ea580c" track="rgba(251,146,60,0.22)" />
-              <ArcCounter value={totals.assembled} total={totalAll} label="Собран"
-                color="#0284c7" track="rgba(56,189,248,0.22)" />
-              <ArcCounter value={totals.sent} total={totalAll} label="Отправлено"
-                color="#7c3aed" track="rgba(139,92,246,0.2)" />
-              <ArcCounter value={totals.returned} total={totalAll} label="Возвращено"
-                color="#059669" track="rgba(16,185,129,0.2)" />
+              <ArcCounter value={totals.pending}   total={totalAll} label="К отправке"  color="#db2777" track="rgba(244,114,182,0.22)" />
+              <ArcCounter value={totals.in_work}   total={totalAll} label="В работе"    color="#ea580c" track="rgba(251,146,60,0.22)"  />
+              <ArcCounter value={totals.assembled} total={totalAll} label="Собран"      color="#0284c7" track="rgba(56,189,248,0.22)"  />
+              <ArcCounter value={totals.sent}      total={totalAll} label="Отправлено"  color="#7c3aed" track="rgba(139,92,246,0.2)"   />
+              <ArcCounter value={totals.returned}  total={totalAll} label="Возвращено"  color="#059669" track="rgba(16,185,129,0.2)"   />
             </div>
 
-            {/* Source chips */}
-            {visibleSources.length > 1 && (
-              <div className="sh-chips">
-                {visibleSources.map(([src, counts]) => (
+            {/* Source chips — always visible */}
+            <div className="sh-chips">
+              {ALL_SOURCES.map(src => {
+                const counts = bySource[src]
+                const total = counts ? counts.pending + counts.in_work + counts.assembled + counts.sent : 0
+                return (
                   <button
                     key={src}
                     className={`sh-chip ${activeSources.has(src) ? 'sh-chip--on' : ''}`}
                     onClick={() => toggleSource(src)}
                   >
-                    {SOURCE_LABELS[src] ?? src}
-                    <span className="sh-chip-num">{counts.pending + counts.in_work + counts.assembled + counts.sent}</span>
+                    {SOURCE_LABELS[src]}
+                    <span className="sh-chip-num">{total}</span>
                   </button>
-                ))}
-              </div>
-            )}
+                )
+              })}
+            </div>
 
-            {/* Items table */}
             {summary.length === 0 && (
               <div className="sh-empty">Нет заказов за этот день</div>
             )}
@@ -288,22 +316,14 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
                           {item.pending > 0 ? <strong>{item.pending}</strong> : <span className="sh-muted">—</span>}
                         </td>
                         {hasInWork && (
-                          <td className="sh-td-w">
-                            {item.in_work > 0 ? item.in_work : <span className="sh-muted">—</span>}
-                          </td>
+                          <td className="sh-td-w">{item.in_work > 0 ? item.in_work : <span className="sh-muted">—</span>}</td>
                         )}
                         {hasAssembled && (
-                          <td className="sh-td-a">
-                            {item.assembled > 0 ? item.assembled : <span className="sh-muted">—</span>}
-                          </td>
+                          <td className="sh-td-a">{item.assembled > 0 ? item.assembled : <span className="sh-muted">—</span>}</td>
                         )}
-                        <td className="sh-td-s">
-                          {item.sent > 0 ? item.sent : <span className="sh-muted">—</span>}
-                        </td>
+                        <td className="sh-td-s">{item.sent > 0 ? item.sent : <span className="sh-muted">—</span>}</td>
                         {hasReturned && (
-                          <td className="sh-td-r">
-                            {item.returned > 0 ? item.returned : <span className="sh-muted">—</span>}
-                          </td>
+                          <td className="sh-td-r">{item.returned > 0 ? item.returned : <span className="sh-muted">—</span>}</td>
                         )}
                       </tr>
                     ))}

@@ -39,7 +39,8 @@ async function fetchWithAuth(url: string, options: RequestInit = {}) {
     let errorMessage = 'request_failed'
     try {
       const error = await response.json()
-      errorMessage = error.error || error.message || 'request_failed'
+      const base = error.error || error.message || 'request_failed'
+      errorMessage = error.detail ? `${base}: ${error.detail}` : base
     } catch {
       // если не удалось распарсить JSON, пробуем получить текст
       try {
