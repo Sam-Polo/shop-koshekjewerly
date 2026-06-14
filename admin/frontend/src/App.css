@@ -4075,11 +4075,17 @@
 .sh-td-s { text-align: center; color: #6d28d9; }
 .sh-td-r { text-align: center; color: #047857; }
 .sh-muted { color: rgba(45,26,94,0.2); }
+.sh-unknown-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.35rem;
+  vertical-align: middle;
+}
 .sh-unknown-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-left: 0.35rem;
   width: 1.1rem;
   height: 1.1rem;
   border-radius: 50%;
@@ -4089,9 +4095,27 @@
   font-size: 0.65rem;
   font-weight: 700;
   cursor: help;
-  vertical-align: middle;
   flex-shrink: 0;
-  pointer-events: all;
+}
+.sh-unknown-tip {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 220px;
+  padding: 0.45rem 0.6rem;
+  background: #1e0b4b;
+  color: #e9e3f7;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  border-radius: 6px;
+  pointer-events: none;
+  z-index: 200;
+  white-space: normal;
+}
+.sh-unknown-wrap:hover .sh-unknown-tip {
+  display: block;
 }
 
 /* ── misc ── */

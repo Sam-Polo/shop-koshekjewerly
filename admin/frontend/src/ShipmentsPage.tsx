@@ -384,10 +384,10 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
                         <td className="sh-name">
                           {item.title || <span className="sh-muted">—</span>}
                           {item.titleSource === 'composition' && (
-                            <span
-                              className="sh-unknown-badge"
-                              title="Товар не найден в базе данных. Название получено из состава заказа (Тильда) — скорее всего внешний товар."
-                            >?</span>
+                            <span className="sh-unknown-wrap">
+                              <span className="sh-unknown-badge">?</span>
+                              <span className="sh-unknown-tip">Товар не найден в базе данных бота. Название получено из состава заказа (Тильда) — скорее всего внешний товар.</span>
+                            </span>
                           )}
                         </td>
                         <td className="sh-td-p">
