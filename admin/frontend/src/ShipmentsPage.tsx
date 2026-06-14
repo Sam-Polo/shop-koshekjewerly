@@ -9,6 +9,12 @@ type ShipmentsReport = { summary: SummaryItem[]; bySource: BySource; totals: Tot
 
 const SOURCE_LABELS: Record<string, string> = { telegram: 'Telegram', tilda: 'Тильда', max: 'Max' }
 const ALL_SOURCES = ['telegram', 'tilda', 'max'] as const
+const PERIODS = [
+  { label: 'Сегодня', days: 1 },
+  { label: '3 дня',   days: 3 },
+  { label: '7 дней',  days: 7 },
+  { label: '30 дней', days: 30 },
+] as const
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10)
@@ -18,20 +24,26 @@ function safeDate(iso: string) {
   return new Date(iso + 'T12:00:00')
 }
 
-function formatDayLabel(iso: string) {
-  const today = todayIso()
-  const yesterday = new Date(safeDate(today).getTime() - 86400000).toISOString().slice(0, 10)
-  const d = safeDate(iso)
-  const dayMonth = d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
-  if (iso === today) return `Сегодня, ${dayMonth}`
-  if (iso === yesterday) return `Вчера, ${dayMonth}`
-  return d.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'long' })
-}
-
 function shiftIso(iso: string, delta: number) {
   const d = safeDate(iso)
   d.setDate(d.getDate() + delta)
   return d.toISOString().slice(0, 10)
+}
+
+function formatDayLabel(iso: string) {
+  const today = todayIso()
+  const yesterday = shiftIso(today, -1)
+  const d = safeDate(iso)
+  const dayMonth = d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
+  if (iso === today)     return `Сегодня, ${dayMonth}`
+  if (iso === yesterday) return `Вчера, ${dayMonth}`
+  return d.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'long' })
+}
+
+function formatRangeLabel(from: string, to: string) {
+  if (from === to) return formatDayLabel(from)
+  const fmt = (iso: string) => safeDate(iso).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
+  return `${fmt(from)} — ${fmt(to)}`
 }
 
 function ArcCounter({ value, total, label, color, track }: {
@@ -48,21 +60,15 @@ function ArcCounter({ value, total, label, color, track }: {
           <circle cx="48" cy="48" r={r} fill="none" stroke={track} strokeWidth="5.5" />
           <circle
             cx="48" cy="48" r={r}
-            fill="none"
-            stroke={color}
-            strokeWidth="5.5"
-            strokeDasharray={circ}
-            strokeDashoffset={offset}
-            strokeLinecap="round"
-            transform="rotate(-90 48 48)"
+            fill="none" stroke={color} strokeWidth="5.5"
+            strokeDasharray={circ} strokeDashoffset={offset}
+            strokeLinecap="round" transform="rotate(-90 48 48)"
             style={{ transition: 'stroke-dashoffset 0.9s cubic-bezier(0.4,0,0.2,1)' }}
           />
         </svg>
         <div className="sh-counter-inner">
           <span className="sh-counter-num">{value}</span>
-          {total > 0 && (
-            <span className="sh-counter-pct" style={{ color }}>{Math.round(pct * 100)}%</span>
-          )}
+          {total > 0 && <span className="sh-counter-pct" style={{ color }}>{Math.round(pct * 100)}%</span>}
         </div>
       </div>
       <div className="sh-counter-label">{label}</div>
@@ -71,18 +77,43 @@ function ArcCounter({ value, total, label, color, track }: {
 }
 
 export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }) {
-  const [selectedIso, setSelectedIso] = useState(todayIso)
+  const [dateFrom, setDateFrom] = useState(todayIso)
+  const [dateTo,   setDateTo]   = useState(todayIso)
+  const [activePeriod, setActivePeriod] = useState<number | null>(1)   // 1 = "Сегодня"
   const [activeSources, setActiveSources] = useState<Set<string>>(new Set())
-  const [report, setReport] = useState<ShipmentsReport | null>(null)
+  const [report,  setReport]  = useState<ShipmentsReport | null>(null)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [error,   setError]   = useState('')
 
-  // client-side response cache: key = "date|sources"
   const responseCache = useRef<Map<string, ShipmentsReport>>(new Map())
   const dateInputRef  = useRef<HTMLInputElement>(null)
 
+  const setPeriod = useCallback((days: number) => {
+    const today = todayIso()
+    setDateFrom(days === 1 ? today : shiftIso(today, -(days - 1)))
+    setDateTo(today)
+    setActivePeriod(days)
+  }, [])
+
+  const navigateDay = (delta: number) => {
+    if (dateFrom !== dateTo) return
+    const next = shiftIso(dateFrom, delta)
+    if (next <= todayIso()) {
+      setDateFrom(next)
+      setDateTo(next)
+      setActivePeriod(null)
+    }
+  }
+
+  const openDatePicker = () => {
+    const el = dateInputRef.current
+    if (!el) return
+    if (typeof (el as any).showPicker === 'function') (el as any).showPicker()
+    else el.click()
+  }
+
   const load = useCallback(async (nocache = false) => {
-    const cacheKey = `${selectedIso}|${[...activeSources].sort().join(',')}`
+    const cacheKey = `${dateFrom}|${dateTo}|${[...activeSources].sort().join(',')}`
 
     if (!nocache) {
       const cached = responseCache.current.get(cacheKey)
@@ -103,8 +134,8 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
       const results = await Promise.all(
         srcList.map(src =>
           api.getShipments({
-            from: selectedIso,
-            to: selectedIso,
+            from: dateFrom,
+            to: dateTo,
             ...(src ? { source: src } : {}),
             ...(nocache ? { nocache: true } : {}),
           })
@@ -150,14 +181,9 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
     } finally {
       setLoading(false)
     }
-  }, [selectedIso, activeSources])
+  }, [dateFrom, dateTo, activeSources])
 
   useEffect(() => { void load() }, [load])
-
-  const navigate = (delta: number) => {
-    const next = shiftIso(selectedIso, delta)
-    if (next <= todayIso()) setSelectedIso(next)
-  }
 
   const toggleSource = (src: string) => {
     setActiveSources(prev => {
@@ -167,22 +193,15 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
     })
   }
 
-  const openDatePicker = () => {
-    const el = dateInputRef.current
-    if (!el) return
-    if (typeof (el as any).showPicker === 'function') (el as any).showPicker()
-    else el.click()
-  }
-
   const totals = report?.totals ?? { pending: 0, in_work: 0, assembled: 0, sent: 0, returned: 0 }
   const totalAll = totals.pending + totals.in_work + totals.assembled + totals.sent + totals.returned
   const bySource = report?.bySource ?? {}
-  const summary = report?.summary ?? []
+  const summary  = report?.summary ?? []
   const hasInWork    = summary.some(s => s.in_work > 0)
   const hasAssembled = summary.some(s => s.assembled > 0)
   const hasReturned  = summary.some(s => s.returned > 0)
-  const dayLabel = formatDayLabel(selectedIso)
-  const isToday  = selectedIso === todayIso()
+  const isRangeMode  = dateFrom !== dateTo
+  const isTodayDay   = !isRangeMode && dateFrom === todayIso()
 
   return (
     <div className="admin-container">
@@ -206,24 +225,36 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
 
         {/* Day navigation */}
         <div className="sh-day-nav">
-          <button className="sh-nav-arrow" onClick={() => navigate(-1)} aria-label="Предыдущий день">‹</button>
+          <button
+            className="sh-nav-arrow"
+            onClick={() => navigateDay(-1)}
+            disabled={isRangeMode}
+            aria-label="Предыдущий день"
+          >‹</button>
 
           <div className="sh-day-label-wrap" onClick={openDatePicker} title="Выбрать дату">
-            <span className="sh-day-text">{dayLabel}</span>
+            <span className="sh-day-text">{formatRangeLabel(dateFrom, dateTo)}</span>
             <input
               ref={dateInputRef}
               type="date"
               className="sh-date-pick"
-              value={selectedIso}
+              value={dateFrom}
               max={todayIso()}
-              onChange={e => { if (e.target.value && e.target.value <= todayIso()) setSelectedIso(e.target.value) }}
+              onChange={e => {
+                const v = e.target.value
+                if (v && v <= todayIso()) {
+                  setDateFrom(v)
+                  setDateTo(v)
+                  setActivePeriod(null)
+                }
+              }}
             />
           </div>
 
           <button
             className="sh-nav-arrow"
-            onClick={() => navigate(1)}
-            disabled={isToday}
+            onClick={() => navigateDay(1)}
+            disabled={isRangeMode || isTodayDay}
             aria-label="Следующий день"
           >›</button>
 
@@ -237,9 +268,22 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
           </button>
         </div>
 
+        {/* Period presets */}
+        <div className="sh-period-chips">
+          {PERIODS.map(p => (
+            <button
+              key={p.days}
+              className={`sh-pchip ${activePeriod === p.days ? 'sh-pchip--on' : ''}`}
+              onClick={() => setPeriod(p.days)}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+
         {error && <div className="sh-error">{error}</div>}
 
-        {/* Skeleton — first load only (no data yet) */}
+        {/* Skeleton — first load */}
         {loading && !report && (
           <>
             <div className="sh-counters">
@@ -263,7 +307,6 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
         {/* Content — dim while refreshing */}
         {report && (
           <div className={loading ? 'sh-content sh-content--loading' : 'sh-content'}>
-
             <div className="sh-counters">
               <ArcCounter value={totals.pending}   total={totalAll} label="К отправке"  color="#db2777" track="rgba(244,114,182,0.22)" />
               <ArcCounter value={totals.in_work}   total={totalAll} label="В работе"    color="#ea580c" track="rgba(251,146,60,0.22)"  />
@@ -272,11 +315,11 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
               <ArcCounter value={totals.returned}  total={totalAll} label="Возвращено"  color="#059669" track="rgba(16,185,129,0.2)"   />
             </div>
 
-            {/* Source chips — always visible */}
+            {/* Source chips */}
             <div className="sh-chips">
               {ALL_SOURCES.map(src => {
-                const counts = bySource[src]
-                const total = counts ? counts.pending + counts.in_work + counts.assembled + counts.sent : 0
+                const c = bySource[src]
+                const n = (c?.pending ?? 0) + (c?.in_work ?? 0) + (c?.assembled ?? 0) + (c?.sent ?? 0)
                 return (
                   <button
                     key={src}
@@ -284,15 +327,13 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
                     onClick={() => toggleSource(src)}
                   >
                     {SOURCE_LABELS[src]}
-                    <span className="sh-chip-num">{total}</span>
+                    <span className="sh-chip-num">{n}</span>
                   </button>
                 )
               })}
             </div>
 
-            {summary.length === 0 && (
-              <div className="sh-empty">Нет заказов за этот день</div>
-            )}
+            {summary.length === 0 && <div className="sh-empty">Нет заказов за этот период</div>}
             {summary.length > 0 && (
               <div className="sh-card">
                 <table className="sh-table">

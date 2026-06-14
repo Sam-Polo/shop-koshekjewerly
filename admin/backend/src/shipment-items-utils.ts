@@ -7,6 +7,10 @@ const logger = pino()
 
 const SHEET_NAME = 'shipment_items'
 
+function normalizeArticle(article: string): string {
+  return /^\d+$/.test(article) ? article.padStart(4, '0') : article
+}
+
 // In-memory cache — avoids hitting Google Sheets on every filter/nav change
 const ROWS_TTL   = 30_000   // 30s
 const TITLES_TTL = 300_000  // 5 min (product catalog changes rarely)
@@ -104,7 +108,7 @@ async function readArticleTitleMap(nocache = false): Promise<Map<string, string>
   const products = await fetchProductsFromSheet(getSpreadsheetId())
   const map = new Map<string, string>()
   for (const p of products) {
-    if (p.article && p.title) map.set(p.article, p.title)
+    if (p.article && p.title) map.set(normalizeArticle(p.article), p.title)
   }
   titlesCache = { data: map, at: now }
   return map
