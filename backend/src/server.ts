@@ -22,6 +22,7 @@ import { getCachedCategories } from './categories.js';
 import { loadPendingNotifications, addPendingNotification, claimPendingNotifications } from './pending-notifications.js';
 import { handleTildaOrder } from './tilda-webhook.js';
 import { handleAmoCrmWebhook } from './amocrm-webhook.js';
+import { syncRecentAmoCrmLeads } from './amocrm-sync.js';
 import {
   fetchBasesFromSheet,
   fetchPendantsFromSheet,
@@ -1775,11 +1776,39 @@ app.post('/api/cdek/webhook', express.json(), (req, res) => {
 
 app.post('/api/tilda/order', express.json({ type: '*/*' }), express.urlencoded({ extended: true }), handleTildaOrder)
 
-// ── amoCRM stage-change webhook ───────────────────────────────────────────────
-// Регистрация в amoCRM: Настройки → Уведомления → Webhook, события: Смена этапа сделки
+// ── amoCRM webhook (stage change + new lead) ─────────────────────────────────
+// Регистрация в amoCRM: Настройки → Уведомления → Webhook
+// События: "Смена этапа сделки" + "Добавление сделки"
 // URL: https://shop-koshekjewerly.onrender.com/api/amocrm/webhook?secret=<AMOCRM_WEBHOOK_SECRET>
 
 app.post('/api/amocrm/webhook', express.urlencoded({ extended: true }), handleAmoCrmWebhook)
+
+// ── amoCRM delta-sync (called by bot nightly) ─────────────────────────────────
+// Fetches leads updated in the last N hours and upserts into shipment_items sheet.
+// Protected by BOT_API_SECRET. Called by telegram-bot at 02:00 MSK as a safety net
+// for webhooks that failed while Render was sleeping.
+
+app.post('/internal/sync-amo', async (req, res) => {
+  const secret = process.env.BOT_API_SECRET
+  if (secret && req.query.secret !== secret) {
+    res.status(401).json({ error: 'unauthorized' }); return
+  }
+  const hours = Math.min(Number(req.query.hours ?? 48), 168) // max 7 days
+  if (isNaN(hours) || hours <= 0) {
+    res.status(400).json({ error: 'invalid hours' }); return
+  }
+  try {
+    const result = await syncRecentAmoCrmLeads(hours)
+    res.json({ ok: true, ...result })
+  } catch (e: any) {
+    logger.error({ err: e?.message }, 'sync-amo: failed')
+    sendAlert(
+      `amoCRM sync-amo endpoint error: ${e?.message}`,
+      { tag: 'amocrm', level: 'moderate', code: 'AMOCRM_SYNC_ENDPOINT_FAILED' }
+    ).catch(() => {})
+    res.status(500).json({ error: e?.message ?? 'sync_failed' })
+  }
+})
 
 // ── Track sending ─────────────────────────────────────────────────────────────
 

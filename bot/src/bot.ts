@@ -1282,6 +1282,53 @@ keepAlive();
 console.log(`[keep-alive] настроен, интервал: ${KEEP_ALIVE_INTERVAL / 1000} секунд`);
 console.log(`[keep-alive] URL бэкенда: ${BACKEND_URL}/health`);
 
+// ── Ночная синхронизация amoCRM → shipment_items ──────────────────────────
+// Запускается каждую ночь в 02:00 МСК. Подтягивает все лиды amoCRM, обновлённые
+// за последние 48ч, и upsert'ит их в sheet — страховка от вебхуков, пропущенных
+// пока Render спал.
+
+function msUntilMoscow0200(): number {
+  const now = new Date()
+  const moscow = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Moscow' }))
+  const target = new Date(moscow)
+  target.setHours(2, 0, 0, 0)
+  if (target <= moscow) target.setDate(target.getDate() + 1)
+  return target.getTime() - moscow.getTime()
+}
+
+async function runNightlyAmoSync() {
+  const secret = process.env.BOT_API_SECRET
+  const url = `${BACKEND_URL}/internal/sync-amo?hours=48${secret ? `&secret=${encodeURIComponent(secret)}` : ''}`
+  const abortCtrl = new AbortController()
+  const abortTimer = setTimeout(() => abortCtrl.abort(), 5 * 60 * 1000) // 5 min — sync can be slow
+  try {
+    const resp = await fetch(url, { method: 'POST', signal: abortCtrl.signal })
+    const data = await resp.json() as any
+    clearTimeout(abortTimer)
+    console.log(`[nightly-sync] amoCRM sync done: +${data.created} created, ${data.updated} updated, ${data.errors} errors`)
+    sendAlert(
+      `Ночная синхронизация amoCRM: +${data.created} новых, ${data.updated} обновлено, ${data.errors} ошибок`,
+      { tag: 'nightly-sync', level: 'info', code: 'NIGHTLY_SYNC_DONE' }
+    ).catch(() => {})
+  } catch (e: any) {
+    clearTimeout(abortTimer)
+    console.error(`[nightly-sync] ошибка:`, e?.message)
+    sendAlert(
+      `Ночная синхронизация amoCRM упала: ${e?.message}`,
+      { tag: 'nightly-sync', level: 'moderate', code: 'NIGHTLY_SYNC_FAILED' }
+    ).catch(() => {})
+  }
+}
+
+;(function scheduleNightlySync() {
+  const delay = msUntilMoscow0200()
+  console.log(`[nightly-sync] следующая синхронизация amoCRM через ${Math.round(delay / 60_000)} мин (02:00 МСК)`)
+  setTimeout(() => {
+    void runNightlyAmoSync()
+    setInterval(runNightlyAmoSync, 24 * 60 * 60 * 1000)
+  }, delay)
+})()
+
 // ── Синхронизация пользователей из мини-аппа ──────────────────────────────
 // Каждые 10 минут забираем новых пользователей из бэкенда и сохраняем в файл
 
