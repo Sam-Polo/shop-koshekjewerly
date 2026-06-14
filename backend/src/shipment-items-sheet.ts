@@ -1,7 +1,7 @@
 import { google } from 'googleapis'
 import fs from 'node:fs'
 
-export type ShipStatus = 'pending' | 'sent' | 'returned'
+export type ShipStatus = 'pending' | 'in_work' | 'assembled' | 'sent' | 'returned'
 export type ShipSource = 'telegram' | 'tilda' | 'max'
 
 export type ShipmentItem = {
@@ -143,11 +143,34 @@ export async function upsertOrderItems(
     return 'created'
   }
 
-  // existing order — update pending rows to newStatus (only for sent/returned)
-  if (newStatus === 'pending') return 'noop'
+  // existing order — update active rows to new status (only for progression)
+  if (newStatus === 'pending' || newStatus === 'in_work' || newStatus === 'assembled') {
+    // still in progress — update the status
+    const updates = orderRows
+      .filter(({ r }) => {
+        const s = r[5]
+        // only update if current status is "earlier" than newStatus
+        const order: ShipStatus[] = ['pending', 'in_work', 'assembled', 'sent', 'returned']
+        const curIdx = order.indexOf(s as ShipStatus)
+        const newIdx = order.indexOf(newStatus)
+        return curIdx < newIdx || !s
+      })
+      .map(({ r, rowNum }) => {
+        const updated = [...r]
+        updated[5] = newStatus
+        while (updated.length < 7) updated.push('')
+        return { range: `${SHEET_NAME}!A${rowNum}:G${rowNum}`, values: [updated.slice(0, 7)] }
+      })
+    if (updates.length === 0) return 'noop'
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId,
+      requestBody: { valueInputOption: 'RAW', data: updates },
+    })
+    return 'updated'
+  }
 
   const updates = orderRows
-    .filter(({ r }) => r[5] === 'pending' || !r[5])
+    .filter(({ r }) => r[5] !== 'sent' && r[5] !== 'returned')
     .map(({ r, rowNum }) => {
       const updated = [...r]
       updated[5] = newStatus

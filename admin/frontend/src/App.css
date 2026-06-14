@@ -3969,6 +3969,8 @@
   color: rgba(255,255,255,0.3);
 }
 .sh-th-p { color: rgba(244,114,182,0.55) !important; text-align: center; }
+.sh-th-w { color: rgba(251,146,60,0.55)  !important; text-align: center; }
+.sh-th-a { color: rgba(56,189,248,0.55)  !important; text-align: center; }
 .sh-th-s { color: rgba(167,139,250,0.55) !important; text-align: center; }
 .sh-th-r { color: rgba(110,231,183,0.55) !important; text-align: center; }
 
@@ -4003,6 +4005,8 @@
   font-size: 0.875rem;
 }
 .sh-td-p { text-align: center; color: #f9a8d4; font-weight: 600; }
+.sh-td-w { text-align: center; color: #fb923c; }
+.sh-td-a { text-align: center; color: #38bdf8; }
 .sh-td-s { text-align: center; color: #c4b5fd; }
 .sh-td-r { text-align: center; color: #6ee7b7; }
 .sh-muted { color: rgba(255,255,255,0.18); }

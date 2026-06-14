@@ -2,9 +2,9 @@ import { useEffect, useState, useCallback } from 'react'
 import { api, removeToken } from './api'
 import type { AdminPage } from './BasesPage'
 
-type SummaryItem = { article: string; title: string; pending: number; sent: number; returned: number }
-type BySource = Record<string, { pending: number; sent: number }>
-type Totals = { pending: number; sent: number; returned: number }
+type SummaryItem = { article: string; title: string; pending: number; in_work: number; assembled: number; sent: number; returned: number }
+type BySource = Record<string, { pending: number; in_work: number; assembled: number; sent: number }>
+type Totals = { pending: number; in_work: number; assembled: number; sent: number; returned: number }
 type ShipmentsReport = { summary: SummaryItem[]; bySource: BySource; totals: Totals }
 
 const SOURCE_LABELS: Record<string, string> = { telegram: 'Telegram', tilda: 'Тильда', max: 'Max' }
@@ -94,17 +94,24 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
 
       // merge multi-source results
       const articleMap = new Map<string, SummaryItem>()
-      const totals: Totals = { pending: 0, sent: 0, returned: 0 }
+      const totals: Totals = { pending: 0, in_work: 0, assembled: 0, sent: 0, returned: 0 }
       const bySource: BySource = {}
       for (const r of results) {
         for (const item of r.summary) {
           const ex = articleMap.get(item.article)
-          if (ex) { ex.pending += item.pending; ex.sent += item.sent; ex.returned += item.returned }
-          else articleMap.set(item.article, { ...item })
+          if (ex) {
+            ex.pending   += item.pending
+            ex.in_work   += item.in_work
+            ex.assembled += item.assembled
+            ex.sent      += item.sent
+            ex.returned  += item.returned
+          } else articleMap.set(item.article, { ...item })
         }
-        totals.pending += r.totals.pending
-        totals.sent += r.totals.sent
-        totals.returned += r.totals.returned
+        totals.pending   += r.totals.pending
+        totals.in_work   += r.totals.in_work
+        totals.assembled += r.totals.assembled
+        totals.sent      += r.totals.sent
+        totals.returned  += r.totals.returned
         Object.assign(bySource, r.bySource)
       }
       setReport({
@@ -134,15 +141,17 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
     })
   }
 
-  const totals = report?.totals ?? { pending: 0, sent: 0, returned: 0 }
-  const totalAll = totals.pending + totals.sent + totals.returned
+  const totals = report?.totals ?? { pending: 0, in_work: 0, assembled: 0, sent: 0, returned: 0 }
+  const totalAll = totals.pending + totals.in_work + totals.assembled + totals.sent + totals.returned
   const bySource = report?.bySource ?? {}
   const summary = report?.summary ?? []
+  const hasInWork   = summary.some(s => s.in_work > 0)
+  const hasAssembled = summary.some(s => s.assembled > 0)
   const hasReturned = summary.some(s => s.returned > 0)
   const dayLabel = formatDayLabel(selectedIso)
   const isToday = selectedIso === todayIso()
 
-  const visibleSources = Object.entries(bySource).filter(([, c]) => c.pending + c.sent > 0)
+  const visibleSources = Object.entries(bySource).filter(([, c]) => c.pending + c.in_work + c.assembled + c.sent > 0)
 
   return (
     <div className="admin-container">
@@ -200,8 +209,12 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
 
         {/* Circular counters */}
         <div className="sh-counters">
-          <ArcCounter value={totals.pending} total={totalAll} label="Новых"
+          <ArcCounter value={totals.pending} total={totalAll} label="К отправке"
             color="#f472b6" track="rgba(244,114,182,0.13)" />
+          <ArcCounter value={totals.in_work} total={totalAll} label="В работе"
+            color="#fb923c" track="rgba(251,146,60,0.13)" />
+          <ArcCounter value={totals.assembled} total={totalAll} label="Собран"
+            color="#38bdf8" track="rgba(56,189,248,0.13)" />
           <ArcCounter value={totals.sent} total={totalAll} label="Отправлено"
             color="#a78bfa" track="rgba(167,139,250,0.13)" />
           <ArcCounter value={totals.returned} total={totalAll} label="Возвращено"
@@ -218,7 +231,7 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
                 onClick={() => toggleSource(src)}
               >
                 {SOURCE_LABELS[src] ?? src}
-                <span className="sh-chip-num">{counts.pending + counts.sent}</span>
+                <span className="sh-chip-num">{counts.pending + counts.in_work + counts.assembled + counts.sent}</span>
               </button>
             ))}
           </div>
@@ -236,19 +249,31 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
                 <tr>
                   <th>Артикул</th>
                   <th>Название</th>
-                  <th className="sh-th-p">Новых</th>
+                  <th className="sh-th-p">К отправке</th>
+                  {hasInWork    && <th className="sh-th-w">В работе</th>}
+                  {hasAssembled && <th className="sh-th-a">Собран</th>}
                   <th className="sh-th-s">Отправлено</th>
-                  {hasReturned && <th className="sh-th-r">Возвращено</th>}
+                  {hasReturned  && <th className="sh-th-r">Возвращено</th>}
                 </tr>
               </thead>
               <tbody>
                 {summary.map(item => (
-                  <tr key={item.article} className={item.pending > 0 ? 'sh-row-hot' : ''}>
+                  <tr key={item.article} className={item.pending + item.in_work + item.assembled > 0 ? 'sh-row-hot' : ''}>
                     <td><span className="sh-art">{item.article}</span></td>
                     <td className="sh-name">{item.title || <span className="sh-muted">—</span>}</td>
                     <td className="sh-td-p">
                       {item.pending > 0 ? <strong>{item.pending}</strong> : <span className="sh-muted">—</span>}
                     </td>
+                    {hasInWork && (
+                      <td className="sh-td-w">
+                        {item.in_work > 0 ? item.in_work : <span className="sh-muted">—</span>}
+                      </td>
+                    )}
+                    {hasAssembled && (
+                      <td className="sh-td-a">
+                        {item.assembled > 0 ? item.assembled : <span className="sh-muted">—</span>}
+                      </td>
+                    )}
                     <td className="sh-td-s">
                       {item.sent > 0 ? item.sent : <span className="sh-muted">—</span>}
                     </td>

@@ -7,7 +7,7 @@ const logger = pino()
 
 const SHEET_NAME = 'shipment_items'
 
-type ShipStatus = 'pending' | 'sent' | 'returned'
+type ShipStatus = 'pending' | 'in_work' | 'assembled' | 'sent' | 'returned'
 type ShipSource = 'telegram' | 'tilda' | 'max'
 
 type ShipmentRow = {
@@ -24,14 +24,16 @@ export type ShipmentSummaryItem = {
   article: string
   title: string        // from product catalog, empty if article not found
   pending: number
+  in_work: number
+  assembled: number
   sent: number
   returned: number
 }
 
 export type ShipmentsReport = {
   summary: ShipmentSummaryItem[]
-  bySource: Record<string, { pending: number; sent: number }>
-  totals: { pending: number; sent: number; returned: number }
+  bySource: Record<string, { pending: number; in_work: number; assembled: number; sent: number }>
+  totals: { pending: number; in_work: number; assembled: number; sent: number; returned: number }
 }
 
 function getAuth() {
@@ -114,30 +116,46 @@ export async function buildShipmentsReport(opts: {
         article: row.article,
         title: articleMap.get(row.article) ?? '',
         pending: 0,
+        in_work: 0,
+        assembled: 0,
         sent: 0,
         returned: 0,
       }
       byArticle.set(row.article, entry)
     }
 
-    if (row.ship_status === 'pending') entry.pending += row.qty
-    else if (row.ship_status === 'sent') entry.sent += row.qty
-    else if (row.ship_status === 'returned') entry.returned += row.qty
+    if (row.ship_status === 'pending')   entry.pending   += row.qty
+    else if (row.ship_status === 'in_work')   entry.in_work   += row.qty
+    else if (row.ship_status === 'assembled') entry.assembled += row.qty
+    else if (row.ship_status === 'sent')     entry.sent      += row.qty
+    else if (row.ship_status === 'returned') entry.returned  += row.qty
 
-    // by source (pending + sent only)
-    if (row.ship_status === 'pending' || row.ship_status === 'sent') {
-      if (!bySource[row.source]) bySource[row.source] = { pending: 0, sent: 0 }
-      if (row.ship_status === 'pending') bySource[row.source].pending += row.qty
-      else bySource[row.source].sent += row.qty
+    // by source (active orders: pending + in_work + assembled + sent)
+    const activeStatuses = ['pending', 'in_work', 'assembled', 'sent'] as const
+    if ((activeStatuses as readonly string[]).includes(row.ship_status)) {
+      if (!bySource[row.source]) bySource[row.source] = { pending: 0, in_work: 0, assembled: 0, sent: 0 }
+      const src = bySource[row.source]
+      if (row.ship_status === 'pending')   src.pending   += row.qty
+      else if (row.ship_status === 'in_work')   src.in_work   += row.qty
+      else if (row.ship_status === 'assembled') src.assembled += row.qty
+      else if (row.ship_status === 'sent')      src.sent      += row.qty
     }
   }
 
-  // sort: articles with most pending first
-  const summary = [...byArticle.values()].sort((a, b) => b.pending - a.pending)
+  // sort: articles with most active (pending+in_work+assembled) first
+  const summary = [...byArticle.values()].sort(
+    (a, b) => (b.pending + b.in_work + b.assembled) - (a.pending + a.in_work + a.assembled)
+  )
 
   const totals = summary.reduce(
-    (acc, s) => ({ pending: acc.pending + s.pending, sent: acc.sent + s.sent, returned: acc.returned + s.returned }),
-    { pending: 0, sent: 0, returned: 0 }
+    (acc, s) => ({
+      pending:   acc.pending   + s.pending,
+      in_work:   acc.in_work   + s.in_work,
+      assembled: acc.assembled + s.assembled,
+      sent:      acc.sent      + s.sent,
+      returned:  acc.returned  + s.returned,
+    }),
+    { pending: 0, in_work: 0, assembled: 0, sent: 0, returned: 0 }
   )
 
   return { summary, bySource, totals }
