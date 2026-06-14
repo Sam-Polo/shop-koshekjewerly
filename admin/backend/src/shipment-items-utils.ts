@@ -1,6 +1,7 @@
 import { google } from 'googleapis'
 import fs from 'node:fs'
 import pino from 'pino'
+import { fetchProductsFromSheet } from '../sheets.js'
 
 const logger = pino()
 
@@ -73,42 +74,14 @@ async function readShipmentRows(): Promise<ShipmentRow[]> {
     }))
 }
 
-/** Reads article→title map from all category sheets. */
+/** Reads article→title map from product catalog (reuses existing fetchProductsFromSheet). */
 async function readArticleTitleMap(): Promise<Map<string, string>> {
-  const auth = getAuth()
-  const sheets = google.sheets({ version: 'v4', auth })
-  const spreadsheetId = getSpreadsheetId()
-
-  const meta = await sheets.spreadsheets.get({ spreadsheetId })
-  const sheetTitles = (meta.data.sheets ?? [])
-    .map(s => s.properties?.title ?? '')
-    .filter(t => t && t !== SHEET_NAME && !t.startsWith('order') && t !== 'categories')
-
-  const articleMap = new Map<string, string>()
-
-  for (const sheetTitle of sheetTitles) {
-    try {
-      const res = await sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: `${sheetTitle}!A1:K1000`,
-      })
-      const rows = res.data.values ?? []
-      if (rows.length < 2) continue
-      const header = rows[0].map((h: string) => h.trim().toLowerCase())
-      const articleIdx = header.indexOf('article')
-      const titleIdx = header.indexOf('title')
-      if (articleIdx === -1 || titleIdx === -1) continue
-      for (let i = 1; i < rows.length; i++) {
-        const article = String(rows[i][articleIdx] ?? '').trim()
-        const title = String(rows[i][titleIdx] ?? '').trim()
-        if (article && title) articleMap.set(article, title)
-      }
-    } catch (e: any) {
-      logger.warn({ sheetTitle, err: e?.message }, 'skip sheet when building article map')
-    }
+  const products = await fetchProductsFromSheet(getSpreadsheetId())
+  const map = new Map<string, string>()
+  for (const p of products) {
+    if (p.article && p.title) map.set(p.article, p.title)
   }
-
-  return articleMap
+  return map
 }
 
 export async function buildShipmentsReport(opts: {
