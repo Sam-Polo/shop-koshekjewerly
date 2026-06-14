@@ -2,6 +2,7 @@ import type { Request, Response } from 'express'
 import pino from 'pino'
 import { sendAlert } from './alerts.js'
 import { appendShipmentItems, type ShipmentItem } from './shipment-items-sheet.js'
+import { normalizeArticle } from './shipment-items-parser.js'
 
 const logger = pino()
 
@@ -31,7 +32,7 @@ export function handleTildaOrder(req: Request, res: Response): void {
   const skipped: string[] = []
 
   for (const p of products) {
-    const sku = String(p?.sku ?? '').trim()
+    const sku = normalizeArticle(String(p?.sku ?? '').trim())
     const qty = parseInt(p?.quantity ?? '1', 10) || 1
 
     if (!sku) {

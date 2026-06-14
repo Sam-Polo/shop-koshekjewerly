@@ -31,8 +31,8 @@ function getAuth() {
 }
 
 function getSheetId(): string {
-  const id = process.env.SPREADSHEET_ID
-  if (!id) throw new Error('SPREADSHEET_ID not set')
+  const id = process.env.IMPORT_SHEET_ID
+  if (!id) throw new Error('IMPORT_SHEET_ID not set')
   return id
 }
 

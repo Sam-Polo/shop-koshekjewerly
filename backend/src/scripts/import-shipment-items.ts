@@ -17,7 +17,7 @@
 
 import 'dotenv/config'
 import { parseAmoCrmComposition } from '../shipment-items-parser.js'
-import { ensureShipmentItemsSheet, appendShipmentItems, type ShipmentItem, type ShipStatus, type ShipSource } from '../shipment-items-sheet.js'
+import { ensureShipmentItemsSheet, appendShipmentItems, readAllShipmentItems, type ShipmentItem, type ShipStatus, type ShipSource } from '../shipment-items-sheet.js'
 
 // ── amoCRM config ─────────────────────────────────────────────────────────────
 
@@ -77,6 +77,15 @@ function readFieldEnum(lead: any, fieldId: number): number | null {
   return v !== undefined ? Number(v) : null
 }
 
+// amoCRM date fields store value as Unix timestamp (number)
+function readFieldDate(lead: any, fieldId: number): string {
+  const cf: any[] = lead?.custom_fields_values ?? []
+  const field = cf.find((f: any) => Number(f.field_id) === fieldId)
+  const v = field?.values?.[0]?.value
+  if (v && Number(v) > 0) return isoDate(Number(v))
+  return ''
+}
+
 function sourceFromEnum(enumId: number | null): ShipSource {
   if (enumId === ENUM_TELEGRAM) return 'telegram'
   if (enumId === ENUM_MAX) return 'max'
@@ -90,6 +99,7 @@ function isoDate(unixSeconds: number): string {
 // ── main ──────────────────────────────────────────────────────────────────────
 
 async function fetchAllLeads(): Promise<any[]> {
+  const seen = new Set<number>()
   const leads: any[] = []
   let page = 1
   while (true) {
@@ -99,7 +109,12 @@ async function fetchAllLeads(): Promise<any[]> {
     )
     const batch: any[] = data?._embedded?.leads ?? []
     if (batch.length === 0) break
-    leads.push(...batch)
+    for (const lead of batch) {
+      if (!seen.has(lead.id)) {
+        seen.add(lead.id)
+        leads.push(lead)
+      }
+    }
     if (batch.length < 250) break
     page++
     await sleep(DELAY_MS)
@@ -111,9 +126,12 @@ async function main() {
   const isDryRun = process.argv.includes('--dry-run')
   const limitArg = process.argv.find(a => a.startsWith('--limit='))
   const limit = limitArg ? parseInt(limitArg.split('=')[1], 10) : Infinity
+  const leadArg = process.argv.find(a => a.startsWith('--lead='))
+  const singleLeadId = leadArg ? parseInt(leadArg.split('=')[1], 10) : null
 
   console.log(`Режим: ${isDryRun ? 'DRY RUN (без записи в Sheets)' : 'ЗАПИСЬ В SHEETS'}`)
-  console.log(`Лимит лидов: ${isFinite(limit) ? limit : 'все'}`)
+  if (singleLeadId) console.log(`Один лид: ${singleLeadId}`)
+  else console.log(`Лимит лидов: ${isFinite(limit) ? limit : 'все'}`)
   console.log()
 
   if (!isDryRun) {
@@ -121,18 +139,35 @@ async function main() {
     await ensureShipmentItemsSheet()
   }
 
-  console.log('Загружаем лиды из amoCRM…')
-  const allLeads = await fetchAllLeads()
-  console.log(`Всего лидов: ${allLeads.length}`)
+  // read existing order_ids to skip already-imported leads on re-run
+  let existingOrderIds = new Set<string>()
+  if (!isDryRun) {
+    console.log('Читаем уже записанные order_id…')
+    const existing = await readAllShipmentItems()
+    existingOrderIds = new Set(existing.map(r => r.order_id))
+    console.log(`Уже в шите: ${existingOrderIds.size} уникальных order_id`)
+  }
   console.log()
 
-  const leads = isFinite(limit) ? allLeads.slice(0, limit) : allLeads
+  let leads: any[]
+  if (singleLeadId) {
+    console.log(`Загружаем лид ${singleLeadId} из amoCRM…`)
+    const data = await amoGet(`/leads/${singleLeadId}?with=custom_fields`)
+    leads = data ? [data] : []
+  } else {
+    console.log('Загружаем лиды из amoCRM…')
+    const allLeads = await fetchAllLeads()
+    console.log(`Всего лидов: ${allLeads.length}`)
+    leads = isFinite(limit) ? allLeads.slice(0, limit) : allLeads
+  }
+  console.log()
 
-  let written = 0
   let skippedStage = 0
+  let skippedExisting = 0
   let unknown = 0
-  const noItems: string[] = []    // лиды без состава
-  const manualReview: string[] = [] // нераспознанный формат
+  const noItems: string[] = []
+  const manualReview: string[] = []
+  const allRows: ShipmentItem[] = []   // collect everything, write once at the end
 
   for (const lead of leads) {
     const stageId: number = lead.status_id
@@ -143,13 +178,12 @@ async function main() {
       continue
     }
 
-    const orderId   = readField(lead, FIELD_ORDER_NUMBER)
-    const rawItems  = readField(lead, FIELD_COMPOSITION)
+    const orderId    = readField(lead, FIELD_ORDER_NUMBER)
+    const rawItems   = readField(lead, FIELD_COMPOSITION)
     const sourceEnum = readFieldEnum(lead, FIELD_SOURCE)
     const source     = sourceFromEnum(sourceEnum)
-    const orderDate  = lead.created_at ? isoDate(lead.created_at) : ''
-    // ship_date: use updated_at for sent/returned stages as a best-effort approximation
-    const shipDate = (status === 'sent' || status === 'returned') && lead.updated_at
+    const orderDate  = readFieldDate(lead, 770485) || (lead.created_at ? isoDate(lead.created_at) : '')
+    const shipDate   = (status === 'sent' || status === 'returned') && lead.updated_at
       ? isoDate(lead.updated_at)
       : ''
 
@@ -159,8 +193,13 @@ async function main() {
       continue
     }
 
-    // leads without an order number get a surrogate key so they're still counted in reports
     const effectiveOrderId = orderId ?? `AMO-${lead.id}`
+
+    if (existingOrderIds.has(effectiveOrderId)) {
+      console.log(`  [SKIP-EXISTS] ${effectiveOrderId}`)
+      skippedExisting++
+      continue
+    }
 
     const { items, format } = parseAmoCrmComposition(rawItems)
 
@@ -184,15 +223,18 @@ async function main() {
     console.log(`  [${format.toUpperCase()}] ${effectiveOrderId} [${status}] → ${rows.length} позиц.`)
     rows.forEach(r => console.log(`    article=${r.article} qty=${r.qty}`))
 
-    if (!isDryRun) {
-      await appendShipmentItems(rows)
-      await sleep(DELAY_MS)
-    }
-    written += rows.length
+    allRows.push(...rows)
+  }
+
+  if (!isDryRun && allRows.length > 0) {
+    console.log()
+    console.log(`Записываем ${allRows.length} строк одним запросом…`)
+    await appendShipmentItems(allRows)
+    console.log('Записано.')
   }
 
   console.log()
-  console.log(`Готово. Позиций записано: ${written}, без состава: ${noItems.length}, закрыто/неизвестный этап: ${skippedStage}, нераспознано: ${unknown}`)
+  console.log(`Готово. Строк к записи: ${allRows.length}, уже были в шите: ${skippedExisting}, без состава: ${noItems.length}, закрыто/неизв. этап: ${skippedStage}, нераспознано: ${unknown}`)
 
   if (noItems.length > 0) {
     console.log()

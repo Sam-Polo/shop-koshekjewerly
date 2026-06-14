@@ -8,9 +8,15 @@ export type ParseResult = {
   format: 'bot' | 'tilda' | 'unknown'
 }
 
-function detectFormat(text: string): 'bot' | 'tilda' | 'unknown' {
+/** Pads purely-numeric article codes to 4 digits: "95" → "0095", "0006" → "0006". */
+export function normalizeArticle(article: string): string {
+  return /^\d+$/.test(article) ? article.padStart(4, '0') : article
+}
+
+function detectFormat(text: string): 'bot' | 'tilda' | 'tilda2' | 'unknown' {
   if (/\[\d+\]/.test(text) && /—\s*\d+₽/.test(text)) return 'bot'
   if (/\(\d+\)\s*x\s*\d+\s*≡/.test(text)) return 'tilda'
+  if (/\(\d+\)\s*-\s*\d+x\d+/.test(text)) return 'tilda2'
   return 'unknown'
 }
 
@@ -23,7 +29,7 @@ function parseBotItems(text: string): ParsedItem[] {
     if (!articleMatch) continue
     const qtyMatch = trimmed.match(/×\s*(\d+)/)
     items.push({
-      article: articleMatch[1],
+      article: normalizeArticle(articleMatch[1]),
       qty: qtyMatch ? parseInt(qtyMatch[1], 10) : 1,
     })
   }
@@ -35,7 +41,18 @@ function parseTildaItems(text: string): ParsedItem[] {
   const re = /\((\d+)\)\s*x\s*(\d+)\s*≡\s*\d+/g
   let m: RegExpExecArray | null
   while ((m = re.exec(text)) !== null) {
-    items.push({ article: m[1], qty: parseInt(m[2], 10) })
+    items.push({ article: normalizeArticle(m[1]), qty: parseInt(m[2], 10) })
+  }
+  return items
+}
+
+// Format: "Title (0023) - 1x4390 = 4390;\nTitle (0019) - 1x6590"
+function parseTilda2Items(text: string): ParsedItem[] {
+  const items: ParsedItem[] = []
+  const re = /\((\d+)\)\s*-\s*(\d+)x\d+/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text)) !== null) {
+    items.push({ article: normalizeArticle(m[1]), qty: parseInt(m[2], 10) })
   }
   return items
 }
@@ -51,5 +68,6 @@ export function parseAmoCrmComposition(text: string): ParseResult {
   const format = detectFormat(trimmed)
   if (format === 'bot') return { items: parseBotItems(trimmed), format }
   if (format === 'tilda') return { items: parseTildaItems(trimmed), format }
+  if (format === 'tilda2') return { items: parseTilda2Items(trimmed), format: 'tilda' }
   return { items: [], format: 'unknown' }
 }

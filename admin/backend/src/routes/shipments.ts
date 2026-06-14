@@ -15,8 +15,8 @@ router.get('/', async (req, res) => {
     const report = await buildShipmentsReport({ from, to, source })
     res.json(report)
   } catch (e: any) {
-    logger.error({ err: e?.message }, 'shipments report error')
-    res.status(500).json({ error: 'internal_error' })
+    logger.error({ err: e?.message, stack: e?.stack }, 'shipments report error')
+    res.status(500).json({ error: 'internal_error', detail: e?.message })
   }
 })
 

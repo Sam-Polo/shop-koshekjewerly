@@ -47,8 +47,8 @@ function getAuth() {
 }
 
 function getSpreadsheetId(): string {
-  const id = process.env.SPREADSHEET_ID
-  if (!id) throw new Error('SPREADSHEET_ID not set')
+  const id = process.env.GOOGLE_SHEET_ID
+  if (!id) throw new Error('GOOGLE_SHEET_ID not set')
   return id
 }
 
