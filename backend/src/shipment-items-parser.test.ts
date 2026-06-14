@@ -7,15 +7,15 @@ describe('parseAmoCrmComposition — bot format', () => {
     const { format, items } = parseAmoCrmComposition(text)
     expect(format).toBe('bot')
     expect(items).toEqual([
-      { article: '0006', qty: 1 },
-      { article: '1816', qty: 1 },
+      { article: '0006', qty: 1, name: 'Браслет Малинки' },
+      { article: '1816', qty: 1, name: 'Двойной чокер из Майорки с малиной' },
     ])
   })
 
   it('parses item with qty > 1 (× N)', () => {
     const { format, items } = parseAmoCrmComposition('[0006] Браслет Малинки × 2 — 11980₽')
     expect(format).toBe('bot')
-    expect(items).toEqual([{ article: '0006', qty: 2 }])
+    expect(items).toEqual([{ article: '0006', qty: 2, name: 'Браслет Малинки' }])
   })
 
   it('preserves leading zeros in article', () => {
@@ -31,7 +31,7 @@ describe('parseAmoCrmComposition — bot format', () => {
 
   it('handles single item', () => {
     const { items } = parseAmoCrmComposition('[0006] Браслет Малинки — 5990₽')
-    expect(items).toEqual([{ article: '0006', qty: 1 }])
+    expect(items).toEqual([{ article: '0006', qty: 1, name: 'Браслет Малинки' }])
   })
 })
 
@@ -41,20 +41,20 @@ describe('parseAmoCrmComposition — tilda format', () => {
     const { format, items } = parseAmoCrmComposition(text)
     expect(format).toBe('tilda')
     expect(items).toEqual([
-      { article: '0008', qty: 1 },
-      { article: '0006', qty: 1 },
+      { article: '0008', qty: 1, name: 'Подвеска Малинка' },
+      { article: '0006', qty: 1, name: 'Браслет Малинки' },
     ])
   })
 
   it('parses item with qty > 1', () => {
     const { format, items } = parseAmoCrmComposition('Браслет Малинки (0006) x 3 ≡ 17970')
     expect(format).toBe('tilda')
-    expect(items).toEqual([{ article: '0006', qty: 3 }])
+    expect(items).toEqual([{ article: '0006', qty: 3, name: 'Браслет Малинки' }])
   })
 
   it('handles single item', () => {
     const { items } = parseAmoCrmComposition('Подвеска Малинка (0008) x 1 ≡ 3990')
-    expect(items).toEqual([{ article: '0008', qty: 1 }])
+    expect(items).toEqual([{ article: '0008', qty: 1, name: 'Подвеска Малинка' }])
   })
 
   it('handles name with digits before article (e.g. Чокер 2.0)', () => {
@@ -62,7 +62,7 @@ describe('parseAmoCrmComposition — tilda format', () => {
     // because we match `(article) x qty ≡ price` pattern, not just any `(digits)`
     const text = 'Чокер 2.0 (1816) x 1 ≡ 5190'
     const { items } = parseAmoCrmComposition(text)
-    expect(items).toEqual([{ article: '1816', qty: 1 }])
+    expect(items).toEqual([{ article: '1816', qty: 1, name: 'Чокер 2.0' }])
   })
 })
 
