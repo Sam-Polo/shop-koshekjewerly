@@ -68,6 +68,19 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+describe('checkRequiredPochtaEnv', () => {
+  it('returns true when all required env set', () => {
+    expect(pochta.checkRequiredPochtaEnv()).toBe(true)
+  })
+
+  it('returns false when a required env is missing', () => {
+    const orig = process.env.POCHTA_INDEX_FROM
+    delete process.env.POCHTA_INDEX_FROM
+    expect(pochta.checkRequiredPochtaEnv()).toBe(false)
+    process.env.POCHTA_INDEX_FROM = orig
+  })
+})
+
 describe('auth headers', () => {
   it('sends AccessToken and Basic X-User-Authorization', async () => {
     vi.stubGlobal('fetch', mockFetch([{ ok: true, body: TARIFF_RESP }]))

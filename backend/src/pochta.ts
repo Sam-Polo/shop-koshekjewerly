@@ -24,6 +24,32 @@ const getMailCategory = () => process.env.POCHTA_MAIL_CATEGORY ?? 'ORDINARY'
 const getTnvedCode = () => process.env.POCHTA_TNVED_CODE ?? '7117'
 const getIndexFrom = () => process.env.POCHTA_INDEX_FROM ?? ''
 
+// ── Env validation — отсутствие любой обязательной переменной = критичный алерт ─
+
+const REQUIRED_POCHTA_ENV_KEYS = [
+  'POCHTA_TOKEN',
+  'POCHTA_LOGIN',
+  'POCHTA_PASSWORD',
+  'POCHTA_INDEX_FROM',
+] as const
+
+/**
+ * Проверяет, заданы ли обязательные env Почты. Любая отсутствующая → критичный алерт
+ * (sendAlert дедуплицирует по code, поэтому повторные вызовы не спамят канал).
+ * Возвращает false, если чего-то не хватает (EMS-отправление создавать бессмысленно).
+ */
+export function checkRequiredPochtaEnv(): boolean {
+  const missing = REQUIRED_POCHTA_ENV_KEYS.filter(k => !process.env[k])
+  if (missing.length) {
+    sendAlert(
+      `Pochta: не заданы env-переменные: ${missing.join(', ')} — EMS-отправление не будет создано`,
+      { tag: 'pochta', level: 'critical', hint: 'добавьте недостающие переменные в Render env', code: 'POCHTA_ENV_MISSING' }
+    ).catch(() => {})
+    return false
+  }
+  return true
+}
+
 // ── Auth ────────────────────────────────────────────────────────────────────
 
 let _cachedBasic: string | null = null
@@ -268,6 +294,9 @@ export async function triggerPochtaOrderAsync(
   order: Order,
   onTrackReady: (shpi: string, batchName: string) => Promise<void>
 ): Promise<void> {
+  // обязательные env должны быть заданы — иначе отправление не создать
+  if (!checkRequiredPochtaEnv()) return
+
   if (!order.orderData.recipientCountryCode) {
     sendAlert(
       `Pochta: recipientCountryCode не задан для заказа ${order.orderId}`,
