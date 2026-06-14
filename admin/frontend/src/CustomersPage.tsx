@@ -159,6 +159,7 @@ export default function CustomersPage({ onNavigate }: { onNavigate?: (page: Admi
           {navBtn('categories', 'Категории')}
           {navBtn('bases', 'Конструктор')}
           {navBtn('statistics', 'Статистика')}
+          {navBtn('shipments', 'Учёт')}
           {navBtn('customers', 'Клиенты', true)}
           {navBtn('settings', 'Настройки')}
         </div>

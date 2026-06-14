@@ -129,6 +129,7 @@ function NavBar({ active, onNavigate, onLogout }: { active: 'statistics' | 'cust
         {navBtn('categories', 'Категории')}
         {navBtn('bases', 'Конструктор')}
         {navBtn('statistics', 'Статистика', active === 'statistics')}
+        {navBtn('shipments', 'Учёт')}
         {navBtn('customers', 'Клиенты', active === 'customers')}
         {navBtn('settings', 'Настройки')}
       </div>

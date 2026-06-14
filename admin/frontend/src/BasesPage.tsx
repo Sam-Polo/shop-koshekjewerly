@@ -380,6 +380,7 @@ function BasesPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }) {
           <button className="nav-btn" onClick={() => onNavigate?.('categories')}>Категории</button>
           <button className="nav-btn active" onClick={() => onNavigate?.('bases')}>Конструктор</button>
           <button className="nav-btn" onClick={() => onNavigate?.('statistics')}>Статистика</button>
+          <button className="nav-btn" onClick={() => onNavigate?.('shipments')}>Учёт</button>
           <button className="nav-btn" onClick={() => onNavigate?.('customers')}>Клиенты</button>
           <button className="nav-btn" onClick={() => onNavigate?.('settings')}>Настройки</button>
         </div>

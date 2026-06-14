@@ -2669,18 +2669,32 @@
     margin: 0;
   }
 
+  .admin-header > .logout-btn {
+    order: 3;
+    align-self: center;
+    justify-self: end;
+  }
+
   .header-nav {
     order: 2;
     margin: 0;
     width: 100%;
     justify-self: stretch;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .header-nav::-webkit-scrollbar {
+    display: none;
   }
 
   .nav-btn {
     padding: 0.5rem 0.75rem;
     font-size: 0.85rem;
-    flex: 1;
-    min-width: 0;
+    flex-shrink: 0;
+    white-space: nowrap;
   }
 
   .header-actions {
@@ -3365,6 +3379,65 @@
   .stat-grid-2 { grid-template-columns: 1fr; }
   .stat-order-grid { grid-template-columns: 1fr; }
   .stat-customer-summary { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* таблицы заказов и клиентов: горизонтальный скролл вместо card-трансформа */
+@media (max-width: 768px) {
+  .stat-orders-table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .stat-orders-table .promocodes-table {
+    display: table;
+    overflow: visible;
+    min-width: 520px;
+  }
+
+  .stat-orders-table .promocodes-table thead {
+    display: table-header-group;
+  }
+
+  .stat-orders-table .promocodes-table tbody {
+    display: table-row-group;
+  }
+
+  .stat-orders-table .promocodes-table tr {
+    display: table-row;
+    margin: 0;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    padding: 0;
+    background: transparent;
+  }
+
+  .stat-orders-table .promocodes-table td {
+    display: table-cell;
+    text-align: left;
+    padding: 0.5rem 0.4rem;
+    border-bottom: 1px solid #eee;
+  }
+
+  .stat-orders-table .promocodes-table td::before {
+    display: none;
+  }
+
+  .stat-orders-table .promocodes-table td:last-child {
+    border-bottom: 1px solid #eee;
+    justify-content: unset;
+    gap: unset;
+    padding-top: 0.5rem;
+  }
+
+  .stat-orders-table .promocodes-table td:last-child::before {
+    display: none;
+  }
+
+  .stat-orders-table .promocodes-table th {
+    display: table-cell;
+    padding: 0.6rem 0.4rem;
+  }
 }
 
 
@@ -4168,6 +4241,7 @@
   .sh-counters { gap: 0.6rem; }
   .sh-counter { min-width: 90px; padding: 1rem 0.55rem 0.85rem; }
   .sh-counter-ring-wrap, .sh-counter-ring { width: 70px; height: 70px; }
+  .sh-card { overflow-x: auto; }
   .sh-counter-num { font-size: 1.4rem; }
   .sh-day-text { font-size: 0.85rem; }
   .sh-table th, .sh-table td { padding: 0.5rem 0.6rem; font-size: 0.78rem; }

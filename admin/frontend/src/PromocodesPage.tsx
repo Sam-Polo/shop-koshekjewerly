@@ -127,6 +127,12 @@ function PromocodesPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void
           </button>
           <button
             className="nav-btn"
+            onClick={() => onNavigate?.('shipments')}
+          >
+            Учёт
+          </button>
+          <button
+            className="nav-btn"
             onClick={() => onNavigate?.('customers')}
           >
             Клиенты
