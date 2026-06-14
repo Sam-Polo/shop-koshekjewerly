@@ -109,6 +109,63 @@ export async function readAllShipmentItems(): Promise<ShipmentItem[]> {
 }
 
 /**
+ * For webhook upserts: if order_id already exists — update pending rows to new status.
+ * If order_id is new — append the provided items.
+ * Returns 'created' | 'updated' | 'noop'.
+ */
+export async function upsertOrderItems(
+  orderId: string,
+  newStatus: ShipStatus,
+  items: ShipmentItem[],
+  shipDate: string
+): Promise<'created' | 'updated' | 'noop'> {
+  const auth = getAuth()
+  const sheets = google.sheets({ version: 'v4', auth })
+  const spreadsheetId = getSheetId()
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${SHEET_NAME}!A:G`,
+  })
+  const rows = res.data.values ?? []
+
+  const orderRows = rows.slice(1).map((r, i) => ({ r, rowNum: i + 2 })).filter(({ r }) => r[0] === orderId)
+
+  if (orderRows.length === 0) {
+    // new order — append
+    if (items.length === 0) return 'noop'
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: `${SHEET_NAME}!A:G`,
+      valueInputOption: 'RAW',
+      requestBody: { values: items.map(itemToRow) },
+    })
+    return 'created'
+  }
+
+  // existing order — update pending rows to newStatus (only for sent/returned)
+  if (newStatus === 'pending') return 'noop'
+
+  const updates = orderRows
+    .filter(({ r }) => r[5] === 'pending' || !r[5])
+    .map(({ r, rowNum }) => {
+      const updated = [...r]
+      updated[5] = newStatus
+      updated[6] = shipDate
+      while (updated.length < 7) updated.push('')
+      return { range: `${SHEET_NAME}!A${rowNum}:G${rowNum}`, values: [updated.slice(0, 7)] }
+    })
+
+  if (updates.length === 0) return 'noop'
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: { valueInputOption: 'RAW', data: updates },
+  })
+  return 'updated'
+}
+
+/**
  * Updates all pending items for a given order_id to the specified status.
  * Called from the amoCRM stage-change webhook.
  */
