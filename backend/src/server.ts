@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import * as Sentry from '@sentry/node';
 import express from 'express';
+import 'express-async-errors'; // патчит роутер: async-ошибки роутов доходят до error-handling middleware
 import cors from 'cors';
 import pino from 'pino';
 import fs from 'node:fs';
@@ -159,6 +160,18 @@ async function importOrdersSettings() {
 app.set('trust proxy', 1);
 
 app.use(express.json({ limit: '1mb' }));
+
+// safety net #1: любой ответ со статусом 5xx → алерт. Ловит вручную возвращённые 5xx
+// (напр. catch → res.status(502)). Флаг errorAlerted ставит error-handler ниже — чтобы не дублировать.
+app.use((req, res, next) => {
+  res.on('finish', () => {
+    if (res.statusCode >= 500 && !res.locals.errorAlerted) {
+      sendAlert(`Backend ${req.method} ${req.path} → HTTP ${res.statusCode}`,
+        { tag: 'backend', level: 'high', hint: 'ответ с ошибкой сервера', code: 'BACKEND_5XX_RESPONSE' }).catch(() => {})
+    }
+  })
+  next()
+})
 
 // настройка CORS - разрешаем запросы от TG и MAX мини-аппов
 const allowedOrigins = [
@@ -2041,6 +2054,16 @@ app.post('/api/amocrm/test', express.json(), async (req, res) => {
   } catch (e: any) {
     res.status(500).json({ ok: false, error: e?.message, steps })
   }
+})
+
+// safety net #2: последний error-handling middleware — ловит ЛЮБУЮ непойманную ошибку роута
+// (sync и async — async доходят благодаря express-async-errors). Должен идти ПОСЛЕ всех роутов.
+app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  res.locals.errorAlerted = true
+  logger.error({ err: err?.message, stack: err?.stack, path: req.path, method: req.method }, 'unhandled route error')
+  sendAlert(`Backend ${req.method} ${req.path} → ${err?.message}`,
+    { tag: 'backend', level: 'high', hint: 'непойманная ошибка в обработчике запроса', code: 'BACKEND_UNHANDLED_ROUTE_ERROR' }).catch(() => {})
+  if (!res.headersSent) res.status(500).json({ error: 'internal_error' })
 })
 
 const port = Number(process.env.PORT ?? 4000);
