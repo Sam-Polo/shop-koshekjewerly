@@ -210,15 +210,15 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
         {/* Circular counters */}
         <div className="sh-counters">
           <ArcCounter value={totals.pending} total={totalAll} label="К отправке"
-            color="#f472b6" track="rgba(244,114,182,0.13)" />
+            color="#db2777" track="rgba(244,114,182,0.22)" />
           <ArcCounter value={totals.in_work} total={totalAll} label="В работе"
-            color="#fb923c" track="rgba(251,146,60,0.13)" />
+            color="#ea580c" track="rgba(251,146,60,0.22)" />
           <ArcCounter value={totals.assembled} total={totalAll} label="Собран"
-            color="#38bdf8" track="rgba(56,189,248,0.13)" />
+            color="#0284c7" track="rgba(56,189,248,0.22)" />
           <ArcCounter value={totals.sent} total={totalAll} label="Отправлено"
-            color="#a78bfa" track="rgba(167,139,250,0.13)" />
+            color="#7c3aed" track="rgba(139,92,246,0.2)" />
           <ArcCounter value={totals.returned} total={totalAll} label="Возвращено"
-            color="#6ee7b7" track="rgba(110,231,183,0.13)" />
+            color="#059669" track="rgba(16,185,129,0.2)" />
         </div>
 
         {/* Source chips */}

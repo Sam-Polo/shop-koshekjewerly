@@ -1,4 +1,4 @@
-/* страница входа */
+﻿/* страница входа */
 .login-container {
   min-height: 100vh;
   display: flex;
@@ -3720,13 +3720,13 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   УЧЁТ — shipments dashboard
-   Palette: deep violet bg · pink=новых · violet=sent · matcha=returned
+   УЧЁТ — shipments dashboard (light theme)
+   Works on admin-container lavender gradient background.
+   White cards · deep violet text · vibrant arc colors
    ═══════════════════════════════════════════════════════════════ */
 
 .sh-page {
   min-height: calc(100vh - 68px);
-  background: linear-gradient(150deg, #180e38 0%, #2a1660 45%, #170b32 100%);
   padding: 1.75rem 1.5rem 3rem;
 }
 
@@ -3734,7 +3734,7 @@
 .sh-progress-bar {
   position: fixed;
   top: 0; left: 0; right: 0;
-  height: 2px;
+  height: 3px;
   background: linear-gradient(90deg, #ec4899, #8b5cf6, #6ee7b7, #ec4899);
   background-size: 300% 100%;
   animation: sh-bar 1.8s linear infinite;
@@ -3753,20 +3753,20 @@
   gap: 0.6rem;
   max-width: 520px;
   margin: 0 auto 2.25rem;
-  padding: 0.6rem 1rem;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.09);
+  padding: 0.5rem 0.75rem;
+  background: rgba(255,255,255,0.8);
+  border: 1px solid rgba(139,92,246,0.18);
   border-radius: 50px;
-  backdrop-filter: blur(12px);
+  box-shadow: 0 2px 12px rgba(109,40,217,0.08);
 }
 
 .sh-nav-arrow {
   flex-shrink: 0;
   width: 34px; height: 34px;
-  background: rgba(255,255,255,0.07);
-  border: 1px solid rgba(255,255,255,0.13);
+  background: rgba(139,92,246,0.08);
+  border: 1px solid rgba(139,92,246,0.2);
   border-radius: 50%;
-  color: rgba(255,255,255,0.75);
+  color: #6d28d9;
   font-size: 1.35rem;
   line-height: 1;
   display: flex; align-items: center; justify-content: center;
@@ -3775,11 +3775,11 @@
   padding: 0;
 }
 .sh-nav-arrow:hover:not(:disabled) {
-  background: rgba(244,114,182,0.18);
-  border-color: rgba(244,114,182,0.4);
-  color: #f9a8d4;
+  background: rgba(139,92,246,0.16);
+  border-color: rgba(139,92,246,0.4);
+  color: #5b21b6;
 }
-.sh-nav-arrow:disabled { opacity: 0.25; cursor: default; }
+.sh-nav-arrow:disabled { opacity: 0.3; cursor: default; }
 
 .sh-day-label-wrap {
   position: relative;
@@ -3790,8 +3790,8 @@
 .sh-day-text {
   display: block;
   font-size: 0.95rem;
-  font-weight: 500;
-  color: rgba(255,255,255,0.88);
+  font-weight: 600;
+  color: #2d1a5e;
   letter-spacing: 0.015em;
   padding: 0.2rem 0.4rem;
   border-radius: 8px;
@@ -3799,7 +3799,7 @@
   pointer-events: none;
 }
 .sh-day-label-wrap:hover .sh-day-text {
-  background: rgba(255,255,255,0.06);
+  background: rgba(139,92,246,0.07);
 }
 .sh-date-pick {
   position: absolute;
@@ -3812,20 +3812,20 @@
 .sh-refresh-btn {
   flex-shrink: 0;
   width: 34px; height: 34px;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(139,92,246,0.07);
+  border: 1px solid rgba(139,92,246,0.18);
   border-radius: 50%;
-  color: rgba(255,255,255,0.5);
+  color: #7c3aed;
   display: flex; align-items: center; justify-content: center;
   cursor: pointer;
-  transition: background 0.2s, color 0.2s;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
   padding: 0;
 }
 .sh-refresh-btn svg { width: 15px; height: 15px; }
 .sh-refresh-btn:hover:not(:disabled) {
-  background: rgba(167,139,250,0.2);
-  border-color: rgba(167,139,250,0.4);
-  color: #a78bfa;
+  background: rgba(139,92,246,0.16);
+  border-color: rgba(139,92,246,0.4);
+  color: #5b21b6;
 }
 .sh-refresh-btn:disabled { opacity: 0.35; cursor: default; }
 
@@ -3833,40 +3833,39 @@
 .sh-counters {
   display: flex;
   justify-content: center;
-  gap: 1.25rem;
-  max-width: 700px;
+  gap: 1rem;
+  max-width: 780px;
   margin: 0 auto 2rem;
   flex-wrap: wrap;
 }
 
 .sh-counter {
   flex: 1;
-  min-width: 130px;
-  max-width: 200px;
+  min-width: 120px;
+  max-width: 175px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.6rem;
-  padding: 1.5rem 1rem 1.25rem;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.07);
-  border-radius: 22px;
-  backdrop-filter: blur(10px);
-  transition: border-color 0.2s, background 0.2s;
+  gap: 0.55rem;
+  padding: 1.25rem 0.75rem 1rem;
+  background: rgba(255,255,255,0.85);
+  border: 1px solid rgba(139,92,246,0.12);
+  border-radius: 20px;
+  box-shadow: 0 2px 14px rgba(109,40,217,0.07);
+  transition: box-shadow 0.2s, border-color 0.2s;
 }
 .sh-counter:hover {
-  background: rgba(255,255,255,0.06);
-  border-color: rgba(255,255,255,0.13);
+  box-shadow: 0 4px 20px rgba(109,40,217,0.12);
+  border-color: rgba(139,92,246,0.22);
 }
 
 .sh-counter-ring-wrap {
   position: relative;
-  width: 96px; height: 96px;
+  width: 88px; height: 88px;
 }
 .sh-counter-ring {
-  width: 96px; height: 96px;
+  width: 88px; height: 88px;
   display: block;
-  filter: drop-shadow(0 0 8px rgba(167,139,250,0.15));
 }
 .sh-counter-inner {
   position: absolute;
@@ -3876,30 +3875,30 @@
   gap: 2px;
 }
 .sh-counter-num {
-  font-size: 1.85rem;
+  font-size: 1.75rem;
   font-weight: 700;
-  color: #fff;
+  color: #1e0b4b;
   line-height: 1;
 }
 .sh-counter-pct {
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-weight: 600;
   line-height: 1;
   min-height: 0.9em;
 }
 .sh-counter-label {
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.1em;
+  font-size: 0.69rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
   text-transform: uppercase;
-  color: rgba(255,255,255,0.4);
+  color: rgba(45,26,94,0.45);
 }
 
 /* ── source chips ── */
 .sh-chips {
   display: flex;
   justify-content: center;
-  gap: 0.6rem;
+  gap: 0.55rem;
   flex-wrap: wrap;
   max-width: 600px;
   margin: 0 auto 2rem;
@@ -3908,48 +3907,47 @@
 .sh-chip {
   display: inline-flex;
   align-items: center;
-  gap: 0.45rem;
-  padding: 0.42rem 1rem;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.1);
+  gap: 0.4rem;
+  padding: 0.38rem 0.9rem;
+  background: rgba(255,255,255,0.85);
+  border: 1px solid rgba(139,92,246,0.25);
   border-radius: 50px;
-  color: rgba(255,255,255,0.6);
-  font-size: 0.84rem;
+  color: #5b21b6;
+  font-size: 0.83rem;
   font-weight: 500;
   font-family: inherit;
   cursor: pointer;
-  transition: background 0.18s, border-color 0.18s, color 0.18s;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 .sh-chip:hover {
-  background: rgba(244,114,182,0.1);
-  border-color: rgba(244,114,182,0.3);
-  color: #fbcfe8;
+  background: rgba(139,92,246,0.1);
+  border-color: rgba(139,92,246,0.4);
 }
 .sh-chip--on {
-  background: rgba(244,114,182,0.14);
-  border-color: rgba(244,114,182,0.45);
-  color: #f9a8d4;
+  background: #7c3aed;
+  border-color: #7c3aed;
+  color: #fff;
 }
 .sh-chip-num {
-  background: rgba(255,255,255,0.1);
-  padding: 0.05rem 0.42rem;
+  background: rgba(109,40,217,0.1);
+  padding: 0.05rem 0.38rem;
   border-radius: 20px;
-  font-size: 0.77rem;
+  font-size: 0.76rem;
   font-weight: 700;
 }
 .sh-chip--on .sh-chip-num {
-  background: rgba(244,114,182,0.22);
+  background: rgba(255,255,255,0.2);
 }
 
 /* ── table card ── */
 .sh-card {
-  max-width: 860px;
+  max-width: 920px;
   margin: 0 auto;
-  background: rgba(255,255,255,0.035);
-  border: 1px solid rgba(255,255,255,0.07);
+  background: rgba(255,255,255,0.9);
+  border: 1px solid rgba(139,92,246,0.12);
   border-radius: 18px;
   overflow: hidden;
-  backdrop-filter: blur(12px);
+  box-shadow: 0 2px 16px rgba(109,40,217,0.08);
 }
 
 .sh-table {
@@ -3957,86 +3955,87 @@
   border-collapse: collapse;
 }
 .sh-table thead tr {
-  border-bottom: 1px solid rgba(255,255,255,0.07);
+  border-bottom: 1px solid rgba(139,92,246,0.1);
+  background: rgba(245,240,255,0.7);
 }
 .sh-table th {
-  padding: 0.75rem 1.1rem;
+  padding: 0.7rem 1rem;
   text-align: left;
-  font-size: 0.7rem;
+  font-size: 0.69rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.09em;
-  color: rgba(255,255,255,0.3);
+  letter-spacing: 0.08em;
+  color: rgba(45,26,94,0.4);
 }
-.sh-th-p { color: rgba(244,114,182,0.55) !important; text-align: center; }
-.sh-th-w { color: rgba(251,146,60,0.55)  !important; text-align: center; }
-.sh-th-a { color: rgba(56,189,248,0.55)  !important; text-align: center; }
-.sh-th-s { color: rgba(167,139,250,0.55) !important; text-align: center; }
-.sh-th-r { color: rgba(110,231,183,0.55) !important; text-align: center; }
+.sh-th-p { color: #be185d !important; text-align: center; }
+.sh-th-w { color: #c2410c !important; text-align: center; }
+.sh-th-a { color: #0369a1 !important; text-align: center; }
+.sh-th-s { color: #6d28d9 !important; text-align: center; }
+.sh-th-r { color: #047857 !important; text-align: center; }
 
 .sh-table tbody tr {
-  border-bottom: 1px solid rgba(255,255,255,0.04);
+  border-bottom: 1px solid rgba(139,92,246,0.06);
   transition: background 0.12s;
 }
 .sh-table tbody tr:last-child { border-bottom: none; }
-.sh-table tbody tr:hover { background: rgba(255,255,255,0.04); }
-.sh-row-hot { background: rgba(244,114,182,0.04); }
+.sh-table tbody tr:hover { background: rgba(139,92,246,0.04); }
+.sh-row-hot { background: rgba(236,72,153,0.04); }
 
 .sh-table td {
-  padding: 0.7rem 1.1rem;
-  color: rgba(255,255,255,0.8);
-  font-size: 0.88rem;
+  padding: 0.65rem 1rem;
+  color: #2d1a5e;
+  font-size: 0.875rem;
 }
 .sh-art {
   display: inline-block;
-  padding: 0.18rem 0.55rem;
-  background: rgba(167,139,250,0.13);
-  border: 1px solid rgba(167,139,250,0.22);
+  padding: 0.16rem 0.5rem;
+  background: rgba(109,40,217,0.07);
+  border: 1px solid rgba(109,40,217,0.15);
   border-radius: 6px;
   font-size: 0.78rem;
   font-weight: 600;
-  color: #c4b5fd;
+  color: #5b21b6;
   font-family: monospace;
   letter-spacing: 0.04em;
 }
 .sh-name {
   max-width: 260px;
-  color: rgba(255,255,255,0.7);
+  color: #3b2668;
   font-size: 0.875rem;
 }
-.sh-td-p { text-align: center; color: #f9a8d4; font-weight: 600; }
-.sh-td-w { text-align: center; color: #fb923c; }
-.sh-td-a { text-align: center; color: #38bdf8; }
-.sh-td-s { text-align: center; color: #c4b5fd; }
-.sh-td-r { text-align: center; color: #6ee7b7; }
-.sh-muted { color: rgba(255,255,255,0.18); }
+.sh-td-p { text-align: center; color: #be185d; font-weight: 700; }
+.sh-td-w { text-align: center; color: #c2410c; }
+.sh-td-a { text-align: center; color: #0369a1; }
+.sh-td-s { text-align: center; color: #6d28d9; }
+.sh-td-r { text-align: center; color: #047857; }
+.sh-muted { color: rgba(45,26,94,0.2); }
 
 /* ── misc ── */
 .sh-error {
   max-width: 600px;
   margin: 0 auto 1.5rem;
-  background: rgba(239,68,68,0.1);
-  border: 1px solid rgba(239,68,68,0.28);
-  color: #fca5a5;
-  padding: 0.75rem 1.1rem;
+  background: rgba(254,202,202,0.6);
+  border: 1px solid rgba(239,68,68,0.3);
+  color: #991b1b;
+  padding: 0.75rem 1rem;
   border-radius: 12px;
-  font-size: 0.88rem;
+  font-size: 0.875rem;
 }
 .sh-empty {
   text-align: center;
   padding: 4rem 2rem;
-  color: rgba(255,255,255,0.22);
+  color: rgba(45,26,94,0.35);
   font-size: 0.95rem;
 }
 
 /* ── responsive ── */
 @media (max-width: 600px) {
   .sh-page { padding: 1rem 0.75rem 2rem; }
-  .sh-counters { gap: 0.75rem; }
-  .sh-counter { min-width: 100px; padding: 1.1rem 0.75rem 1rem; }
-  .sh-counter-ring-wrap, .sh-counter-ring { width: 78px; height: 78px; }
-  .sh-counter-num { font-size: 1.5rem; }
+  .sh-counters { gap: 0.6rem; }
+  .sh-counter { min-width: 90px; padding: 1rem 0.55rem 0.85rem; }
+  .sh-counter-ring-wrap, .sh-counter-ring { width: 70px; height: 70px; }
+  .sh-counter-num { font-size: 1.4rem; }
   .sh-day-text { font-size: 0.85rem; }
-  .sh-table th, .sh-table td { padding: 0.55rem 0.65rem; font-size: 0.8rem; }
-  .sh-name { max-width: 140px; }
+  .sh-table th, .sh-table td { padding: 0.5rem 0.6rem; font-size: 0.78rem; }
+  .sh-name { max-width: 130px; }
 }
