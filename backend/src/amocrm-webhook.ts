@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express'
 import pino from 'pino'
 import { sendAlert } from './alerts.js'
-import { markOrderAsSent } from './shipment-items-sheet.js'
+import { markOrderStatus } from './shipment-items-sheet.js'
 
 const logger = pino()
 
@@ -84,15 +84,15 @@ export function handleAmoCrmWebhook(req: Request, res: Response): void {
       }
 
       const shipDate = new Date().toISOString().slice(0, 10)
-      const newStatus = SENT_STAGES.has(statusId) ? 'sent' : 'returned'
+      const newStatus: 'sent' | 'returned' = SENT_STAGES.has(statusId) ? 'sent' : 'returned'
 
       try {
-        const updated = await markOrderAsSent(effectiveOrderId, shipDate)
+        const updated = await markOrderStatus(effectiveOrderId, newStatus, shipDate)
         logger.info({ leadId, effectiveOrderId, newStatus, updated }, 'amoCRM webhook: shipment_items updated')
       } catch (e: any) {
         logger.error({ leadId, effectiveOrderId, err: e?.message }, 'amoCRM webhook: failed to update shipment_items')
         sendAlert(
-          `amoCRM webhook: не удалось обновить статус отправки для заказа ${effectiveOrderId}: ${e?.message}`,
+          `amoCRM webhook: не удалось обновить статус для заказа ${effectiveOrderId}: ${e?.message}`,
           { tag: 'amocrm', level: 'moderate', code: 'AMOCRM_WEBHOOK_SHEET_UPDATE_FAILED' }
         ).catch(() => {})
       }

@@ -109,10 +109,14 @@ export async function readAllShipmentItems(): Promise<ShipmentItem[]> {
 }
 
 /**
- * Marks all pending items for a given order_id as sent.
+ * Updates all pending items for a given order_id to the specified status.
  * Called from the amoCRM stage-change webhook.
  */
-export async function markOrderAsSent(orderId: string, shipDate: string): Promise<number> {
+export async function markOrderStatus(
+  orderId: string,
+  status: 'sent' | 'returned',
+  shipDate: string
+): Promise<number> {
   const auth = getAuth()
   const sheets = google.sheets({ version: 'v4', auth })
   const spreadsheetId = getSheetId()
@@ -124,15 +128,13 @@ export async function markOrderAsSent(orderId: string, shipDate: string): Promis
   const rows = res.data.values ?? []
   if (rows.length < 2) return 0
 
-  // collect updates: rows where order_id matches and status is pending
   const updates: { row: number; values: string[] }[] = []
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i]
     if (r[0] === orderId && (r[5] === 'pending' || !r[5])) {
       const updated = [...r]
-      updated[5] = 'sent'
+      updated[5] = status
       updated[6] = shipDate
-      // pad to 7 columns in case row is short
       while (updated.length < 7) updated.push('')
       updates.push({ row: i + 1, values: updated.slice(0, 7) })
     }
@@ -140,7 +142,6 @@ export async function markOrderAsSent(orderId: string, shipDate: string): Promis
 
   if (updates.length === 0) return 0
 
-  // batch update all matching rows
   await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId,
     requestBody: {
