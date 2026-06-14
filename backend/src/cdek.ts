@@ -1,14 +1,11 @@
 import type { Order } from './orders.js'
 import { sendAlert } from './alerts.js'
+import { PKG_WEIGHT_G, PKG_LENGTH_CM, PKG_WIDTH_CM, PKG_HEIGHT_CM } from './shipping-constants.js'
 
 const CDEK_BASE = (process.env.CDEK_BASE_URL ?? 'https://api.cdek.ru/v2').replace(/\/$/, '')
 // CDEK city code for Moscow (official CDEK reference)
 const FROM_CITY_CODE = Number(process.env.CDEK_FROM_CITY_CODE ?? 44)
 const TARIFF_CODE = 136
-const PKG_WEIGHT_G = 200
-const PKG_LENGTH_CM = 15
-const PKG_WIDTH_CM = 15
-const PKG_HEIGHT_CM = 5
 
 // ── Token cache ───────────────────────────────────────────────────────────────
 

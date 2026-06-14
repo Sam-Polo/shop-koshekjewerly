@@ -613,6 +613,26 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
 .cdek-pvz-item__address { font-size: 13px; color: #555; margin-top: 2px; }
 .cdek-pvz-item__hours { font-size: 12px; color: #888; margin-top: 2px; }
 
+/* экран выбора региона/способа доставки */
+.modal-content--region { max-width: 460px; padding: 28px 24px 24px; }
+.delivery-region__title { font-size: 20px; font-weight: 600; color: #222; margin: 4px 0 20px; text-align: center; }
+.delivery-region__options { display: flex; flex-direction: column; gap: 12px; margin-bottom: 18px; }
+.delivery-region__option {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  width: 100%; padding: 16px 18px; text-align: left; cursor: pointer;
+  background: #fff; border: 1.5px solid #e7d8ec; border-radius: 14px; transition: all .15s;
+}
+.delivery-region__option:hover { border-color: #d480e0; background: #fdf6ff; transform: translateY(-1px); }
+.delivery-region__option-icon { font-size: 26px; line-height: 1; margin-bottom: 6px; }
+.delivery-region__option-label { font-size: 16px; font-weight: 600; color: #222; }
+.delivery-region__option-desc { font-size: 13px; color: #888; }
+
+/* блок самовывоза в форме оформления */
+.checkout-form__pickup-info { background: #fdf6ff; border: 1px solid #e7d8ec; border-radius: 12px; padding: 14px 16px; margin-bottom: 4px; }
+.checkout-form__pickup-title { font-size: 15px; font-weight: 600; color: #222; }
+.checkout-form__pickup-address { font-size: 15px; color: #444; margin-top: 4px; }
+.checkout-form__pickup-note { font-size: 13px; color: #888; margin-top: 6px; }
+
 /* приоритетный заказ: тогл (матча выкл / розовый вкл) */
 .checkout-form__priority-wrap {
   position: relative;

@@ -8,10 +8,11 @@ import path from 'node:path';
 import rateLimit from 'express-rate-limit';
 import { fetchProductsFromSheet } from './sheets.js';
 import { listProducts, upsertProducts, decreaseProductStock } from './store.js';
-import { createOrder, getOrder, updateOrderStatus, listOrders, restoreOrder, type Order, type Platform } from './orders.js';
-import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId, listPendingOrdersFromSheet, updateCdekInfoInSheet } from './orders-sheet.js'
+import { createOrder, getOrder, updateOrderStatus, listOrders, restoreOrder, type Order, type Platform, type DeliveryMethod } from './orders.js';
+import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId, listPendingOrdersFromSheet, updateCdekInfoInSheet, updatePochtaInfoInSheet } from './orders-sheet.js'
 import { sendAlert } from './alerts.js';
 import { searchCities, getPickupPoints, calculateDelivery, triggerCdekOrderAsync, getCdekUuidByTrack, downloadCdekBarcode } from './cdek.js';
+import { calculateTariff as calculatePochtaTariff, triggerPochtaOrderAsync, downloadF7p } from './pochta.js';
 import { triggerAmoCrmAsync, updateAmoCrmLeadTrack, updateAmoCrmLeadBarcode, createAmoCrmLead, syncCdekToLead } from './amocrm.js';
 import { buildPaymentForm, buildReceipt, verifyResultSignature, queryOrderState } from './robokassa.js';
 import { fetchPromocodesFromSheet, loadPromocodes, findPromocode, validatePromocode, listPromocodes } from './promocodes.js';
@@ -594,6 +595,14 @@ async function sendOrderNotifications(order: any) {
       ? `\nПриоритетный заказ (+${notifPriorityFeePct}%): ${order.orderData.priorityFee} ₽`
       : ''
 
+  // блок доставки зависит от способа: самовывоз / СДЭК ПВЗ / EMS Почта России
+  const dm = order.orderData.deliveryMethod
+  const deliveryLabel = dm === 'pickup' ? '📦 Самовывоз' : dm === 'ems' ? '✈️ EMS Почта России' : '📍 Пункт СДЭК'
+  const customerDeliveryBlock = `${deliveryLabel}:\n${escapeHtml(order.orderData.address)}`
+  const managerDeliveryBlock = dm === 'pickup'
+    ? `${deliveryLabel}:\n${escapeHtml(order.orderData.address)}`
+    : `${deliveryLabel}:\n${escapeHtml(order.orderData.country)}, ${escapeHtml(order.orderData.city)}\n${escapeHtml(order.orderData.address)}`
+
   const customerMessage = `
 🎉 <b>Ваш заказ оформлен!</b>
 
@@ -605,8 +614,7 @@ ${itemsTextForCustomer}
 Доставка: ${order.orderData.deliveryCost} ₽${priorityCustomerLine}
 Итого: ${order.orderData.total} ₽
 
-📍 Пункт СДЭК:
-${escapeHtml(order.orderData.address)}
+${customerDeliveryBlock}
 
 ${assemblyMessage}
 
@@ -634,9 +642,7 @@ ${order.platform === 'max'
   : `TG: ${order.orderData.username ? escapeHtml(order.orderData.username) : 'не указан'}`
 }
 
-📍 Пункт СДЭК:
-${escapeHtml(order.orderData.country)}, ${escapeHtml(order.orderData.city)}
-${escapeHtml(order.orderData.address)}
+${managerDeliveryBlock}
 
 Товары:
 ${itemsTextForManager}
@@ -712,6 +718,9 @@ ${order.orderData.comments ? `Комментарии: ${escapeHtml(order.orderDa
 
   return { customer: customerDelivery, manager: managerDelivery }
 }
+
+// адрес самовывоза (фиксированный)
+const PICKUP_ADDRESS = 'г. Москва, ул. Горбунова, 2'
 
 // оформление заказа (создаем заказ и возвращаем URL для оплаты)
 app.post('/api/orders', orderLimiter, async (req, res) => {
@@ -872,10 +881,16 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
       return sum + (item.price * item.quantity)
     }, 0)
     
-    // валидация стоимости доставки
-    const deliveryCost = typeof orderData.deliveryCost === 'number' && orderData.deliveryCost >= 0 
-      ? orderData.deliveryCost 
-      : 0
+    // способ доставки (главный дискриминатор маршрутизации отправления)
+    const deliveryMethod: DeliveryMethod =
+      orderData.deliveryMethod === 'pickup' || orderData.deliveryMethod === 'ems'
+        ? orderData.deliveryMethod
+        : 'cdek'
+
+    // валидация стоимости доставки; самовывоз — всегда бесплатно
+    const deliveryCost = deliveryMethod === 'pickup'
+      ? 0
+      : (typeof orderData.deliveryCost === 'number' && orderData.deliveryCost >= 0 ? orderData.deliveryCost : 0)
     
     // проверка и применение промокода (если передан)
     let promocodeDiscount = 0
@@ -936,21 +951,44 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
     // определяем платформу заказа (telegram по умолчанию для обратной совместимости)
     const orderPlatform: Platform = orderData.platform === 'max' ? 'max' : 'telegram'
 
+    // адрес/город/страна для отображения в CRM/уведомлениях — зависят от способа доставки
+    let displayCountry = orderData.country || ''
+    let displayCity = orderData.city || ''
+    let displayAddress = orderData.address || ''
+    if (deliveryMethod === 'pickup') {
+      displayCountry = 'Россия'
+      displayCity = 'Москва'
+      displayAddress = PICKUP_ADDRESS
+    } else if (deliveryMethod === 'ems') {
+      displayCountry = orderData.recipientCountry || displayCountry
+      displayCity = orderData.recipientCity || displayCity
+      displayAddress = [orderData.recipientIndex, orderData.recipientRegion, orderData.recipientCity, orderData.recipientStreet]
+        .filter(Boolean).join(', ')
+    }
+    const recipientCountryCode = Number(orderData.recipientCountryCode) || undefined
+
     // создаем заказ со статусом pending (используем пересчитанные данные)
     const order = createOrder(orderId, {
       items: validatedItems, // используем валидированные товары с актуальными ценами
       fullName: orderData.fullName || '',
       phone: normalizePhone(orderData.phone || ''),
       username: orderData.username,
-      country: orderData.country || '',
-      city: orderData.city || '',
-      address: orderData.address || '',
+      country: displayCountry,
+      city: displayCity,
+      address: displayAddress,
       deliveryRegion: orderData.deliveryRegion || '',
+      deliveryMethod,
       deliveryCost: deliveryCost,
       total: total, // пересчитанная сумма на бэкенде (промокод + приоритет)
       comments: orderData.comments,
       pvzCode: typeof orderData.pvzCode === 'string' ? orderData.pvzCode : undefined,
       cdekCityCode: typeof orderData.cdekCityCode === 'number' ? orderData.cdekCityCode : undefined,
+      recipientCountry: deliveryMethod === 'ems' ? (orderData.recipientCountry || undefined) : undefined,
+      recipientCountryCode: deliveryMethod === 'ems' ? recipientCountryCode : undefined,
+      recipientRegion: deliveryMethod === 'ems' ? (orderData.recipientRegion || undefined) : undefined,
+      recipientCity: deliveryMethod === 'ems' ? (orderData.recipientCity || undefined) : undefined,
+      recipientStreet: deliveryMethod === 'ems' ? (orderData.recipientStreet || undefined) : undefined,
+      recipientIndex: deliveryMethod === 'ems' ? (orderData.recipientIndex || undefined) : undefined,
       priorityOrder: priorityOrder && priorityFee > 0,
       priorityFee: priorityFee > 0 ? priorityFee : undefined,
       promocode: promocodeInfo
@@ -1096,65 +1134,129 @@ export async function processPaidOrder(
   // lead ID нужен в CDEK-callback ниже для обновления трека.
   const amoCrmLeadId = await triggerAmoCrmAsync(order)
 
-  // fire-and-forget: создаём отправление в СДЭК и отправляем трек покупателю
-  triggerCdekOrderAsync(order, async (uuid, cdekNumber) => {
-    updateCdekInfoInSheet(orderId, uuid, cdekNumber).catch(() => {})
+  // создание отправления зависит от способа доставки
+  if (order.orderData.deliveryMethod === 'pickup') {
+    // самовывоз — отправление/трек не создаём; лид и запись в Sheets уже готовы
+    logger.info({ orderId }, 'самовывоз: отправление не создаётся')
+  } else if (order.orderData.deliveryMethod === 'ems') {
+    // fire-and-forget: создаём международное EMS-отправление и отправляем трек покупателю
+    triggerPochtaOrderAsync(order, async (shpi, batchName) => {
+      updatePochtaInfoInSheet(orderId, shpi).catch(() => {})
+      const trackingUrl = `https://www.pochta.ru/tracking#${shpi}`
 
-    if (amoCrmLeadId) {
-      updateAmoCrmLeadTrack(amoCrmLeadId, cdekNumber).catch((e: any) => {
-        sendAlert(
-          `amoCRM: не удалось обновить трек ${cdekNumber} в лиде ${amoCrmLeadId} (заказ ${orderId}): ${e?.message}`,
-          { tag: 'amocrm', level: 'low', code: 'AMOCRM_TRACK_UPDATE_FAILED' }
-        ).catch(() => {})
-      })
-      updateAmoCrmLeadBarcode(amoCrmLeadId, uuid, downloadCdekBarcode).catch((e: any) => {
-        sendAlert(
-          `amoCRM: не удалось прикрепить штрихкод к лиду ${amoCrmLeadId} (заказ ${orderId}): ${e?.message}`,
-          { tag: 'amocrm', level: 'low', code: 'AMOCRM_BARCODE_FAILED' }
-        ).catch(() => {})
-      })
-    }
-    const trackingUrl = `https://www.cdek.ru/track?order_id=${cdekNumber}`
-    const trackMsg = [
-      '🩷 Ваша посылочка скоро уедет к вам.',
-      'Отследить можно по ссылке:',
-      '',
-      trackingUrl,
-      '',
-      'Спасибо за заказ, всегда будем счастливы видеть ваши отзывы 🥰',
-    ].join('\n')
-    if (order.customerChatId) {
-      const result = order.platform === 'max'
-        ? await sendMaxMessage(order.customerChatId, trackMsg)
-        : await sendTelegramMessage(order.customerChatId, trackMsg)
-      if (result.ok) {
-        const notePrefix = `track: ${trackingUrl}`
-        updateOrderAdminNoteInSheet(orderId, notePrefix).catch(() => {})
-        logger.info({ orderId, cdekNumber }, 'CDEK трек отправлен покупателю')
-      } else {
-        sendAlert(
-          `CDEK трек для ${orderId} получен (${cdekNumber}), но не доставлен покупателю: ${result.errorDescription ?? 'неизвестно'}`,
-          { tag: 'cdek', level: 'moderate', code: 'CDEK_TRACK_SEND_FAILED' }
+      if (amoCrmLeadId) {
+        updateAmoCrmLeadTrack(amoCrmLeadId, shpi, trackingUrl).catch((e: any) => {
+          sendAlert(
+            `amoCRM: не удалось обновить ШПИ ${shpi} в лиде ${amoCrmLeadId} (заказ ${orderId}): ${e?.message}`,
+            { tag: 'amocrm', level: 'low', code: 'AMOCRM_TRACK_UPDATE_FAILED' }
+          ).catch(() => {})
+        })
+        updateAmoCrmLeadBarcode(amoCrmLeadId, shpi, downloadF7p, 'pochta-labels').catch((e: any) => {
+          sendAlert(
+            `amoCRM: не удалось прикрепить ярлык Ф7п к лиду ${amoCrmLeadId} (заказ ${orderId}): ${e?.message}`,
+            { tag: 'amocrm', level: 'low', code: 'AMOCRM_BARCODE_FAILED' }
+          ).catch(() => {})
+        })
+      }
+      const trackMsg = [
+        '🩷 Ваша посылочка скоро уедет к вам.',
+        'Отследить можно по ссылке:',
+        '',
+        trackingUrl,
+        '',
+        'Спасибо за заказ, всегда будем счастливы видеть ваши отзывы 🥰',
+      ].join('\n')
+      if (order.customerChatId) {
+        const result = order.platform === 'max'
+          ? await sendMaxMessage(order.customerChatId, trackMsg)
+          : await sendTelegramMessage(order.customerChatId, trackMsg)
+        if (result.ok) {
+          updateOrderAdminNoteInSheet(orderId, `track: ${trackingUrl}`).catch(() => {})
+          logger.info({ orderId, shpi }, 'EMS трек отправлен покупателю')
+        } else {
+          sendAlert(
+            `EMS трек для ${orderId} получен (${shpi}), но не доставлен покупателю: ${result.errorDescription ?? 'неизвестно'}`,
+            { tag: 'pochta', level: 'moderate', code: 'POCHTA_TRACK_SEND_FAILED' }
+          ).catch(() => {})
+        }
+      }
+
+      const mgrChatId = order.platform === 'max'
+        ? process.env.MAX_MANAGER_CHAT_ID
+        : (process.env.TG_ORDERS_CHANNEL_ID || process.env.TG_MANAGER_CHAT_ID)
+      if (mgrChatId) {
+        const sendMgr = order.platform === 'max' ? sendMaxMessage : sendTelegramMessage
+        sendMgr(mgrChatId,
+          `📦 EMS Почта России, ШПИ по заказу <code>${escapeHtml(orderId)}</code>:\n<code>${shpi}</code>\n${trackingUrl}`
         ).catch(() => {})
       }
-    }
-
-    // отправляем трек менеджеру в канал
-    const mgrChatId = order.platform === 'max'
-      ? process.env.MAX_MANAGER_CHAT_ID
-      : (process.env.TG_ORDERS_CHANNEL_ID || process.env.TG_MANAGER_CHAT_ID)
-    if (mgrChatId) {
-      const sendMgr = order.platform === 'max' ? sendMaxMessage : sendTelegramMessage
-      sendMgr(mgrChatId,
-        `📦 СДЭК трек по заказу <code>${escapeHtml(orderId)}</code>:\n<code>${cdekNumber}</code>\n${trackingUrl}`
+    }).catch((e: any) => {
+      sendAlert(
+        `Pochta: необработанная ошибка при запуске triggerPochtaOrderAsync для ${orderId}: ${e?.message}`,
+        { tag: 'pochta', level: 'high', code: 'POCHTA_TRIGGER_UNHANDLED' }
       ).catch(() => {})
-    }
-  }).catch((e: any) => {
-    sendAlert(
-      `CDEK: необработанная ошибка при запуске triggerCdekOrderAsync для ${orderId}: ${e?.message}`,
-      { tag: 'cdek', level: 'high', code: 'CDEK_TRIGGER_UNHANDLED' }
-    ).catch(() => {})
-  })
+    })
+  } else {
+    // СДЭК (по умолчанию) — fire-and-forget: создаём отправление и отправляем трек покупателю
+    triggerCdekOrderAsync(order, async (uuid, cdekNumber) => {
+      updateCdekInfoInSheet(orderId, uuid, cdekNumber).catch(() => {})
+
+      if (amoCrmLeadId) {
+        updateAmoCrmLeadTrack(amoCrmLeadId, cdekNumber, `https://lk.cdek.ru/order-history/${cdekNumber}/view`).catch((e: any) => {
+          sendAlert(
+            `amoCRM: не удалось обновить трек ${cdekNumber} в лиде ${amoCrmLeadId} (заказ ${orderId}): ${e?.message}`,
+            { tag: 'amocrm', level: 'low', code: 'AMOCRM_TRACK_UPDATE_FAILED' }
+          ).catch(() => {})
+        })
+        updateAmoCrmLeadBarcode(amoCrmLeadId, uuid, downloadCdekBarcode).catch((e: any) => {
+          sendAlert(
+            `amoCRM: не удалось прикрепить штрихкод к лиду ${amoCrmLeadId} (заказ ${orderId}): ${e?.message}`,
+            { tag: 'amocrm', level: 'low', code: 'AMOCRM_BARCODE_FAILED' }
+          ).catch(() => {})
+        })
+      }
+      const trackingUrl = `https://www.cdek.ru/track?order_id=${cdekNumber}`
+      const trackMsg = [
+        '🩷 Ваша посылочка скоро уедет к вам.',
+        'Отследить можно по ссылке:',
+        '',
+        trackingUrl,
+        '',
+        'Спасибо за заказ, всегда будем счастливы видеть ваши отзывы 🥰',
+      ].join('\n')
+      if (order.customerChatId) {
+        const result = order.platform === 'max'
+          ? await sendMaxMessage(order.customerChatId, trackMsg)
+          : await sendTelegramMessage(order.customerChatId, trackMsg)
+        if (result.ok) {
+          const notePrefix = `track: ${trackingUrl}`
+          updateOrderAdminNoteInSheet(orderId, notePrefix).catch(() => {})
+          logger.info({ orderId, cdekNumber }, 'CDEK трек отправлен покупателю')
+        } else {
+          sendAlert(
+            `CDEK трек для ${orderId} получен (${cdekNumber}), но не доставлен покупателю: ${result.errorDescription ?? 'неизвестно'}`,
+            { tag: 'cdek', level: 'moderate', code: 'CDEK_TRACK_SEND_FAILED' }
+          ).catch(() => {})
+        }
+      }
+
+      // отправляем трек менеджеру в канал
+      const mgrChatId = order.platform === 'max'
+        ? process.env.MAX_MANAGER_CHAT_ID
+        : (process.env.TG_ORDERS_CHANNEL_ID || process.env.TG_MANAGER_CHAT_ID)
+      if (mgrChatId) {
+        const sendMgr = order.platform === 'max' ? sendMaxMessage : sendTelegramMessage
+        sendMgr(mgrChatId,
+          `📦 СДЭК трек по заказу <code>${escapeHtml(orderId)}</code>:\n<code>${cdekNumber}</code>\n${trackingUrl}`
+        ).catch(() => {})
+      }
+    }).catch((e: any) => {
+      sendAlert(
+        `CDEK: необработанная ошибка при запуске triggerCdekOrderAsync для ${orderId}: ${e?.message}`,
+        { tag: 'cdek', level: 'high', code: 'CDEK_TRIGGER_UNHANDLED' }
+      ).catch(() => {})
+    })
+  }
 
   return 'ok'
 }
@@ -1469,6 +1571,9 @@ app.post('/api/orders/:orderId/resend-notification', express.json(), async (req,
     const priorityLine = order.orderData.priorityOrder && order.orderData.priorityFee
       ? `\nПриоритетный заказ (+${resendPriorityFeePct}%): ${order.orderData.priorityFee} ₽` : ''
 
+    const resendDm = order.orderData.deliveryMethod
+    const resendDeliveryLabel = resendDm === 'pickup' ? '📦 Самовывоз' : resendDm === 'ems' ? '✈️ EMS Почта России' : '📍 Пункт СДЭК'
+
     const customerMessage = `
 🎉 <b>Ваш заказ оформлен!</b>
 
@@ -1480,7 +1585,7 @@ ${itemsText}
 Доставка: ${order.orderData.deliveryCost} ₽${priorityLine}
 Итого: ${order.orderData.total} ₽
 
-📍 Пункт СДЭК:
+${resendDeliveryLabel}:
 ${escapeHtml(order.orderData.address)}
 
 ${assemblyMessage}
@@ -1552,6 +1657,21 @@ app.get('/api/cdek/calculate', generalLimiter, async (req, res) => {
   } catch (e: any) {
     logger.warn({ error: e?.message, cityCode }, 'CDEK calculate error')
     return res.status(502).json({ error: 'cdek_unavailable', detail: e?.message?.slice(0, 300) })
+  }
+})
+
+// ── Pochta (EMS) endpoints ────────────────────────────────────────────────────
+
+// расчёт стоимости международной EMS-доставки по коду страны (ОКСМ)
+app.get('/api/pochta/calculate', generalLimiter, async (req, res) => {
+  const countryCode = parseInt(String(req.query.country ?? ''), 10)
+  if (!countryCode) return res.status(400).json({ error: 'country required' })
+  try {
+    const cost = await calculatePochtaTariff(countryCode)
+    return res.json({ delivery_sum: cost })
+  } catch (e: any) {
+    logger.warn({ error: e?.message, countryCode }, 'Pochta calculate error')
+    return res.status(502).json({ error: 'pochta_unavailable', detail: e?.message?.slice(0, 300) })
   }
 })
 
@@ -1900,7 +2020,7 @@ app.post('/api/amocrm/test', express.json(), async (req, res) => {
     steps.lead = { ok: true, leadId }
 
     if (cdekTrack) {
-      await updateAmoCrmLeadTrack(leadId, cdekTrack)
+      await updateAmoCrmLeadTrack(leadId, cdekTrack, `https://lk.cdek.ru/order-history/${cdekTrack}/view`)
       steps.track = { ok: true }
 
       if (cdekUuid) {

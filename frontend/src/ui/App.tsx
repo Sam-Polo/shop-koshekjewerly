@@ -5,6 +5,7 @@ import { Swiper, SwiperSlide, type SwiperClass } from 'swiper/react'
 import { Pagination, Zoom, Navigation } from 'swiper/modules'
 import { motion, AnimatePresence } from 'framer-motion'
 import Constructor, { ConstructorDetailModal, type ConstructorComposite, type ConstructorDetailView, type JewelryType } from './Constructor'
+import { COUNTRIES, type Country } from './countries'
 
 const CONSTRUCTOR_CATEGORY_KEY = 'constructor'
 
@@ -689,6 +690,11 @@ const OrderSuccessModal = ({
 type CdekCity = { code: number; city: string; region?: string; country_code?: string }
 type CdekPvz = { code: string; name: string; address: string; work_time?: string }
 
+// способ доставки: самовывоз / СДЭК ПВЗ / EMS Почта России (международная)
+type DeliveryMethod = 'pickup' | 'cdek' | 'ems'
+
+const PICKUP_ADDRESS = 'г. Москва, ул. Горбунова, 2'
+
 // получаем slug тестового товара из переменных окружения
 const getTestProductSlug = () => {
   const slug = import.meta.env.VITE_TEST_PRODUCT_SLUG || ''
@@ -756,10 +762,67 @@ const isCartOnlyTestProducts = (cart: CartItem[], products: Product[]): boolean 
 }
 
 // компонент формы оформления заказа (СДЭК интеграция)
+// Промежуточный экран: выбор региона → (для РФ/СНГ) способа доставки
+const DeliveryRegionModal = ({
+  onSelect,
+  onBack,
+  onClose,
+}: {
+  onSelect: (method: DeliveryMethod) => void
+  onBack: () => void
+  onClose: () => void
+}) => {
+  const [step, setStep] = useState<'region' | 'ru-method'>('region')
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content modal-content--region" onClick={e => e.stopPropagation()}>
+        <button className="modal-close" onClick={onClose}>&times;</button>
+        {step === 'region' ? (
+          <>
+            <h3 className="delivery-region__title">Куда доставить заказ?</h3>
+            <div className="delivery-region__options">
+              <button type="button" className="delivery-region__option" onClick={() => setStep('ru-method')}>
+                <span className="delivery-region__option-icon">🇷🇺</span>
+                <span className="delivery-region__option-label">Россия и СНГ</span>
+                <span className="delivery-region__option-desc">Самовывоз или доставка СДЭК</span>
+              </button>
+              <button type="button" className="delivery-region__option" onClick={() => onSelect('ems')}>
+                <span className="delivery-region__option-icon">✈️</span>
+                <span className="delivery-region__option-label">Международные перевозки</span>
+                <span className="delivery-region__option-desc">EMS Почта России</span>
+              </button>
+            </div>
+            <button type="button" className="checkout-form__back" onClick={onBack}>← В корзину</button>
+          </>
+        ) : (
+          <>
+            <h3 className="delivery-region__title">Способ получения</h3>
+            <div className="delivery-region__options">
+              <button type="button" className="delivery-region__option" onClick={() => onSelect('pickup')}>
+                <span className="delivery-region__option-icon">📦</span>
+                <span className="delivery-region__option-label">Самовывоз</span>
+                <span className="delivery-region__option-desc">{PICKUP_ADDRESS} · бесплатно</span>
+              </button>
+              <button type="button" className="delivery-region__option" onClick={() => onSelect('cdek')}>
+                <span className="delivery-region__option-icon">🚚</span>
+                <span className="delivery-region__option-label">СДЭК</span>
+                <span className="delivery-region__option-desc">Доставка в пункт выдачи</span>
+              </button>
+            </div>
+            <button type="button" className="checkout-form__back" onClick={() => setStep('region')}>← Назад</button>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 const CheckoutForm = ({
   cartTotal,
   cart,
   products,
+  deliveryMethod,
   priorityOrderEnabled = true,
   priorityOrderFee = 30,
   onBack,
@@ -768,17 +831,29 @@ const CheckoutForm = ({
   cartTotal: number
   cart: CartItem[]
   products: Product[]
+  deliveryMethod: DeliveryMethod
   priorityOrderEnabled?: boolean
   priorityOrderFee?: number
   onBack: () => void
   onSubmit: (data: any) => void
 }) => {
+  const isPickup = deliveryMethod === 'pickup'
+  const isEms = deliveryMethod === 'ems'
+  const isCdek = deliveryMethod === 'cdek'
+
   const [formData, setFormData] = useState({
     fullName: '',
     phone: '',
     username: '',
     comments: ''
   })
+
+  // EMS Почта России — международный адрес получателя
+  const [emsCountry, setEmsCountry] = useState<Country | null>(null)
+  const [emsRegion, setEmsRegion] = useState('')
+  const [emsCity, setEmsCity] = useState('')
+  const [emsStreet, setEmsStreet] = useState('')
+  const [emsIndex, setEmsIndex] = useState('')
 
   // CDEK
   const [cityQuery, setCityQuery] = useState('')
@@ -923,9 +998,34 @@ const CheckoutForm = ({
     }
   }
 
+  // EMS Почта России — расчёт стоимости по стране получателя
+  const calcEmsCost = async (country: Country) => {
+    if (isOnlyTestProducts) return
+    setCostLoading(true); setCostError(null); setDeliveryCost(null)
+    const apiUrl = import.meta.env.VITE_API_URL || ''
+    try {
+      const resp = await fetch(`${apiUrl}/api/pochta/calculate?country=${country.code}`)
+      if (!resp.ok) throw new Error('pochta_unavailable')
+      const data = await resp.json()
+      setDeliveryCost(data.delivery_sum)
+    } catch {
+      setDeliveryCost(null)
+      setCostError('Не удалось рассчитать стоимость. Выберите другую страну или попробуйте позже.')
+    } finally {
+      setCostLoading(false)
+    }
+  }
+
+  const handleCountrySelect = (code: number) => {
+    const c = COUNTRIES.find(x => x.code === code) ?? null
+    setEmsCountry(c)
+    if (errors.country) setErrors(prev => ({ ...prev, country: '' }))
+    if (c) calcEmsCost(c)
+  }
+
   // если в корзине только тестовые товары - доставка бесплатная
   const isOnlyTestProducts = isCartOnlyTestProducts(cart, products)
-  const effectiveDeliveryCost = isOnlyTestProducts ? 0 : (deliveryCost ?? 0)
+  const effectiveDeliveryCost = (isOnlyTestProducts || isPickup) ? 0 : (deliveryCost ?? 0)
   const subtotal = cartTotal + effectiveDeliveryCost
   const subtotalAfterDiscount = Math.max(0, subtotal - promocodeDiscount)
   const priorityFee =
@@ -953,10 +1053,20 @@ const CheckoutForm = ({
       if (digits.length < 10 || digits.length > 12) newErrors.phone = 'Номер должен содержать 10–12 цифр'
     }
 
-    if (!selectedCity) newErrors.city = 'Выберите город из списка'
-    if (!selectedPvz) newErrors.pvz = 'Выберите пункт выдачи СДЭК'
-    if (!isOnlyTestProducts && deliveryCost === null && !costError) newErrors.delivery = 'Стоимость доставки не рассчитана'
-    if (!isOnlyTestProducts && costError) newErrors.delivery = costError
+    if (isCdek) {
+      if (!selectedCity) newErrors.city = 'Выберите город из списка'
+      if (!selectedPvz) newErrors.pvz = 'Выберите пункт выдачи СДЭК'
+    } else if (isEms) {
+      if (!emsCountry) newErrors.country = 'Выберите страну'
+      if (!emsIndex.trim()) newErrors.emsIndex = 'Обязательное поле'
+      if (!emsCity.trim()) newErrors.emsCity = 'Обязательное поле'
+      if (!emsStreet.trim()) newErrors.emsStreet = 'Обязательное поле'
+    }
+    // для СДЭК и EMS стоимость доставки должна быть рассчитана
+    if (!isPickup) {
+      if (!isOnlyTestProducts && deliveryCost === null && !costError) newErrors.delivery = 'Стоимость доставки не рассчитана'
+      if (!isOnlyTestProducts && costError) newErrors.delivery = costError
+    }
 
     if (formData.comments && formData.comments.length > 500) newErrors.comments = 'Максимум 500 символов'
 
@@ -966,22 +1076,41 @@ const CheckoutForm = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (validate()) {
+    if (!validate()) return
+
+    let extra: Record<string, any> = {}
+    if (isCdek) {
       const country = selectedCity?.country_code === 'RU' ? 'Россия' : (selectedCity?.country_code ?? '')
-      onSubmit({
-        ...formData,
+      extra = {
         city: selectedCity?.city ?? '',
         country,
         address: selectedPvz?.address ?? '',
         pvzCode: selectedPvz?.code ?? '',
         cdekCityCode: selectedCity?.code,
-        deliveryRegion: '',
-        deliveryCost: effectiveDeliveryCost,
-        total,
-        priorityOrder,
-        promocode: promocodeStatus === 'valid' ? promocode.trim().toUpperCase() : undefined
-      })
+      }
+    } else if (isEms) {
+      extra = {
+        recipientCountry: emsCountry?.name ?? '',
+        recipientCountryCode: emsCountry?.code,
+        recipientRegion: emsRegion.trim(),
+        recipientCity: emsCity.trim(),
+        recipientStreet: emsStreet.trim(),
+        recipientIndex: emsIndex.trim(),
+      }
+    } else if (isPickup) {
+      extra = { city: 'Москва', country: 'Россия', address: PICKUP_ADDRESS }
     }
+
+    onSubmit({
+      ...formData,
+      deliveryMethod,
+      ...extra,
+      deliveryRegion: '',
+      deliveryCost: effectiveDeliveryCost,
+      total,
+      priorityOrder,
+      promocode: promocodeStatus === 'valid' ? promocode.trim().toUpperCase() : undefined
+    })
   }
 
   const handleChange = (field: string, value: string) => {
@@ -1083,6 +1212,7 @@ const CheckoutForm = ({
         </label>
         )}
 
+        {isCdek && (<>
         <div className="checkout-form__label" style={{ position: 'relative' }}>
           Город <span className="checkout-form__required">*</span>
           <input
@@ -1158,6 +1288,81 @@ const CheckoutForm = ({
             {errors.pvz && <span className="checkout-form__error">{errors.pvz}</span>}
           </div>
         )}
+        </>)}
+
+        {isPickup && (
+          <div className="checkout-form__pickup-info">
+            <div className="checkout-form__pickup-title">📦 Самовывоз</div>
+            <div className="checkout-form__pickup-address">{PICKUP_ADDRESS}</div>
+            <div className="checkout-form__pickup-note">Заберите заказ по адресу. Доставка — бесплатно.</div>
+          </div>
+        )}
+
+        {isEms && (<>
+          <label className="checkout-form__label">
+            Страна <span className="checkout-form__required">*</span>
+            <select
+              className={`checkout-form__input ${errors.country ? 'error' : ''}`}
+              value={emsCountry?.code ?? ''}
+              onChange={e => handleCountrySelect(Number(e.target.value))}
+            >
+              <option value="" disabled>Выберите страну</option>
+              {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
+            </select>
+            {errors.country && <span className="checkout-form__error">{errors.country}</span>}
+          </label>
+
+          <label className="checkout-form__label">
+            Почтовый индекс <span className="checkout-form__required">*</span>
+            <input
+              type="text"
+              className={`checkout-form__input ${errors.emsIndex ? 'error' : ''}`}
+              value={emsIndex}
+              onChange={e => { setEmsIndex(e.target.value); if (errors.emsIndex) setErrors(prev => ({ ...prev, emsIndex: '' })) }}
+              placeholder="Напр. 10115"
+              maxLength={20}
+            />
+            {errors.emsIndex && <span className="checkout-form__error">{errors.emsIndex}</span>}
+          </label>
+
+          <label className="checkout-form__label">
+            Регион / штат
+            <input
+              type="text"
+              className="checkout-form__input"
+              value={emsRegion}
+              onChange={e => setEmsRegion(e.target.value)}
+              placeholder="Необязательно"
+              maxLength={100}
+            />
+          </label>
+
+          <label className="checkout-form__label">
+            Город <span className="checkout-form__required">*</span>
+            <input
+              type="text"
+              className={`checkout-form__input ${errors.emsCity ? 'error' : ''}`}
+              value={emsCity}
+              onChange={e => { setEmsCity(e.target.value); if (errors.emsCity) setErrors(prev => ({ ...prev, emsCity: '' })) }}
+              placeholder="Город"
+              maxLength={100}
+            />
+            {errors.emsCity && <span className="checkout-form__error">{errors.emsCity}</span>}
+          </label>
+
+          <label className="checkout-form__label">
+            Улица, дом, квартира <span className="checkout-form__required">*</span>
+            <input
+              type="text"
+              className={`checkout-form__input ${errors.emsStreet ? 'error' : ''}`}
+              value={emsStreet}
+              onChange={e => { setEmsStreet(e.target.value); if (errors.emsStreet) setErrors(prev => ({ ...prev, emsStreet: '' })) }}
+              placeholder="Улица, дом, квартира"
+              maxLength={200}
+            />
+            {errors.emsStreet && <span className="checkout-form__error">{errors.emsStreet}</span>}
+          </label>
+        </>)}
 
         <label className="checkout-form__label">
           Промокод
@@ -1277,9 +1482,9 @@ const CheckoutForm = ({
           <span>{cartTotal} ₽</span>
         </div>
         <div className="checkout-form__summary-row">
-          <span>Доставка СДЭК:</span>
+          <span>{isPickup ? 'Самовывоз:' : isEms ? 'Доставка EMS:' : 'Доставка СДЭК:'}</span>
           <span>
-            {isOnlyTestProducts ? 'Бесплатно' : costLoading ? '...' : costError ? <span style={{ color: '#d32f2f', fontSize: 13 }}>Ошибка расчёта</span> : deliveryCost !== null ? `${deliveryCost} ₽` : '—'}
+            {(isOnlyTestProducts || isPickup) ? 'Бесплатно' : costLoading ? '...' : costError ? <span style={{ color: '#d32f2f', fontSize: 13 }}>Ошибка расчёта</span> : deliveryCost !== null ? `${deliveryCost} ₽` : '—'}
           </span>
         </div>
         {errors.delivery && (
@@ -1666,6 +1871,8 @@ const ThumbnailButton = ({
 export default function App() {
   const [aboutModalOpen, setAboutModalOpen] = useState(false)
   const [cartOpen, setCartOpen] = useState(false)
+  const [deliveryRegionOpen, setDeliveryRegionOpen] = useState(false)
+  const [deliveryMethod, setDeliveryMethod] = useState<DeliveryMethod | null>(null)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
@@ -1928,6 +2135,9 @@ export default function App() {
         handlePaymentCancel()
       } else if (checkoutOpen) {
         setCheckoutOpen(false)
+        setDeliveryRegionOpen(true)
+      } else if (deliveryRegionOpen) {
+        setDeliveryRegionOpen(false)
         setCartOpen(true)
       } else if (selectedProduct) {
         setSelectedProduct(null)
@@ -1941,14 +2151,14 @@ export default function App() {
       }
     }
 
-    if (selectedProduct || cartOpen || aboutModalOpen || selectedCategory || checkoutOpen || paymentRedirectOpen || telegramRequiredOpen) {
+    if (selectedProduct || cartOpen || aboutModalOpen || selectedCategory || checkoutOpen || deliveryRegionOpen || paymentRedirectOpen || telegramRequiredOpen) {
       WebApp.BackButton.show()
       WebApp.BackButton.onClick(handleBackButtonClick)
     } else {
       WebApp.BackButton.hide()
     }
 
-    if (selectedProduct || cartOpen || aboutModalOpen || checkoutOpen || paymentRedirectOpen || telegramRequiredOpen) {
+    if (selectedProduct || cartOpen || aboutModalOpen || checkoutOpen || deliveryRegionOpen || paymentRedirectOpen || telegramRequiredOpen) {
       document.body.style.overflow = 'hidden'
     } else {
       document.body.style.overflow = 'unset'
@@ -1958,7 +2168,7 @@ export default function App() {
       WebApp.BackButton.offClick(handleBackButtonClick)
       document.body.style.overflow = 'unset'
     }
-  }, [selectedProduct, cartOpen, aboutModalOpen, selectedCategory, checkoutOpen, paymentRedirectOpen, telegramRequiredOpen])
+  }, [selectedProduct, cartOpen, aboutModalOpen, selectedCategory, checkoutOpen, deliveryRegionOpen, paymentRedirectOpen, telegramRequiredOpen])
 
   // проверяем наличие валидного initData от платформы (Telegram или MAX)
   const hasValidInitData = (): boolean => {
@@ -1993,8 +2203,16 @@ export default function App() {
       setTelegramRequiredOpen(true)
       return
     }
-    
+
+    // открываем промежуточный экран выбора региона/способа доставки
     setCartOpen(false)
+    setDeliveryRegionOpen(true)
+  }
+
+  // выбор способа доставки на промежуточном экране → переход к оформлению
+  const handleDeliveryMethodSelect = (method: DeliveryMethod) => {
+    setDeliveryMethod(method)
+    setDeliveryRegionOpen(false)
     setCheckoutOpen(true)
   }
 
@@ -2341,7 +2559,15 @@ export default function App() {
         />
       )}
       
-      {checkoutOpen && (
+      {deliveryRegionOpen && (
+        <DeliveryRegionModal
+          onSelect={handleDeliveryMethodSelect}
+          onBack={() => { setDeliveryRegionOpen(false); setCartOpen(true) }}
+          onClose={() => setDeliveryRegionOpen(false)}
+        />
+      )}
+
+      {checkoutOpen && deliveryMethod && (
         <div className="modal-overlay" onClick={() => setCheckoutOpen(false)}>
           <div className="modal-content modal-content--checkout" onClick={e => e.stopPropagation()}>
             <button className="modal-close" onClick={() => setCheckoutOpen(false)}>&times;</button>
@@ -2354,9 +2580,10 @@ export default function App() {
               cartTotal={cartTotalPrice}
               cart={cart}
               products={products}
+              deliveryMethod={deliveryMethod}
               priorityOrderEnabled={priorityOrderEnabled}
               priorityOrderFee={priorityOrderFee}
-              onBack={() => { setCheckoutOpen(false); setCartOpen(true) }}
+              onBack={() => { setCheckoutOpen(false); setDeliveryRegionOpen(true) }}
               onSubmit={handleCheckoutSubmit}
             />
           </div>

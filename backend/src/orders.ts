@@ -5,6 +5,9 @@ export type OrderStatus = 'pending' | 'paid' | 'cancelled' | 'failed'
 
 export type Platform = 'telegram' | 'max'
 
+/** способ доставки: самовывоз / СДЭК ПВЗ / EMS Почта России (международная) */
+export type DeliveryMethod = 'pickup' | 'cdek' | 'ems'
+
 export type Order = {
   orderId: string
   status: OrderStatus
@@ -28,10 +31,20 @@ export type Order = {
     deliveryCost: number
     total: number
     comments?: string
-    /** код ПВЗ СДЭК (обязателен для создания отправления) */
+    /** способ доставки (главный дискриминатор маршрутизации отправления) */
+    deliveryMethod?: DeliveryMethod
+    /** код ПВЗ СДЭК (обязателен для создания отправления СДЭК) */
     pvzCode?: string
     /** CDEK city code (для расчёта стоимости и создания отправления) */
     cdekCityCode?: number
+    /** EMS Почта России — реквизиты получателя международного отправления */
+    recipientCountry?: string
+    /** ОКСМ числовой код страны получателя (mail-direct для тарифа/заказа Почты) */
+    recipientCountryCode?: number
+    recipientRegion?: string
+    recipientCity?: string
+    recipientStreet?: string
+    recipientIndex?: string
     /** приоритетный заказ: +30% к сумме после скидки */
     priorityOrder?: boolean
     priorityFee?: number
@@ -51,6 +64,10 @@ export type Order = {
   cdekUuid?: string | null
   /** трек-номер СДЭК */
   cdekTrackNumber?: string | null
+  /** ШПИ (трек) EMS Почты России */
+  pochtaShpi?: string | null
+  /** имя партии Почты России (для печати форм / отладки) */
+  pochtaBatchName?: string | null
 }
 
 const orders = new Map<string, Order>()

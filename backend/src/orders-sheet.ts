@@ -1,7 +1,7 @@
 import { google } from 'googleapis'
 import fs from 'node:fs'
 import pino from 'pino'
-import type { Order, OrderStatus, Platform } from './orders.js'
+import type { Order, OrderStatus, Platform, DeliveryMethod } from './orders.js'
 import { listProducts } from './store.js'
 import { sendAlert } from './alerts.js'
 
@@ -16,7 +16,7 @@ const ORDERS_HEADERS = [
   'country', 'city', 'address', 'delivery_region', 'delivery_cost',
   'items_total', 'promocode_code', 'promocode_discount',
   'priority_order', 'priority_fee', 'total', 'client_comment', 'admin_note',
-  'cdek_uuid', 'cdek_track_number'
+  'cdek_uuid', 'cdek_track_number', 'delivery_method', 'pochta_shpi'
 ]
 
 const ORDER_ITEMS_HEADERS = [
@@ -56,6 +56,17 @@ function resolveItemCategory(slug: string): string {
   return product?.category || ''
 }
 
+/** Преобразует 1-based номер колонки в буквенное обозначение A1 (1→A, 26→Z, 27→AA). */
+function colLetter(n: number): string {
+  let s = ''
+  while (n > 0) {
+    const rem = (n - 1) % 26
+    s = String.fromCharCode(65 + rem) + s
+    n = Math.floor((n - 1) / 26)
+  }
+  return s
+}
+
 async function ensureSheet(api: any, spreadsheetId: string, sheetName: string, headers: string[]): Promise<void> {
   const meta = await api.spreadsheets.get({ spreadsheetId })
   const exists = meta.data.sheets?.some((s: any) => s.properties?.title === sheetName)
@@ -68,14 +79,14 @@ async function ensureSheet(api: any, spreadsheetId: string, sheetName: string, h
     })
     await api.spreadsheets.values.update({
       spreadsheetId,
-      range: `${sheetName}!A1:${String.fromCharCode(64 + headers.length)}1`,
+      range: `${sheetName}!A1:${colLetter(headers.length)}1`,
       valueInputOption: 'RAW',
       requestBody: { values: [headers] }
     })
     logger.info({ sheetName }, 'лист создан')
     return
   }
-  const range = `${sheetName}!A1:${String.fromCharCode(64 + headers.length)}1`
+  const range = `${sheetName}!A1:${colLetter(headers.length)}1`
   const res = await api.spreadsheets.values.get({ spreadsheetId, range })
   const row0 = res.data.values?.[0] || []
   const ok = headers.every((h, i) => row0[i] === h)
@@ -132,6 +143,8 @@ function buildOrderRow(order: Order): (string | number)[] {
     '', // admin_note
     order.cdekUuid ?? '',
     order.cdekTrackNumber ?? '',
+    d.deliveryMethod ?? '',
+    order.pochtaShpi ?? '',
   ]
 }
 
@@ -291,6 +304,9 @@ export async function getOrderFromSheet(orderId: string): Promise<(Order & { she
       customerChatId: col(5) || null,
       customerName: col(6) || null,
       platform: (col(4) as Platform) || 'telegram',
+      cdekUuid: col(23) || null,
+      cdekTrackNumber: col(24) || null,
+      pochtaShpi: col(26) || null,
       orderData: {
         items,
         fullName: col(7),
@@ -301,6 +317,7 @@ export async function getOrderFromSheet(orderId: string): Promise<(Order & { she
         address: col(12),
         deliveryRegion: col(13),
         deliveryCost,
+        deliveryMethod: (col(25) as DeliveryMethod) || undefined,
         total,
         comments: col(21) || undefined,
         priorityOrder: priorityOrder || undefined,
@@ -394,6 +411,37 @@ export async function updateCdekInfoInSheet(orderId: string, cdekUuid: string, c
     logger.info({ orderId, cdekUuid, cdekTrackNumber, rowNumber }, 'CDEK info обновлён в Google Sheets')
   } catch (e: any) {
     logger.warn({ orderId, error: e?.message }, 'updateCdekInfoInSheet: ошибка')
+  }
+}
+
+/** Записывает ШПИ (трек EMS Почты России) в колонку pochta_shpi (AA). */
+export async function updatePochtaInfoInSheet(orderId: string, shpi: string): Promise<void> {
+  const spreadsheetId = getSheetId()
+  if (!spreadsheetId) return
+  try {
+    await ensureOrderSheets()
+    const auth = getAuth()
+    const api = google.sheets({ version: 'v4', auth })
+    const res = await api.spreadsheets.values.get({ spreadsheetId, range: `${ORDERS_SHEET}!A:A` })
+    const rows = res.data.values || []
+    let rowNumber = -1
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i]?.[0] === orderId) { rowNumber = i + 1; break }
+    }
+    if (rowNumber === -1) {
+      logger.warn({ orderId }, 'updatePochtaInfoInSheet: строка не найдена')
+      return
+    }
+    // column AA=27 (pochta_shpi)
+    await api.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${ORDERS_SHEET}!AA${rowNumber}`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [[shpi]] }
+    })
+    logger.info({ orderId, shpi, rowNumber }, 'Pochta ШПИ обновлён в Google Sheets')
+  } catch (e: any) {
+    logger.warn({ orderId, error: e?.message }, 'updatePochtaInfoInSheet: ошибка')
   }
 }
 
@@ -514,6 +562,7 @@ export async function listPendingOrdersFromSheet(
           address: col(12),
           deliveryRegion: col(13),
           deliveryCost: parseFloat(col(14)) || 0,
+          deliveryMethod: (col(25) as DeliveryMethod) || undefined,
           total: parseFloat(col(20)) || 0,
           comments: col(21) || undefined,
           priorityOrder: col(18) === 'true' || undefined,

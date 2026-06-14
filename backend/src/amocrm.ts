@@ -195,9 +195,12 @@ function buildLeadFields(order: Order): FieldValue[] {
   push(fieldVal('AMOCRM_FIELD_ORDER_NAME_ID', order.orderData.fullName))
   push(fieldVal('AMOCRM_FIELD_CONTACT_NAME_ID', order.orderData.fullName))
 
-  // Тип доставки — временно всегда СДЭК ПВЗ.
-  // В будущем: самовывоз, курьер и другие варианты.
-  push(fieldVal('AMOCRM_FIELD_DELIVERY_TYPE_ID', 'СДЭК ПВЗ'))
+  // Тип доставки — по способу доставки заказа.
+  const deliveryTypeLabel =
+    order.orderData.deliveryMethod === 'pickup' ? 'Самовывоз'
+    : order.orderData.deliveryMethod === 'ems' ? 'EMS Почта России'
+    : 'СДЭК ПВЗ' // 'cdek' и старые заказы без deliveryMethod
+  push(fieldVal('AMOCRM_FIELD_DELIVERY_TYPE_ID', deliveryTypeLabel))
 
   // Стоимость доставки
   push(fieldVal('AMOCRM_FIELD_DELIVERY_COST_ID', order.orderData.deliveryCost))
@@ -275,13 +278,18 @@ export async function createAmoCrmLead(order: Order): Promise<number> {
   return lead.id as number
 }
 
-// ── Update lead with CDEK track + link + barcode ─────────────────────────────
+// ── Update lead with track + link + barcode ──────────────────────────────────
 
-export async function updateAmoCrmLeadTrack(leadId: number, cdekTrackNumber: string): Promise<void> {
-  const trackingUrl = `https://lk.cdek.ru/order-history/${cdekTrackNumber}/view`
+/**
+ * Записывает трек-номер и трек-ссылку в лид.
+ * Трек-ссылка передаётся явно: для СДЭК — deep-link в ЛК, для EMS — публичное
+ * отслеживание Почты. Поле трека (AMOCRM_FIELD_CDEK_TRACK_ID) переиспользуется
+ * как общий «трек-номер».
+ */
+export async function updateAmoCrmLeadTrack(leadId: number, trackNumber: string, trackLink: string): Promise<void> {
   const fields: FieldValue[] = []
-  const f1 = fieldVal('AMOCRM_FIELD_CDEK_TRACK_ID', cdekTrackNumber)
-  const f2 = fieldVal('AMOCRM_FIELD_TRACK_LINK_ID', trackingUrl)
+  const f1 = fieldVal('AMOCRM_FIELD_CDEK_TRACK_ID', trackNumber)
+  const f2 = fieldVal('AMOCRM_FIELD_TRACK_LINK_ID', trackLink)
   if (f1) fields.push(f1)
   if (f2) fields.push(f2)
   if (!fields.length) return
@@ -289,9 +297,14 @@ export async function updateAmoCrmLeadTrack(leadId: number, cdekTrackNumber: str
   await amoFetch('PATCH', `/leads/${leadId}`, { custom_fields_values: fields })
 }
 
-export async function updateAmoCrmLeadBarcode(leadId: number, cdekUuid: string, downloadBarcode: (uuid: string) => Promise<Buffer>): Promise<string> {
-  const pdfBuffer = await downloadBarcode(cdekUuid)
-  const url = await uploadBufferToS3(`cdek-barcodes/${cdekUuid}.pdf`, pdfBuffer, 'application/pdf')
+export async function updateAmoCrmLeadBarcode(
+  leadId: number,
+  id: string,
+  downloadBarcode: (id: string) => Promise<Buffer>,
+  keyPrefix = 'cdek-barcodes'
+): Promise<string> {
+  const pdfBuffer = await downloadBarcode(id)
+  const url = await uploadBufferToS3(`${keyPrefix}/${id}.pdf`, pdfBuffer, 'application/pdf')
   await setBarcodeUrlInLead(leadId, url)
   return url
 }
