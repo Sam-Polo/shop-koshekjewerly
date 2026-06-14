@@ -1,4 +1,4 @@
-import { google } from 'googleapis'
+﻿import { google } from 'googleapis'
 import fs from 'node:fs'
 
 export type ShipStatus = 'pending' | 'in_work' | 'assembled' | 'sent' | 'returned'
@@ -12,10 +12,11 @@ export type ShipmentItem = {
   order_date: string   // ISO date string, e.g. "2026-06-14"
   ship_status: ShipStatus
   ship_date: string    // ISO date string, empty string if not shipped
+  title: string        // product name from composition text
 }
 
 const SHEET_NAME = 'shipment_items'
-const HEADERS = ['order_id', 'source', 'article', 'qty', 'order_date', 'ship_status', 'ship_date']
+const HEADERS = ['order_id', 'source', 'article', 'qty', 'order_date', 'ship_status', 'ship_date', 'title']
 
 function getAuth() {
   const filePath = process.env.GOOGLE_SA_FILE
@@ -45,6 +46,7 @@ function rowToItem(row: string[]): ShipmentItem {
     order_date:  row[4] ?? '',
     ship_status: (row[5] ?? 'pending') as ShipStatus,
     ship_date:   row[6] ?? '',
+    title:       row[7] ?? '',
   }
 }
 
@@ -57,6 +59,7 @@ function itemToRow(item: ShipmentItem): string[] {
     item.order_date,
     item.ship_status,
     item.ship_date,
+    item.title,
   ]
 }
 
@@ -90,7 +93,7 @@ export async function appendShipmentItems(items: ShipmentItem[]): Promise<void> 
   const sheets = google.sheets({ version: 'v4', auth })
   await sheets.spreadsheets.values.append({
     spreadsheetId: getSheetId(),
-    range: `${SHEET_NAME}!A:G`,
+    range: `${SHEET_NAME}!A:H`,
     valueInputOption: 'RAW',
     requestBody: { values: items.map(itemToRow) },
   })
@@ -102,7 +105,7 @@ export async function readAllShipmentItems(): Promise<ShipmentItem[]> {
   const sheets = google.sheets({ version: 'v4', auth })
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: getSheetId(),
-    range: `${SHEET_NAME}!A:G`,
+    range: `${SHEET_NAME}!A:H`,
   })
   const rows = (res.data.values ?? []).slice(1) // skip header
   return rows.filter(r => r[0]).map(rowToItem)
@@ -125,7 +128,7 @@ export async function upsertOrderItems(
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${SHEET_NAME}!A:G`,
+    range: `${SHEET_NAME}!A:H`,
   })
   const rows = res.data.values ?? []
 
@@ -136,7 +139,7 @@ export async function upsertOrderItems(
     if (items.length === 0) return 'noop'
     await sheets.spreadsheets.values.append({
       spreadsheetId,
-      range: `${SHEET_NAME}!A:G`,
+      range: `${SHEET_NAME}!A:H`,
       valueInputOption: 'RAW',
       requestBody: { values: items.map(itemToRow) },
     })
@@ -159,7 +162,7 @@ export async function upsertOrderItems(
         const updated = [...r]
         updated[5] = newStatus
         while (updated.length < 7) updated.push('')
-        return { range: `${SHEET_NAME}!A${rowNum}:G${rowNum}`, values: [updated.slice(0, 7)] }
+        return { range: `${SHEET_NAME}!A${rowNum}:H${rowNum}`, values: [updated.slice(0, 8)] }
       })
     if (updates.length === 0) return 'noop'
     await sheets.spreadsheets.values.batchUpdate({
@@ -176,7 +179,7 @@ export async function upsertOrderItems(
       updated[5] = newStatus
       updated[6] = shipDate
       while (updated.length < 7) updated.push('')
-      return { range: `${SHEET_NAME}!A${rowNum}:G${rowNum}`, values: [updated.slice(0, 7)] }
+      return { range: `${SHEET_NAME}!A${rowNum}:H${rowNum}`, values: [updated.slice(0, 8)] }
     })
 
   if (updates.length === 0) return 'noop'
@@ -203,7 +206,7 @@ export async function markOrderStatus(
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${SHEET_NAME}!A:G`,
+    range: `${SHEET_NAME}!A:H`,
   })
   const rows = res.data.values ?? []
   if (rows.length < 2) return 0
@@ -216,7 +219,7 @@ export async function markOrderStatus(
       updated[5] = status
       updated[6] = shipDate
       while (updated.length < 7) updated.push('')
-      updates.push({ row: i + 1, values: updated.slice(0, 7) })
+      updates.push({ row: i + 1, values: updated.slice(0, 8) })
     }
   }
 
@@ -227,7 +230,7 @@ export async function markOrderStatus(
     requestBody: {
       valueInputOption: 'RAW',
       data: updates.map(u => ({
-        range: `${SHEET_NAME}!A${u.row}:G${u.row}`,
+        range: `${SHEET_NAME}!A${u.row}:H${u.row}`,
         values: [u.values],
       })),
     },

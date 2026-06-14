@@ -48,6 +48,7 @@ export function handleTildaOrder(req: Request, res: Response): void {
       order_date:  orderDate,
       ship_status: 'pending',
       ship_date:   '',
+      title:       String(p?.name ?? '').trim(),
     })
   }
 

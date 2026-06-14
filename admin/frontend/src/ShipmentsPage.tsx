@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { api, removeToken } from './api'
 import type { AdminPage } from './BasesPage'
 
-type SummaryItem = { article: string; title: string; pending: number; in_work: number; assembled: number; sent: number; returned: number }
+type SummaryItem = { article: string; title: string; titleSource: 'catalog' | 'composition' | 'none'; pending: number; in_work: number; assembled: number; sent: number; returned: number }
 type BySource = Record<string, { pending: number; in_work: number; assembled: number; sent: number }>
 type Totals = { pending: number; in_work: number; assembled: number; sent: number; returned: number }
 type ShipmentsReport = { summary: SummaryItem[]; bySource: BySource; totals: Totals }
@@ -381,7 +381,15 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
                     {summary.map(item => (
                       <tr key={item.article} className={item.pending + item.in_work + item.assembled > 0 ? 'sh-row-hot' : ''}>
                         <td><span className="sh-art">{item.article}</span></td>
-                        <td className="sh-name">{item.title || <span className="sh-muted">—</span>}</td>
+                        <td className="sh-name">
+                          {item.title || <span className="sh-muted">—</span>}
+                          {item.titleSource === 'composition' && (
+                            <span
+                              className="sh-unknown-badge"
+                              title="Товар не найден в базе данных. Название получено из состава заказа (Тильда) — скорее всего внешний товар."
+                            >?</span>
+                          )}
+                        </td>
                         <td className="sh-td-p">
                           {item.pending > 0 ? <strong>{item.pending}</strong> : <span className="sh-muted">—</span>}
                         </td>

@@ -218,6 +218,7 @@ async function main() {
       order_date:  orderDate,
       ship_status: status,
       ship_date:   shipDate,
+      title:       String(item.name ?? '').trim(),
     }))
 
     console.log(`  [${format.toUpperCase()}] ${effectiveOrderId} [${status}] → ${rows.length} позиц.`)

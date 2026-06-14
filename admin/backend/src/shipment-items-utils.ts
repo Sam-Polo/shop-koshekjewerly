@@ -34,11 +34,13 @@ type ShipmentRow = {
   order_date: string   // YYYY-MM-DD
   ship_status: ShipStatus
   ship_date: string
+  title: string        // from composition text (column H)
 }
 
 export type ShipmentSummaryItem = {
   article: string
-  title: string        // from product catalog, empty if article not found
+  title: string
+  titleSource: 'catalog' | 'composition' | 'none'
   pending: number
   in_work: number
   assembled: number
@@ -81,7 +83,7 @@ async function readShipmentRows(nocache = false): Promise<ShipmentRow[]> {
   const sheets = google.sheets({ version: 'v4', auth })
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: getSpreadsheetId(),
-    range: `${SHEET_NAME}!A:G`,
+    range: `${SHEET_NAME}!A:H`,
   })
   const rows = (res.data.values ?? []).slice(1)
   const data = rows
@@ -94,6 +96,7 @@ async function readShipmentRows(nocache = false): Promise<ShipmentRow[]> {
       order_date:  String(r[4] ?? ''),
       ship_status: (r[5] ?? 'pending') as ShipStatus,
       ship_date:   String(r[6] ?? ''),
+      title:       String(r[7] ?? ''),
     }))
   rowsCache = { data, at: now }
   return data
@@ -141,9 +144,14 @@ export async function buildShipmentsReport(opts: {
 
     let entry = byArticle.get(row.article)
     if (!entry) {
+      const catalogTitle = articleMap.get(row.article) ?? ''
+      const titleSource: ShipmentSummaryItem['titleSource'] = catalogTitle
+        ? 'catalog'
+        : row.title ? 'composition' : 'none'
       entry = {
         article: row.article,
-        title: articleMap.get(row.article) ?? '',
+        title: catalogTitle || row.title || '',
+        titleSource,
         pending: 0,
         in_work: 0,
         assembled: 0,

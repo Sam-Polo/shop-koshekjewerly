@@ -137,6 +137,7 @@ export function handleAmoCrmWebhook(req: Request, res: Response): void {
           order_date:  orderDate,
           ship_status: newStatus,
           ship_date:   shipDate,
+          title:       String(p.name ?? '').trim(),
         }))
       }
 
