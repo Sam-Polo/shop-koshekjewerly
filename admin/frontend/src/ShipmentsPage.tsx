@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { api, removeToken } from './api'
 import type { AdminPage } from './BasesPage'
 
@@ -73,6 +74,30 @@ function ArcCounter({ value, total, label, color, track }: {
       </div>
       <div className="sh-counter-label">{label}</div>
     </div>
+  )
+}
+
+function UnknownBadge() {
+  const ref = useRef<HTMLSpanElement>(null)
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
+  return (
+    <>
+      <span
+        ref={ref}
+        className="sh-unknown-badge"
+        onMouseEnter={() => {
+          const r = ref.current?.getBoundingClientRect()
+          if (r) setPos({ x: r.left + r.width / 2, y: r.top - 6 })
+        }}
+        onMouseLeave={() => setPos(null)}
+      >?</span>
+      {pos && createPortal(
+        <div className="sh-unknown-tip" style={{ left: pos.x, top: pos.y }}>
+          Товар не найден в базе данных бота. Название получено из состава заказа (Тильда) — скорее всего внешний товар.
+        </div>,
+        document.body
+      )}
+    </>
   )
 }
 
@@ -383,12 +408,7 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
                         <td><span className="sh-art">{item.article}</span></td>
                         <td className="sh-name">
                           {item.title || <span className="sh-muted">—</span>}
-                          {item.titleSource === 'composition' && (
-                            <span className="sh-unknown-wrap">
-                              <span className="sh-unknown-badge">?</span>
-                              <span className="sh-unknown-tip">Товар не найден в базе данных бота. Название получено из состава заказа (Тильда) — скорее всего внешний товар.</span>
-                            </span>
-                          )}
+                          {item.titleSource === 'composition' && <UnknownBadge />}
                         </td>
                         <td className="sh-td-p">
                           {item.pending > 0 ? <strong>{item.pending}</strong> : <span className="sh-muted">—</span>}
