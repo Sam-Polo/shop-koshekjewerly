@@ -1,6 +1,8 @@
 @font-face {
   font-family: 'Forum';
-  src: url('/fonts/Forum-Regular.ttf') format('truetype');
+  /* woff2 (80КБ) грузится первым — легче и надёжнее на мобильных; ttf — фолбэк для старых браузеров */
+  src: url('/fonts/Forum-Regular.woff2') format('woff2'),
+       url('/fonts/Forum-Regular.ttf') format('truetype');
   font-weight: 400;
   font-style: normal;
   font-display: swap;
@@ -17,7 +19,11 @@
 
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
-body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family: 'Forum', system-ui, sans-serif; font-weight: 400; }
+/* Forum — серифный шрифт; фолбэк тоже серифный (Georgia/Times), чтобы при сбое загрузки
+   вид оставался близким, а не прыгал на системный sans-serif */
+body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family: 'Forum', Georgia, 'Times New Roman', serif; font-weight: 400; }
+/* контролы форм не наследуют шрифт по умолчанию — задаём явно, иначе они уезжают на системный */
+button, input, select, textarea { font-family: inherit; }
 
 .page { max-width: 1180px; margin: 0 auto; padding: 60px 20px 80px; }
 
@@ -80,7 +86,7 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
   width: calc(100% - 48px);
   padding: 14px 24px;
   text-align: center;
-  font-family: 'Forum', system-ui, sans-serif;
+  font-family: 'Forum', Georgia, 'Times New Roman', serif;
   font-size: 15px;
   line-height: 1.55;
   letter-spacing: 0.04em;
