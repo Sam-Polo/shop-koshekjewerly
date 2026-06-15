@@ -2,6 +2,7 @@ import type { Request, Response } from 'express'
 import pino from 'pino'
 import { sendAlert } from './alerts.js'
 import { PIPELINE_ID, STAGE_MAP, getAmoBase, getAmoToken, processAmoCrmLead } from './amocrm-lead-processor.js'
+import { deleteRowsByLeadId } from './shipment-items-sheet.js'
 
 const logger = pino()
 
@@ -42,6 +43,34 @@ export function handleAmoCrmWebhook(req: Request, res: Response): void {
   }
   for (const l of Object.values(body?.leads?.add ?? {})) {
     queue.push({ id: Number((l as any).id), pipeline_id: Number((l as any).pipeline_id), status_id: Number((l as any).status_id), event: 'add' })
+  }
+
+  // Handle deleted leads
+  const deleteIds: number[] = []
+  for (const l of Object.values(body?.leads?.delete ?? {})) {
+    deleteIds.push(Number((l as any).id))
+  }
+  if (deleteIds.length > 0) {
+    void (async () => {
+      for (const leadId of deleteIds) {
+        try {
+          const deleted = await deleteRowsByLeadId(String(leadId))
+          logger.info({ leadId, deleted }, 'amoCRM webhook: lead deleted from sheet')
+          if (deleted > 0) {
+            sendAlert(
+              `amoCRM: лид ${leadId} удалён → ${deleted} строк удалено из учёта`,
+              { tag: 'amocrm', level: 'info', code: 'AMOCRM_LEAD_DELETED' }
+            ).catch(() => {})
+          }
+        } catch (e: any) {
+          logger.error({ leadId, err: e?.message }, 'amoCRM webhook: delete from sheet failed')
+          sendAlert(
+            `amoCRM webhook: не удалось удалить лид ${leadId} из учёта: ${e?.message}`,
+            { tag: 'amocrm', level: 'moderate', code: 'AMOCRM_WEBHOOK_DELETE_FAILED' }
+          ).catch(() => {})
+        }
+      }
+    })()
   }
 
   if (queue.length === 0) return

@@ -35,6 +35,7 @@ type ShipmentRow = {
   ship_status: ShipStatus
   ship_date: string
   title: string        // from composition text (column H)
+  lead_id: string      // amoCRM lead ID (column I)
 }
 
 export type ShipmentSummaryItem = {
@@ -84,7 +85,7 @@ async function readShipmentRows(nocache = false): Promise<ShipmentRow[]> {
   const sheets = google.sheets({ version: 'v4', auth })
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: getSpreadsheetId(),
-    range: `${SHEET_NAME}!A:H`,
+    range: `${SHEET_NAME}!A:I`,
   })
   const rows = (res.data.values ?? []).slice(1)
   const data = rows
@@ -98,6 +99,7 @@ async function readShipmentRows(nocache = false): Promise<ShipmentRow[]> {
       ship_status: (r[5] ?? 'pending') as ShipStatus,
       ship_date:   String(r[6] ?? ''),
       title:       String(r[7] ?? ''),
+      lead_id:     String(r[8] ?? ''),
     }))
   rowsCache = { data, at: now }
   return data

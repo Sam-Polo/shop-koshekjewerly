@@ -105,6 +105,7 @@ export async function processAmoCrmLead(
       ship_status: newStatus,
       ship_date:   shipDate,
       title:       String(p.name ?? '').trim(),
+      lead_id:     String(leadId),
     }))
   }
 

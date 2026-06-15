@@ -13,10 +13,11 @@ export type ShipmentItem = {
   ship_status: ShipStatus
   ship_date: string    // ISO date string, empty string if not shipped
   title: string        // product name from composition text
+  lead_id: string      // amoCRM lead ID, empty for tilda-webhook orders
 }
 
 const SHEET_NAME = 'shipment_items'
-const HEADERS = ['order_id', 'source', 'article', 'qty', 'order_date', 'ship_status', 'ship_date', 'title']
+const HEADERS = ['order_id', 'source', 'article', 'qty', 'order_date', 'ship_status', 'ship_date', 'title', 'lead_id']
 
 function getAuth() {
   const filePath = process.env.GOOGLE_SA_FILE
@@ -47,6 +48,7 @@ function rowToItem(row: string[]): ShipmentItem {
     ship_status: (row[5] ?? 'pending') as ShipStatus,
     ship_date:   row[6] ?? '',
     title:       row[7] ?? '',
+    lead_id:     row[8] ?? '',
   }
 }
 
@@ -60,10 +62,11 @@ function itemToRow(item: ShipmentItem): string[] {
     item.ship_status,
     item.ship_date,
     item.title,
+    item.lead_id,
   ]
 }
 
-/** Ensures the shipment_items sheet exists with headers. Idempotent. */
+/** Ensures the shipment_items sheet exists with headers. Always updates header row. */
 export async function ensureShipmentItemsSheet(): Promise<void> {
   const auth = getAuth()
   const sheets = google.sheets({ version: 'v4', auth })
@@ -77,13 +80,14 @@ export async function ensureShipmentItemsSheet(): Promise<void> {
       spreadsheetId,
       requestBody: { requests: [{ addSheet: { properties: { title: SHEET_NAME } } }] },
     })
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: `${SHEET_NAME}!A1`,
-      valueInputOption: 'RAW',
-      requestBody: { values: [HEADERS] },
-    })
   }
+  // Always write header to keep schema current
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${SHEET_NAME}!A1`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [HEADERS] },
+  })
 }
 
 /** Appends one or more shipment item rows to the sheet. */
@@ -93,7 +97,7 @@ export async function appendShipmentItems(items: ShipmentItem[]): Promise<void> 
   const sheets = google.sheets({ version: 'v4', auth })
   await sheets.spreadsheets.values.append({
     spreadsheetId: getSheetId(),
-    range: `${SHEET_NAME}!A:H`,
+    range: `${SHEET_NAME}!A:I`,
     valueInputOption: 'RAW',
     requestBody: { values: items.map(itemToRow) },
   })
@@ -122,7 +126,7 @@ export async function createOrderItemsIfNew(
 
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: `${SHEET_NAME}!A:H`,
+    range: `${SHEET_NAME}!A:I`,
     valueInputOption: 'RAW',
     requestBody: { values: items.map(itemToRow) },
   })
@@ -135,7 +139,7 @@ export async function readAllShipmentItems(): Promise<ShipmentItem[]> {
   const sheets = google.sheets({ version: 'v4', auth })
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: getSheetId(),
-    range: `${SHEET_NAME}!A:H`,
+    range: `${SHEET_NAME}!A:I`,
   })
   const rows = (res.data.values ?? []).slice(1) // skip header
   return rows.filter(r => r[0]).map(rowToItem)
@@ -158,7 +162,7 @@ export async function upsertOrderItems(
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${SHEET_NAME}!A:H`,
+    range: `${SHEET_NAME}!A:I`,
   })
   const rows = res.data.values ?? []
 
@@ -169,7 +173,7 @@ export async function upsertOrderItems(
     if (items.length === 0) return 'noop'
     await sheets.spreadsheets.values.append({
       spreadsheetId,
-      range: `${SHEET_NAME}!A:H`,
+      range: `${SHEET_NAME}!A:I`,
       valueInputOption: 'RAW',
       requestBody: { values: items.map(itemToRow) },
     })
@@ -183,8 +187,8 @@ export async function upsertOrderItems(
       const updated = [...r]
       updated[5] = newStatus
       updated[6] = (newStatus === 'sent' || newStatus === 'returned') ? shipDate : ''
-      while (updated.length < 8) updated.push('')
-      return { range: `${SHEET_NAME}!A${rowNum}:H${rowNum}`, values: [updated.slice(0, 8)] }
+      while (updated.length < 9) updated.push('')
+      return { range: `${SHEET_NAME}!A${rowNum}:I${rowNum}`, values: [updated.slice(0, 9)] }
     })
 
   if (updates.length === 0) return 'noop'
@@ -211,7 +215,7 @@ export async function markOrderStatus(
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${SHEET_NAME}!A:H`,
+    range: `${SHEET_NAME}!A:I`,
   })
   const rows = res.data.values ?? []
   if (rows.length < 2) return 0
@@ -223,8 +227,8 @@ export async function markOrderStatus(
       const updated = [...r]
       updated[5] = status
       updated[6] = shipDate
-      while (updated.length < 7) updated.push('')
-      updates.push({ row: i + 1, values: updated.slice(0, 8) })
+      while (updated.length < 9) updated.push('')
+      updates.push({ row: i + 1, values: updated.slice(0, 9) })
     }
   }
 
@@ -235,11 +239,60 @@ export async function markOrderStatus(
     requestBody: {
       valueInputOption: 'RAW',
       data: updates.map(u => ({
-        range: `${SHEET_NAME}!A${u.row}:H${u.row}`,
+        range: `${SHEET_NAME}!A${u.row}:I${u.row}`,
         values: [u.values],
       })),
     },
   })
 
   return updates.length
+}
+
+/**
+ * Deletes all sheet rows for a given amoCRM lead ID.
+ * Matches column I (lead_id) or column A (AMO-{leadId} fallback).
+ * Returns the number of rows deleted.
+ */
+export async function deleteRowsByLeadId(leadId: string): Promise<number> {
+  const auth = getAuth()
+  const sheets = google.sheets({ version: 'v4', auth })
+  const spreadsheetId = getSheetId()
+
+  const meta = await sheets.spreadsheets.get({ spreadsheetId })
+  const sheetMeta = meta.data.sheets?.find(s => s.properties?.title === SHEET_NAME)
+  if (!sheetMeta) return 0
+  const sheetId = sheetMeta.properties?.sheetId ?? 0
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${SHEET_NAME}!A:I`,
+  })
+  const rows = res.data.values ?? []
+  const amoOrderId = `AMO-${leadId}`
+
+  // collect 0-based row indices (skip header at index 0)
+  const toDelete: number[] = []
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i]
+    if ((r[8] ?? '') === leadId || (r[0] ?? '') === amoOrderId) {
+      toDelete.push(i)
+    }
+  }
+
+  if (toDelete.length === 0) return 0
+
+  // delete bottom-up to keep indices valid during batch
+  toDelete.sort((a, b) => b - a)
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: toDelete.map(rowIndex => ({
+        deleteDimension: {
+          range: { sheetId, dimension: 'ROWS', startIndex: rowIndex, endIndex: rowIndex + 1 },
+        },
+      })),
+    },
+  })
+
+  return toDelete.length
 }
