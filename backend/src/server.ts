@@ -2162,13 +2162,19 @@ app.post('/api/pochta/test', express.json(), async (req, res) => {
     const batchName = await createBatch([order.id])
     steps.batch = { ok: true, batchName }
 
-    // 4. дождаться ШПИ (до 5 попыток × 3с)
+    // 4. дождаться ШПИ (до 5 попыток × 3с); сетевые сбои на чтении не валят весь тест
     let shpi: string | null = null
+    let lastShpiErr: string | undefined
     for (let i = 0; i < 5; i++) {
-      shpi = await getShpiFromBatch(batchName)
-      if (shpi) break
+      try {
+        shpi = await getShpiFromBatch(batchName)
+        if (shpi) break
+      } catch (e: any) {
+        lastShpiErr = e?.message
+      }
       await new Promise(r => setTimeout(r, 3000))
     }
+    if (!shpi && lastShpiErr) steps.shpiError = lastShpiErr
     steps.shpi = { ok: !!shpi, shpi }
     if (!shpi) return res.status(200).json({ ok: false, error: 'ШПИ не присвоен за 15с', steps })
 

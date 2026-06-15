@@ -299,12 +299,16 @@ export async function createBatch(resultIds: number[]): Promise<string> {
 
 /**
  * Читает ШПИ (barcode) первого заказа партии.
- * GET /1.0/user/shipment/{batch-name}/backlog → [{ barcode }].
+ * GET /1.0/batch/{name} → данные о заказах в партии; у каждого заказа поле barcode (ШПИ).
  */
 export async function getShpiFromBatch(batchName: string): Promise<string | null> {
-  const data = await pochtaFetch('GET', `/1.0/user/shipment/${encodeURIComponent(batchName)}/backlog`) as any
-  const list = Array.isArray(data) ? data : (data?.orders ?? [])
-  const barcode = list?.[0]?.barcode ?? list?.[0]?.['barcode-orig']
+  const data = await pochtaFetch('GET', `/1.0/batch/${encodeURIComponent(batchName)}`) as any
+  // ответ может быть массивом заказов либо объектом с вложенным списком — поддержим оба
+  const list = Array.isArray(data)
+    ? data
+    : (data?.orders ?? data?.['result-orders'] ?? data?.content ?? [])
+  const first = Array.isArray(list) ? list[0] : null
+  const barcode = first?.barcode ?? first?.['barcode-orig']
   return (barcode as string) ?? null
 }
 
