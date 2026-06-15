@@ -93,7 +93,7 @@ function sourceFromEnum(enumId: number | null): ShipSource {
 }
 
 function isoDate(unixSeconds: number): string {
-  return new Date(unixSeconds * 1000).toISOString().slice(0, 10)
+  return new Date(unixSeconds * 1000).toLocaleString('sv-SE', { timeZone: 'Europe/Moscow' }).slice(0, 10)
 }
 
 // ── main ──────────────────────────────────────────────────────────────────────
