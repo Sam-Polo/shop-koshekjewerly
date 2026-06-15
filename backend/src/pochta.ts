@@ -20,8 +20,8 @@ const ORIGIN_COUNTRY_CODE = 643
 const DECLARATION_CURRENCY = 'RUB'
 
 const getMailType = () => process.env.POCHTA_MAIL_TYPE ?? 'EMS'
-// EMS международная с товаром идёт с объявленной ценностью (ORDINARY не поддерживается)
-const getMailCategory = () => process.env.POCHTA_MAIL_CATEGORY ?? 'WITH_DECLARED_VALUE'
+// EMS идёт категорией ORDINARY (обыкновенное); WITH_DECLARED_VALUE для EMS не поддерживается (тариф=0)
+const getMailCategory = () => process.env.POCHTA_MAIL_CATEGORY ?? 'ORDINARY'
 // код ТН ВЭД — полный 10-значный (7117190000 = бижутерия из недрагметаллов); '7117' (группа) API отклоняет
 const getTnvedCode = () => process.env.POCHTA_TNVED_CODE ?? '7117190000'
 // наименование товара в таможенной декларации CN23 — только латиница, и достаточной длины (API отклоняет короткое)
@@ -232,10 +232,15 @@ export async function createPochtaOrder(order: Order): Promise<PochtaOrderResult
   // объявленная ценность = сумма товаров (копейки)
   const itemsTotal = d.items.reduce((s, it) => s + it.price * it.quantity, 0)
 
+  // EMS идёт категорией ORDINARY (обыкновенное); объявленную ценность шлём только
+  // для declared-value категорий, иначе API ругается (EMS WITH_DECLARED_VALUE не поддерживается)
+  const mailCategory = getMailCategory()
+  const isDeclaredValue = mailCategory.includes('DECLARED_VALUE')
+
   const orderBody = {
     'order-num': order.orderId.slice(0, 40),
     'address-type-to': 'DEFAULT',
-    'mail-category': getMailCategory(),
+    'mail-category': mailCategory,
     'mail-type': getMailType(),
     'mail-direct': d.recipientCountryCode,
     mass: PKG_WEIGHT_G,
@@ -251,8 +256,8 @@ export async function createPochtaOrder(order: Order): Promise<PochtaOrderResult
     'place-to': d.recipientCity || undefined,
     'str-index-to': d.recipientIndex || undefined,
     'street-to': d.recipientStreet || undefined,
-    // объявленная ценность (копейки)
-    'insr-value': Math.round(itemsTotal * 100),
+    // объявленная ценность (копейки) — только для категорий с объявленной ценностью
+    ...(isDeclaredValue ? { 'insr-value': Math.round(itemsTotal * 100) } : {}),
     // таможенная декларация CN23
     'customs-declaration': {
       currency: DECLARATION_CURRENCY,
