@@ -20,7 +20,8 @@ const ORIGIN_COUNTRY_CODE = 643
 const DECLARATION_CURRENCY = 'RUB'
 
 const getMailType = () => process.env.POCHTA_MAIL_TYPE ?? 'EMS'
-const getMailCategory = () => process.env.POCHTA_MAIL_CATEGORY ?? 'ORDINARY'
+// EMS международная с товаром идёт с объявленной ценностью (ORDINARY не поддерживается)
+const getMailCategory = () => process.env.POCHTA_MAIL_CATEGORY ?? 'WITH_DECLARED_VALUE'
 const getTnvedCode = () => process.env.POCHTA_TNVED_CODE ?? '7117'
 const getIndexFrom = () => process.env.POCHTA_INDEX_FROM ?? ''
 
@@ -244,13 +245,13 @@ export async function createPochtaOrder(order: Order): Promise<PochtaOrderResult
     'region-to': d.recipientRegion || undefined,
     'place-to': d.recipientCity || undefined,
     'str-index-to': d.recipientIndex || undefined,
-    'address-tail-to': d.recipientStreet || undefined,
+    'street-to': d.recipientStreet || undefined,
     // объявленная ценность (копейки)
     'insr-value': Math.round(itemsTotal * 100),
     // таможенная декларация CN23
     'customs-declaration': {
       currency: DECLARATION_CURRENCY,
-      'customs-entry-type': 'SALE_OF_GOODS',
+      'entries-type': 'SALE_OF_GOODS',
       'customs-entries': buildCustomsEntries(order),
     },
   }
