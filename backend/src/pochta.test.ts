@@ -187,7 +187,7 @@ describe('createPochtaOrder', () => {
     const decl = body[0]['customs-declaration']
     expect(decl['customs-entries']).toHaveLength(2)
     expect(decl['customs-entries'][0]).toMatchObject({
-      description: 'Jewellery', // латиница для таможни (по умолчанию)
+      description: 'Jewellery (fashion accessories)', // латиница, достаточной длины (по умолчанию)
       amount: 1,
       value: 500000, // 5000 ₽ в копейках
       'country-code': 643,

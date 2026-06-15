@@ -22,9 +22,10 @@ const DECLARATION_CURRENCY = 'RUB'
 const getMailType = () => process.env.POCHTA_MAIL_TYPE ?? 'EMS'
 // EMS международная с товаром идёт с объявленной ценностью (ORDINARY не поддерживается)
 const getMailCategory = () => process.env.POCHTA_MAIL_CATEGORY ?? 'WITH_DECLARED_VALUE'
-const getTnvedCode = () => process.env.POCHTA_TNVED_CODE ?? '7117'
-// наименование товара в таможенной декларации CN23 — только латиница/английский
-const getCustomsDescription = () => process.env.POCHTA_CUSTOMS_DESCRIPTION ?? 'Jewellery'
+// код ТН ВЭД — полный 10-значный (7117190000 = бижутерия из недрагметаллов); '7117' (группа) API отклоняет
+const getTnvedCode = () => process.env.POCHTA_TNVED_CODE ?? '7117190000'
+// наименование товара в таможенной декларации CN23 — только латиница, и достаточной длины (API отклоняет короткое)
+const getCustomsDescription = () => process.env.POCHTA_CUSTOMS_DESCRIPTION ?? 'Jewellery (fashion accessories)'
 const getIndexFrom = () => process.env.POCHTA_INDEX_FROM ?? ''
 
 // ── Env validation — отсутствие любой обязательной переменной = критичный алерт ─
