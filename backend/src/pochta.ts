@@ -329,14 +329,16 @@ async function sleep(ms: number) {
 }
 
 /**
- * Скачивает форму Ф7п (адресный ярлык) по идентификатору ЗАКАЗА (backlog id), НЕ по ШПИ.
- * GET /1.0/forms/{order-id}/f7pdf → application/pdf. (по ШПИ API отдаёт 403 Access Denied)
+ * Скачивает печатные формы заказа (PDF) по идентификатору ЗАКАЗА (backlog id).
+ * GET /1.0/forms/{order-id}/forms — общий комплект форм заказа; для международных
+ * отправлений включает нужные бланки (CP71/CN23). Домашний /f7pdf для международки
+ * отдаёт 403 Access Denied — он только для внутренних отправлений.
  */
 export async function downloadF7p(orderId: string | number): Promise<Buffer> {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), 30_000)
   try {
-    const resp = await fetch(`${POCHTA_BASE}/1.0/forms/${encodeURIComponent(String(orderId))}/f7pdf`, {
+    const resp = await fetch(`${POCHTA_BASE}/1.0/forms/${encodeURIComponent(String(orderId))}/forms`, {
       headers: { ...getAuthHeaders(), Accept: 'application/pdf' },
       signal: ctrl.signal,
     })
