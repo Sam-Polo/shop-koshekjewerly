@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express'
 import pino from 'pino'
 import { sendAlert } from './alerts.js'
-import { appendShipmentItems, type ShipmentItem } from './shipment-items-sheet.js'
+import { createOrderItemsIfNew, type ShipmentItem } from './shipment-items-sheet.js'
 import { normalizeArticle } from './shipment-items-parser.js'
 
 const logger = pino()
@@ -62,10 +62,13 @@ export function handleTildaOrder(req: Request, res: Response): void {
 
   if (items.length === 0) return
 
-  void appendShipmentItems(items)
-    .then(() => logger.info({ orderId, count: items.length }, 'Tilda webhook: shipment_items appended'))
+  void createOrderItemsIfNew(orderId, items)
+    .then(result => {
+      if (result === 'created') logger.info({ orderId, count: items.length }, 'Tilda webhook: shipment_items created')
+      else logger.info({ orderId }, 'Tilda webhook: order already in sheet, skipped duplicate')
+    })
     .catch((e: any) => {
-      logger.error({ orderId, err: e?.message }, 'Tilda webhook: failed to append shipment_items')
+      logger.error({ orderId, err: e?.message }, 'Tilda webhook: failed to write shipment_items')
       sendAlert(
         `Tilda webhook: не удалось записать позиции заказа ${orderId} в shipment_items: ${e?.message}`,
         { tag: 'tilda', level: 'moderate', code: 'TILDA_WEBHOOK_SHEET_FAILED' }

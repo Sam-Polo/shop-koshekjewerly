@@ -99,6 +99,36 @@ export async function appendShipmentItems(items: ShipmentItem[]): Promise<void> 
   })
 }
 
+/**
+ * Creates order rows only if the order_id is not already in the sheet.
+ * Used by tilda-webhook to avoid duplicates on retries or re-imports.
+ */
+export async function createOrderItemsIfNew(
+  orderId: string,
+  items: ShipmentItem[]
+): Promise<'created' | 'noop'> {
+  if (items.length === 0) return 'noop'
+  const auth = getAuth()
+  const sheets = google.sheets({ version: 'v4', auth })
+  const spreadsheetId = getSheetId()
+
+  // read only column A to keep it cheap
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${SHEET_NAME}!A:A`,
+  })
+  const exists = (res.data.values ?? []).slice(1).some(r => r[0] === orderId)
+  if (exists) return 'noop'
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: `${SHEET_NAME}!A:H`,
+    valueInputOption: 'RAW',
+    requestBody: { values: items.map(itemToRow) },
+  })
+  return 'created'
+}
+
 /** Reads all shipment items from the sheet. */
 export async function readAllShipmentItems(): Promise<ShipmentItem[]> {
   const auth = getAuth()
