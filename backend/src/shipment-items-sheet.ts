@@ -1,7 +1,7 @@
 ﻿import { google } from 'googleapis'
 import fs from 'node:fs'
 
-export type ShipStatus = 'pending' | 'in_work' | 'assembled' | 'sent' | 'returned'
+export type ShipStatus = 'pending' | 'priority' | 'in_work' | 'assembled' | 'sent' | 'returned'
 export type ShipSource = 'telegram' | 'tilda' | 'max'
 
 export type ShipmentItem = {

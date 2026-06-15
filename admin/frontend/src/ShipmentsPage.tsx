@@ -3,9 +3,9 @@ import { createPortal } from 'react-dom'
 import { api, removeToken } from './api'
 import type { AdminPage } from './BasesPage'
 
-type SummaryItem = { article: string; title: string; titleSource: 'catalog' | 'composition' | 'none'; pending: number; in_work: number; assembled: number; sent: number; returned: number }
-type BySource = Record<string, { pending: number; in_work: number; assembled: number; sent: number }>
-type Totals = { pending: number; in_work: number; assembled: number; sent: number; returned: number }
+type SummaryItem = { article: string; title: string; titleSource: 'catalog' | 'composition' | 'none'; priority: number; pending: number; in_work: number; assembled: number; sent: number; returned: number }
+type BySource = Record<string, { priority: number; pending: number; in_work: number; assembled: number; sent: number }>
+type Totals = { priority: number; pending: number; in_work: number; assembled: number; sent: number; returned: number }
 type ShipmentsReport = { summary: SummaryItem[]; bySource: BySource; totals: Totals }
 
 const SOURCE_LABELS: Record<string, string> = { telegram: 'Telegram', tilda: 'Тильда', max: 'Max' }
@@ -174,12 +174,13 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
         merged = results[0]
       } else {
         const articleMap = new Map<string, SummaryItem>()
-        const totals: Totals = { pending: 0, in_work: 0, assembled: 0, sent: 0, returned: 0 }
+        const totals: Totals = { priority: 0, pending: 0, in_work: 0, assembled: 0, sent: 0, returned: 0 }
         const bySource: BySource = {}
         for (const r of results) {
           for (const item of r.summary) {
             const ex = articleMap.get(item.article)
             if (ex) {
+              ex.priority  += item.priority
               ex.pending   += item.pending
               ex.in_work   += item.in_work
               ex.assembled += item.assembled
@@ -187,6 +188,7 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
               ex.returned  += item.returned
             } else articleMap.set(item.article, { ...item })
           }
+          totals.priority  += r.totals.priority
           totals.pending   += r.totals.pending
           totals.in_work   += r.totals.in_work
           totals.assembled += r.totals.assembled
@@ -195,7 +197,11 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
           Object.assign(bySource, r.bySource)
         }
         merged = {
-          summary: [...articleMap.values()].sort((a, b) => b.pending - a.pending),
+          summary: [...articleMap.values()].sort((a, b) => {
+            const ap = a.priority > 0 ? 1 : 0, bp = b.priority > 0 ? 1 : 0
+            if (bp !== ap) return bp - ap
+            return (b.priority + b.pending + b.in_work + b.assembled) - (a.priority + a.pending + a.in_work + a.assembled)
+          }),
           totals,
           bySource,
         }
@@ -220,8 +226,8 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
     })
   }
 
-  const totals = report?.totals ?? { pending: 0, in_work: 0, assembled: 0, sent: 0, returned: 0 }
-  const totalAll = totals.pending + totals.in_work + totals.assembled + totals.sent + totals.returned
+  const totals = report?.totals ?? { priority: 0, pending: 0, in_work: 0, assembled: 0, sent: 0, returned: 0 }
+  const totalAll = totals.priority + totals.pending + totals.in_work + totals.assembled + totals.sent + totals.returned
   const bySource = report?.bySource ?? {}
   const summary  = report?.summary ?? []
   const hasInWork    = summary.some(s => s.in_work > 0)
@@ -362,7 +368,7 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
         {report && (
           <div className={loading ? 'sh-content sh-content--loading' : 'sh-content'}>
             <div className="sh-counters">
-              <ArcCounter value={totals.pending}   total={totalAll} label="К отправке"  color="#db2777" track="rgba(244,114,182,0.22)" />
+              <ArcCounter value={totals.priority + totals.pending} total={totalAll} label="К отправке" color="#db2777" track="rgba(244,114,182,0.22)" />
               <ArcCounter value={totals.in_work}   total={totalAll} label="В работе"    color="#ea580c" track="rgba(251,146,60,0.22)"  />
               <ArcCounter value={totals.assembled} total={totalAll} label="Собран"      color="#0284c7" track="rgba(56,189,248,0.22)"  />
               <ArcCounter value={totals.sent}      total={totalAll} label="Отправлено"  color="#7c3aed" track="rgba(139,92,246,0.2)"   />
@@ -373,7 +379,7 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
             <div className="sh-chips">
               {ALL_SOURCES.map(src => {
                 const c = bySource[src]
-                const n = (c?.pending ?? 0) + (c?.in_work ?? 0) + (c?.assembled ?? 0) + (c?.sent ?? 0)
+                const n = (c?.priority ?? 0) + (c?.pending ?? 0) + (c?.in_work ?? 0) + (c?.assembled ?? 0) + (c?.sent ?? 0)
                 return (
                   <button
                     key={src}
@@ -404,14 +410,14 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
                   </thead>
                   <tbody>
                     {summary.map(item => (
-                      <tr key={item.article} className={item.pending + item.in_work + item.assembled > 0 ? 'sh-row-hot' : ''}>
+                      <tr key={item.article} className={item.priority > 0 ? 'sh-row-priority' : item.pending + item.in_work + item.assembled > 0 ? 'sh-row-hot' : ''}>
                         <td><span className="sh-art">{item.article}</span></td>
                         <td className="sh-name">
                           {item.title || <span className="sh-muted">—</span>}
                           {item.titleSource === 'composition' && <UnknownBadge />}
                         </td>
                         <td className="sh-td-p">
-                          {item.pending > 0 ? <strong>{item.pending}</strong> : <span className="sh-muted">—</span>}
+                          {(item.priority + item.pending) > 0 ? <strong>{item.priority + item.pending}</strong> : <span className="sh-muted">—</span>}
                         </td>
                         {hasInWork && (
                           <td className="sh-td-w">{item.in_work > 0 ? item.in_work : <span className="sh-muted">—</span>}</td>

@@ -8,7 +8,7 @@ export const PIPELINE_ID = 10993830
 
 export const STAGE_MAP: Record<number, ShipStatus | 'skip'> = {
   86423882: 'pending',   // Неразобранное
-  86486222: 'pending',   // ПРИОРИТЕТНЫЙ ЗАКАЗ
+  86486222: 'priority',  // ПРИОРИТЕТНЫЙ ЗАКАЗ
   86423886: 'pending',   // НОВЫЙ, ЖДЕТ ОТПРАВКИ
   86486582: 'in_work',   // В РАБОТЕ
   86486586: 'assembled', // Собран
