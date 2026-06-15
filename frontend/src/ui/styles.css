@@ -622,12 +622,13 @@ body { margin: 0; background: var(--page-bg); color: var(--page-fg); font-family
   width: 100%; padding: 18px 16px; text-align: center; cursor: pointer;
   background: #fff; border: 1px solid #e7d8ec; border-radius: 4px;
   box-shadow: 0 3px 10px rgba(0,0,0,.10);
+  font-family: inherit;
   -webkit-tap-highlight-color: transparent;
 }
 .delivery-region__option:focus { outline: none; }
 .delivery-region__option-label { font-size: 16px; font-weight: 600; color: #222; }
 .delivery-region__option-desc { font-size: 13px; color: #888; }
-.delivery-region__back { display: block; margin: 0 auto; background: none; border: none; padding: 6px 8px; color: #999; font-size: 13px; cursor: pointer; transition: color .2s; }
+.delivery-region__back { display: block; margin: 0 auto; background: none; border: none; padding: 6px 8px; color: #999; font-size: 13px; font-family: inherit; cursor: pointer; transition: color .2s; }
 .delivery-region__back:hover { color: #d480e0; }
 
 /* блок самовывоза в форме оформления */

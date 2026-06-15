@@ -1013,8 +1013,14 @@ const CheckoutForm = ({
     const apiUrl = import.meta.env.VITE_API_URL || ''
     try {
       const resp = await fetch(`${apiUrl}/api/pochta/calculate?country=${country.code}`)
-      if (!resp.ok) throw new Error('pochta_unavailable')
-      const data = await resp.json()
+      const data = await resp.json().catch(() => ({}))
+      if (resp.status === 422 && data?.error === 'delivery_unavailable') {
+        // нулевой тариф = доставка Почтой в эту страну недоступна
+        setDeliveryCost(null)
+        setCostError('Доставка Почтой России в эту страну недоступна. Выберите другую страну.')
+        return
+      }
+      if (!resp.ok || typeof data?.delivery_sum !== 'number') throw new Error('pochta_unavailable')
       setDeliveryCost(data.delivery_sum)
     } catch {
       setDeliveryCost(null)

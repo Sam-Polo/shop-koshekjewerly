@@ -1693,6 +1693,8 @@ app.get('/api/pochta/calculate', generalLimiter, async (req, res) => {
   if (!countryCode) return res.status(400).json({ error: 'country required' })
   try {
     const cost = await calculatePochtaTariff(countryCode)
+    // нулевой тариф = EMS в эту страну не доставляется (маркер недоступности направления)
+    if (cost <= 0) return res.status(422).json({ error: 'delivery_unavailable' })
     return res.json({ delivery_sum: cost })
   } catch (e: any) {
     logger.warn({ error: e?.message, countryCode }, 'Pochta calculate error')
