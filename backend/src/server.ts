@@ -1155,7 +1155,7 @@ export async function processPaidOrder(
     logger.info({ orderId }, 'самовывоз: отправление не создаётся')
   } else if (order.orderData.deliveryMethod === 'ems') {
     // fire-and-forget: создаём международное EMS-отправление и отправляем трек покупателю
-    triggerPochtaOrderAsync(order, async (shpi, batchName) => {
+    triggerPochtaOrderAsync(order, async (shpi, batchName, pochtaOrderId) => {
       updatePochtaInfoInSheet(orderId, shpi).catch(() => {})
       const trackingUrl = `https://www.pochta.ru/tracking#${shpi}`
 
@@ -1166,7 +1166,8 @@ export async function processPaidOrder(
             { tag: 'amocrm', level: 'low', code: 'AMOCRM_TRACK_UPDATE_FAILED' }
           ).catch(() => {})
         })
-        updateAmoCrmLeadBarcode(amoCrmLeadId, shpi, downloadF7p, 'pochta-labels').catch((e: any) => {
+        // ярлык Ф7п берётся по id заказа Почты (не по ШПИ); файл в S3 кладём под этим id
+        updateAmoCrmLeadBarcode(amoCrmLeadId, String(pochtaOrderId), downloadF7p, 'pochta-labels').catch((e: any) => {
           sendAlert(
             `amoCRM: не удалось прикрепить ярлык Ф7п к лиду ${amoCrmLeadId} (заказ ${orderId}): ${e?.message}`,
             { tag: 'amocrm', level: 'low', code: 'AMOCRM_BARCODE_FAILED' }
@@ -2266,9 +2267,9 @@ app.post('/api/pochta/test', express.json(), async (req, res) => {
       return res.status(200).json({ ok: false, error: 'ШПИ не присвоен за 15с', steps })
     }
 
-    // 5. скачать ярлык Ф7п → загрузить в S3
-    const pdf = await downloadF7p(shpi)
-    const labelUrl = await uploadBufferToS3(`pochta-labels/test-${shpi}.pdf`, pdf, 'application/pdf')
+    // 5. скачать ярлык Ф7п (по id заказа Почты, не по ШПИ) → загрузить в S3
+    const pdf = await downloadF7p(order.id)
+    const labelUrl = await uploadBufferToS3(`pochta-labels/test-${order.id}.pdf`, pdf, 'application/pdf')
     steps.label = { ok: true, labelUrl }
 
     const trackingUrl = `https://www.pochta.ru/tracking#${shpi}`
@@ -2278,7 +2279,7 @@ app.post('/api/pochta/test', express.json(), async (req, res) => {
       try {
         const leadId = await createAmoCrmLead(fakeOrder as any)
         await updateAmoCrmLeadTrack(leadId, shpi, trackingUrl)
-        await updateAmoCrmLeadBarcode(leadId, shpi, downloadF7p, 'pochta-labels')
+        await updateAmoCrmLeadBarcode(leadId, String(order.id), downloadF7p, 'pochta-labels')
         steps.lead = { ok: true, leadUrl: `https://${process.env.AMOCRM_SUBDOMAIN}.amocrm.ru/leads/detail/${leadId}` }
       } catch (e: any) {
         steps.lead = { ok: false, error: e?.message }

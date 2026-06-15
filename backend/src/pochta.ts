@@ -329,14 +329,14 @@ async function sleep(ms: number) {
 }
 
 /**
- * Скачивает форму Ф7п (адресный ярлык) по ШПИ.
- * GET /1.0/forms/{shpi}/f7pdf → application/pdf.
+ * Скачивает форму Ф7п (адресный ярлык) по идентификатору ЗАКАЗА (backlog id), НЕ по ШПИ.
+ * GET /1.0/forms/{order-id}/f7pdf → application/pdf. (по ШПИ API отдаёт 403 Access Denied)
  */
-export async function downloadF7p(shpi: string): Promise<Buffer> {
+export async function downloadF7p(orderId: string | number): Promise<Buffer> {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), 30_000)
   try {
-    const resp = await fetch(`${POCHTA_BASE}/1.0/forms/${encodeURIComponent(shpi)}/f7pdf`, {
+    const resp = await fetch(`${POCHTA_BASE}/1.0/forms/${encodeURIComponent(String(orderId))}/f7pdf`, {
       headers: { ...getAuthHeaders(), Accept: 'application/pdf' },
       signal: ctrl.signal,
     })
@@ -364,7 +364,7 @@ const RETRY_DELAYS_MS = [2_000, 4_000]
  */
 export async function triggerPochtaOrderAsync(
   order: Order,
-  onTrackReady: (shpi: string, batchName: string) => Promise<void>
+  onTrackReady: (shpi: string, batchName: string, pochtaOrderId: number) => Promise<void>
 ): Promise<void> {
   // обязательные env должны быть заданы — иначе отправление не создать
   if (!checkRequiredPochtaEnv()) return
@@ -429,7 +429,7 @@ export async function triggerPochtaOrderAsync(
   }
 
   if (shpi) {
-    await onTrackReady(shpi, batchName).catch((e: any) => {
+    await onTrackReady(shpi, batchName, resultId).catch((e: any) => {
       sendAlert(
         `Pochta: ШПИ ${shpi} получен для ${order.orderId}, но onTrackReady упал: ${e?.message}`,
         { tag: 'pochta', level: 'moderate', code: 'POCHTA_TRACK_CALLBACK_FAILED' }
