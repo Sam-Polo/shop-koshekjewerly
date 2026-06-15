@@ -13,7 +13,7 @@ import { createOrder, getOrder, updateOrderStatus, listOrders, restoreOrder, typ
 import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId, listPendingOrdersFromSheet, updateCdekInfoInSheet, updatePochtaInfoInSheet } from './orders-sheet.js'
 import { sendAlert } from './alerts.js';
 import { searchCities, getPickupPoints, calculateDelivery, triggerCdekOrderAsync, getCdekUuidByTrack, downloadCdekBarcode } from './cdek.js';
-import { calculateTariff as calculatePochtaTariff, triggerPochtaOrderAsync, downloadF7p, getCountries as getPochtaCountries, createPochtaOrder, createBatch, getShpiFromBatch, checkRequiredPochtaEnv, pochtaFetch } from './pochta.js';
+import { calculateTariff as calculatePochtaTariff, triggerPochtaOrderAsync, downloadF7p, getCountries as getPochtaCountries, createPochtaOrder, createBatch, getShpiFromBatch, checkRequiredPochtaEnv, pochtaFetch, _batchShipmentsPath } from './pochta.js';
 import { uploadBufferToS3 } from './s3.js';
 import { triggerAmoCrmAsync, updateAmoCrmLeadTrack, updateAmoCrmLeadBarcode, createAmoCrmLead, syncCdekToLead } from './amocrm.js';
 import { buildPaymentForm, buildReceipt, verifyResultSignature, queryOrderState } from './robokassa.js';
@@ -1703,11 +1703,13 @@ app.get('/api/pochta/calculate', generalLimiter, async (req, res) => {
   }
 })
 
-// CDEK webhook (type=ORDER_STATUS): подтягивает трек/ссылку/штрихкод в Тильдины лиды.
-// Связка по полю «Номер заказа» (attributes.number = «Номер ИМ»).
-// CDEK шлёт POST на каждую смену статуса — отвечаем 200 МГНОВЕННО, обработку
-// (поиск лида + скачивание штрихкода ~20с) делаем в фоне, иначе CDEK словит таймаут и заретраит.
+// CDEK webhook (type=ORDER_STATUS): два независимых фоновых задания:
+// 1) при статусе RECEIVED_AT_SENDER_CITY — уведомляем покупателя об отправке
+// 2) синхронизируем трек/штрихкод в amoCRM (Тильдины лиды) с ретраями до 12 мин
+// CDEK шлёт POST на каждую смену статуса — отвечаем 200 МГНОВЕННО, иначе CDEK словит таймаут.
 // Опциональная защита: если задан CDEK_WEBHOOK_SECRET — требуем ?token=… в URL подписки.
+const DEFAULT_SHIPPED_MESSAGE = '📦 Ваш заказ отправлен!\n\nОтследить посылку:\n{{track}}\n\nСпасибо за ваш заказ 🤍'
+
 app.post('/api/cdek/webhook', express.json(), (req, res) => {
   const secret = process.env.CDEK_WEBHOOK_SECRET
   if (secret && req.query.token !== secret) {
@@ -1727,10 +1729,67 @@ app.post('/api/cdek/webhook', express.json(), (req, res) => {
 
   const cdekNumber = String(attrs.cdek_number ?? '').trim()
   const orderNumber = String(attrs.number ?? '').trim()
+  const statusCode = String(attrs.code ?? '').trim()
   const uuid = String(body?.uuid ?? '').trim()
 
-  // трек ещё не присвоен, нет нашего номера заказа или uuid — обрабатывать нечего
-  if (!cdekNumber || !orderNumber || !uuid) return
+  if (!cdekNumber || !orderNumber) return
+
+  // ── Задание 1: уведомление покупателю при отправке посылки ──────────────────
+  // RECEIVED_AT_SENDER_CITY = посылка принята в городе отправителя и отправляется
+  if (statusCode === 'RECEIVED_AT_SENDER_CITY') {
+    void (async () => {
+      // читаем заказ из Sheets — нужен customerChatId и adminNote для дедупликации
+      const sheetOrder = await getOrderFromSheet(orderNumber).catch(() => null)
+
+      if (!sheetOrder) {
+        // тильдин или EMS-заказ — не алертим, просто пропускаем
+        logger.info({ orderNumber, cdekNumber }, 'CDEK shipped: заказ не найден в Sheets — пропускаем уведомление')
+        return
+      }
+
+      if (!sheetOrder.customerChatId) {
+        logger.info({ orderNumber }, 'CDEK shipped: нет customerChatId — уведомление не нужно')
+        return
+      }
+
+      // дедупликация: не слать повторно при повторном вебхуке
+      if (sheetOrder.adminNote?.includes('shipped_notified')) {
+        logger.info({ orderNumber }, 'CDEK shipped: уведомление уже отправлено ранее — пропускаем')
+        return
+      }
+
+      // читаем шаблон сообщения из настроек
+      let shippedTemplate = DEFAULT_SHIPPED_MESSAGE
+      try {
+        const sheetId = process.env.IMPORT_SHEET_ID
+        if (sheetId) {
+          const settings = await getCachedOrdersSettings(sheetId)
+          if (settings.shippedMessage) shippedTemplate = settings.shippedMessage
+        }
+      } catch {}
+
+      const trackingUrl = `https://www.cdek.ru/track?order_id=${cdekNumber}`
+      const messageText = shippedTemplate.replace(/\{\{track\}\}/g, trackingUrl)
+
+      const sendFn = sheetOrder.platform === 'max' ? sendMaxMessage : sendTelegramMessage
+      const result = await sendFn(sheetOrder.customerChatId, messageText)
+
+      if (result.ok) {
+        const existingNote = sheetOrder.adminNote || ''
+        const newNote = existingNote ? `${existingNote}\nshipped_notified` : 'shipped_notified'
+        updateOrderAdminNoteInSheet(orderNumber, newNote).catch(() => {})
+        logger.info({ orderNumber, cdekNumber }, 'CDEK shipped: уведомление отправлено покупателю')
+      } else {
+        sendAlert(
+          `CDEK shipped: уведомление не доставлено покупателю (заказ ${orderNumber}, трек ${cdekNumber}): ${result.errorDescription ?? 'неизвестно'}`,
+          { tag: 'cdek', level: 'high', hint: 'покупатель не получил уведомление об отправке — возможно бот заблокирован или chat_id не сохранён', code: 'CDEK_SHIPPED_NOTIFY_FAILED' }
+        ).catch(() => {})
+      }
+    })()
+  }
+
+  // ── Задание 2: синхронизация трека/штрихкода в amoCRM ───────────────────────
+  if (!uuid) return
 
   // amoCRM индексирует свежесозданные лиды для query с задержкой (секунды-минуты),
   // а filter по кастомному полю v4 не поддерживает — query единственный путь.
@@ -2177,10 +2236,10 @@ app.post('/api/pochta/test', express.json(), async (req, res) => {
     if (!shpi && lastShpiErr) steps.shpiError = lastShpiErr
     steps.shpi = { ok: !!shpi, shpi }
     if (!shpi) {
-      // диагностика: показываем сырой ответ партии, чтобы увидеть где лежит barcode / есть ли он
+      // диагностика: сырой ответ списка заказов партии (где лежит barcode / присвоен ли он)
       try {
-        const raw = await pochtaFetch('GET', `/1.0/batch/${encodeURIComponent(batchName)}?size=50&page=0`)
-        steps.batchRaw = JSON.stringify(raw).slice(0, 1200)
+        const raw = await pochtaFetch('GET', _batchShipmentsPath(batchName))
+        steps.batchRaw = JSON.stringify(raw).slice(0, 1500)
       } catch (e: any) { steps.batchRaw = 'ERR: ' + e?.message }
       return res.status(200).json({ ok: false, error: 'ШПИ не присвоен за 15с', steps })
     }

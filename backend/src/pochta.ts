@@ -297,20 +297,29 @@ export async function createBatch(resultIds: number[]): Promise<string> {
   return batchName as string
 }
 
+/** Путь к заказам партии (с ШПИ). /1.0/batch/{name} — это метаданные партии, а заказы — на /shipment. */
+function batchShipmentsPath(batchName: string): string {
+  return `/1.0/batch/${encodeURIComponent(batchName)}/shipment?size=50&page=0`
+}
+
 /**
  * Читает ШПИ (barcode) первого заказа партии.
- * GET /1.0/batch/{name} → данные о заказах в партии; у каждого заказа поле barcode (ШПИ).
+ * GET /1.0/batch/{name}/shipment → заказы партии; у каждого поле barcode (ШПИ).
  */
 export async function getShpiFromBatch(batchName: string): Promise<string | null> {
-  // эндпоинт пагинированный — явно просим страницу записей
-  const data = await pochtaFetch('GET', `/1.0/batch/${encodeURIComponent(batchName)}?size=50&page=0`) as any
+  const data = await pochtaFetch('GET', batchShipmentsPath(batchName)) as any
   // ответ может быть массивом заказов либо объектом с вложенным списком — поддержим оба
   const list = Array.isArray(data)
     ? data
-    : (data?.orders ?? data?.['result-orders'] ?? data?.content ?? [])
+    : (data?.shipments ?? data?.orders ?? data?.['result-orders'] ?? data?.content ?? [])
   const first = Array.isArray(list) ? list[0] : null
   const barcode = first?.barcode ?? first?.['barcode-orig']
   return (barcode as string) ?? null
+}
+
+/** Путь чтения заказов партии — для диагностики в тест-эндпоинте. */
+export function _batchShipmentsPath(batchName: string): string {
+  return batchShipmentsPath(batchName)
 }
 
 // ── Печать ярлыка Ф7п (PDF) ─────────────────────────────────────────────────
