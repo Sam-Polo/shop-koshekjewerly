@@ -187,12 +187,13 @@ describe('createPochtaOrder', () => {
     const decl = body[0]['customs-declaration']
     expect(decl['customs-entries']).toHaveLength(2)
     expect(decl['customs-entries'][0]).toMatchObject({
-      description: 'Кольцо серебро',
+      description: 'Jewellery', // латиница для таможни (по умолчанию)
       amount: 1,
       value: 500000, // 5000 ₽ в копейках
       'country-code': 643,
     })
     expect(decl['customs-entries'][0]['tnved-code']).toBeTruthy()
+    expect(decl['entries-type']).toBe('SALE_OF_GOODS')
   })
 
   it('sends recipient country code and address', async () => {

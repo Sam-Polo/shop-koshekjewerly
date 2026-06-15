@@ -23,6 +23,8 @@ const getMailType = () => process.env.POCHTA_MAIL_TYPE ?? 'EMS'
 // EMS международная с товаром идёт с объявленной ценностью (ORDINARY не поддерживается)
 const getMailCategory = () => process.env.POCHTA_MAIL_CATEGORY ?? 'WITH_DECLARED_VALUE'
 const getTnvedCode = () => process.env.POCHTA_TNVED_CODE ?? '7117'
+// наименование товара в таможенной декларации CN23 — только латиница/английский
+const getCustomsDescription = () => process.env.POCHTA_CUSTOMS_DESCRIPTION ?? 'Jewellery'
 const getIndexFrom = () => process.env.POCHTA_INDEX_FROM ?? ''
 
 // ── Env validation — отсутствие любой обязательной переменной = критичный алерт ─
@@ -195,10 +197,12 @@ export interface PochtaOrderResult {
 function buildCustomsEntries(order: Order) {
   const items = order.orderData.items
   const tnved = getTnvedCode()
+  const description = getCustomsDescription()
   // распределяем фикс-вес посылки по позициям (как в cdek.ts)
   const perItemWeight = Math.max(1, Math.round(PKG_WEIGHT_G / Math.max(1, items.length)))
   return items.map(item => ({
-    description: item.title.slice(0, 64),
+    // наименование для таможни — латиница (item.title кириллицей таможня отклоняет)
+    description,
     amount: item.quantity,
     weight: perItemWeight,
     // стоимость позиции в копейках

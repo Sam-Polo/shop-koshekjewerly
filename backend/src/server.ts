@@ -2113,7 +2113,7 @@ app.post('/api/pochta/test', express.json(), async (req, res) => {
   }
 
   const b = req.body ?? {}
-  const countryCode = Number(b.countryCode) || 112 // Беларусь по умолчанию
+  const countryCode = Number(b.countryCode) || 276 // Германия по умолчанию (дальнее зарубежье)
   const createLead = b.createLead === true
   const steps: Record<string, unknown> = {}
 
@@ -2133,13 +2133,13 @@ app.post('/api/pochta/test', express.json(), async (req, res) => {
       deliveryCost: 0,
       total: 5000,
       deliveryMethod: 'ems' as const,
-      recipientCountry: b.recipientCountry || 'Тест',
+      recipientCountry: b.recipientCountry || 'Germany',
       recipientCountryCode: countryCode,
-      recipientRegion: b.recipientRegion || '',
-      recipientCity: b.recipientCity || 'Minsk',
-      recipientStreet: b.recipientStreet || 'Test str 1',
-      recipientIndex: b.recipientIndex || '220000',
-      items: [{ slug: 'test-ring', title: 'Кольцо тест', price: 5000, quantity: 1 }],
+      recipientRegion: b.recipientRegion || 'Berlin',
+      recipientCity: b.recipientCity || 'Berlin',
+      recipientStreet: b.recipientStreet || 'Teststrasse 1',
+      recipientIndex: b.recipientIndex || '10115',
+      items: [{ slug: 'test-ring', title: 'Test ring', price: 5000, quantity: 1 }],
     },
   }
 
