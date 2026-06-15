@@ -161,7 +161,7 @@ async function findOrCreateContact(order: Order): Promise<number> {
 
 // ── Build lead custom fields ──────────────────────────────────────────────────
 
-function buildLeadFields(order: Order): FieldValue[] {
+function buildLeadFields(order: Order, certPromocode?: string): FieldValue[] {
   const fields: FieldValue[] = []
   const push = (f: FieldValue | null) => { if (f) fields.push(f) }
 
@@ -184,7 +184,10 @@ function buildLeadFields(order: Order): FieldValue[] {
       return `${art}${i.title}${i.quantity > 1 ? ` × ${i.quantity}` : ''} — ${i.price * i.quantity}₽`
     })
     .join('\n')
-  push(fieldVal('AMOCRM_FIELD_ITEMS_ID', items))
+  const itemsWithPromo = certPromocode
+    ? `${items}\nПромокод сертификата: ${certPromocode}`
+    : items
+  push(fieldVal('AMOCRM_FIELD_ITEMS_ID', itemsWithPromo))
 
   // Адрес доставки
   push(fieldVal('AMOCRM_FIELD_ADDRESS_ID', order.orderData.address || order.orderData.city))
@@ -219,7 +222,7 @@ function buildLeadFields(order: Order): FieldValue[] {
 
 // ── Create lead ───────────────────────────────────────────────────────────────
 
-export async function createAmoCrmLead(order: Order): Promise<number> {
+export async function createAmoCrmLead(order: Order, certPromocode?: string): Promise<number> {
   checkRequiredFieldEnv()
 
   const pipelineId = Number(process.env.AMOCRM_PIPELINE_ID) || undefined
@@ -263,7 +266,7 @@ export async function createAmoCrmLead(order: Order): Promise<number> {
   const leadBody: Record<string, unknown> = {
     name: `${order.orderData.fullName} — ${order.orderData.total}₽`,
     price: order.orderData.total,
-    custom_fields_values: buildLeadFields(order),
+    custom_fields_values: buildLeadFields(order, certPromocode),
     _embedded: {
       contacts: [{ id: contactId, is_main: true }],
       tags: [{ name: tagName }],
@@ -419,7 +422,7 @@ function sleep(ms: number): Promise<void> {
  * - После исчерпания попыток — критичный алерт (заказ есть только в Sheets).
  * Никогда не бросает исключение.
  */
-export async function triggerAmoCrmAsync(order: Order): Promise<number | null> {
+export async function triggerAmoCrmAsync(order: Order, certPromocode?: string): Promise<number | null> {
   // защита от дублей при повторной обработке оплаты / восстановлении из Sheets
   try {
     const existing = await findLeadByOrderNumber(order.orderId)
@@ -431,7 +434,7 @@ export async function triggerAmoCrmAsync(order: Order): Promise<number | null> {
   let lastErr: any = null
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      return await createAmoCrmLead(order)
+      return await createAmoCrmLead(order, certPromocode)
     } catch (e: any) {
       lastErr = e
       if (attempt < 3) await sleep(AMO_RETRY_DELAYS_MS[attempt - 1])

@@ -11,6 +11,7 @@ export type Promocode = {
   expiresAt?: string // дата окончания в формате ISO (YYYY-MM-DDTHH:mm:ss)
   active: boolean // активен ли промокод
   productSlugs?: string[] // массив slug'ов товаров, для которых действует промокод (если пусто или null - действует на все товары)
+  source?: string // источник: 'certificate' для сертификатных промокодов
 }
 
 // получение структуры заголовков листа промокодов
@@ -23,10 +24,10 @@ export async function getPromocodesHeaders(
   const res = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range })
   const rows = res.data.values ?? []
   
-  const defaultHeaders = ['code', 'type', 'value', 'expires_at', 'active', 'product_slugs']
+  const defaultHeaders = ['code', 'type', 'value', 'expires_at', 'active', 'product_slugs', 'source']
   let headers: string[] = []
   const headerIndex: Record<string, number> = {}
-  
+
   if (rows.length > 0) {
     headers = rows[0].map((h: string) => h.trim().toLowerCase())
   } else {
@@ -34,14 +35,14 @@ export async function getPromocodesHeaders(
     headers = defaultHeaders
     await sheets.spreadsheets.values.update({
       spreadsheetId: sheetId,
-      range: 'promocodes!A1:G1',
+      range: 'promocodes!A1:H1',
       valueInputOption: 'USER_ENTERED',
       requestBody: {
         values: [defaultHeaders]
       }
     })
   }
-  
+
   defaultHeaders.forEach(h => {
     const idx = headers.indexOf(h)
     if (idx !== -1) {
@@ -58,7 +59,7 @@ export async function fetchPromocodesFromSheet(sheetId: string): Promise<Promoco
   const sheets = google.sheets({ version: 'v4', auth })
   
   try {
-    const range = 'promocodes!A2:G1000'
+    const range = 'promocodes!A2:H1000'
     const res = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range })
     const rows = res.data.values ?? []
     
@@ -78,6 +79,7 @@ export async function fetchPromocodesFromSheet(sheetId: string): Promise<Promoco
       const expiresAtRaw = String(get('expires_at') || '').trim()
       const activeVal = String(get('active') || '').toLowerCase()
       const productSlugsRaw = String(get('product_slugs') || '').trim()
+      const sourceRaw = String(get('source') || '').trim()
       
       if (!code) continue
       
@@ -120,7 +122,8 @@ export async function fetchPromocodesFromSheet(sheetId: string): Promise<Promoco
         value,
         expiresAt,
         active,
-        productSlugs
+        productSlugs,
+        ...(sourceRaw ? { source: sourceRaw } : {})
       })
     }
     
@@ -156,7 +159,8 @@ export async function appendPromocodeToSheet(
       ? promocode.productSlugs.join(', ')
       : ''
   }
-  
+  if (headerIndex.source !== undefined) row[headerIndex.source] = promocode.source ?? ''
+
   await sheets.spreadsheets.values.append({
     spreadsheetId: sheetId,
     range: 'promocodes!A:Z',
@@ -176,7 +180,7 @@ export async function deletePromocodeFromSheet(
   code: string
 ): Promise<void> {
   const sheets = google.sheets({ version: 'v4', auth })
-  const range = 'promocodes!A2:F1000'
+  const range = 'promocodes!A2:H1000'
   const res = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range })
   const rows = res.data.values ?? []
   
@@ -234,43 +238,43 @@ export async function updatePromocodeInSheet(
   promocode: Promocode
 ): Promise<void> {
   const sheets = google.sheets({ version: 'v4', auth })
-  const range = 'promocodes!A2:G1000'
+  const range = 'promocodes!A2:H1000'
   const res = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range })
   const rows = res.data.values ?? []
-  
+
   if (rows.length === 0) {
     throw new Error('Промокод не найден')
   }
-  
+
   const { headers, headerIndex } = await getPromocodesHeaders(auth, sheetId)
   const codeIndex = headerIndex.code
-  
+
   if (codeIndex === undefined) {
     throw new Error('Колонка code не найдена')
   }
-  
+
   const normalizedOldCode = oldCode.trim().toUpperCase()
   let rowIndex = -1
-  
+
   for (let i = 0; i < rows.length; i++) {
     if (String(rows[i][codeIndex] || '').trim().toUpperCase() === normalizedOldCode) {
       rowIndex = i + 2 // +2 потому что первая строка - заголовок, и индексация с 1
       break
     }
   }
-  
+
   if (rowIndex === -1) {
     throw new Error('Промокод не найден')
   }
-  
+
   // создаем строку с обновленными данными
   const row: any[] = new Array(headers.length).fill('')
-  
+
   if (headerIndex.code !== undefined) row[headerIndex.code] = promocode.code.toUpperCase()
   if (headerIndex.type !== undefined) row[headerIndex.type] = promocode.type
   if (headerIndex.value !== undefined) row[headerIndex.value] = promocode.value
   if (headerIndex.expires_at !== undefined) {
-    row[headerIndex.expires_at] = promocode.expiresAt 
+    row[headerIndex.expires_at] = promocode.expiresAt
       ? new Date(promocode.expiresAt).toISOString().slice(0, 19).replace('T', ' ')
       : ''
   }
@@ -280,11 +284,12 @@ export async function updatePromocodeInSheet(
       ? promocode.productSlugs.join(', ')
       : ''
   }
-  
+  if (headerIndex.source !== undefined) row[headerIndex.source] = promocode.source ?? ''
+
   // обновляем строку
   await sheets.spreadsheets.values.update({
     spreadsheetId: sheetId,
-    range: `promocodes!A${rowIndex}:G${rowIndex}`,
+    range: `promocodes!A${rowIndex}:H${rowIndex}`,
     valueInputOption: 'USER_ENTERED',
     requestBody: {
       values: [row]

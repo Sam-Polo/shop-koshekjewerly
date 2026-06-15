@@ -9,24 +9,25 @@ export type Promocode = {
   active: boolean // активен ли промокод
   createdAt?: string // дата создания
   productSlugs?: string[] // массив slug'ов товаров, для которых действует промокод (если пусто или null - действует на все товары)
+  source?: string // источник промокода: 'certificate' для сертификатных
+}
+
+function getCredsFromEnv() {
+  const filePath = process.env.GOOGLE_SA_FILE
+  const raw = process.env.GOOGLE_SA_JSON
+  if (filePath) return JSON.parse(fs.readFileSync(filePath, 'utf8'))
+  if (raw) return JSON.parse(raw)
+  throw new Error('GOOGLE_SA_JSON or GOOGLE_SA_FILE is required')
 }
 
 function getAuthFromEnv() {
-  const filePath = process.env.GOOGLE_SA_FILE
-  const raw = process.env.GOOGLE_SA_JSON
-  let creds: any
-  
-  if (filePath) {
-    const txt = fs.readFileSync(filePath, 'utf8')
-    creds = JSON.parse(txt)
-  } else if (raw) {
-    creds = JSON.parse(raw)
-  } else {
-    throw new Error('GOOGLE_SA_JSON or GOOGLE_SA_FILE is required')
-  }
-  
-  const scopes = ['https://www.googleapis.com/auth/spreadsheets.readonly']
-  return new google.auth.JWT(creds.client_email, undefined, creds.private_key, scopes)
+  const creds = getCredsFromEnv()
+  return new google.auth.JWT(creds.client_email, undefined, creds.private_key, ['https://www.googleapis.com/auth/spreadsheets.readonly'])
+}
+
+function getWriteAuth() {
+  const creds = getCredsFromEnv()
+  return new google.auth.JWT(creds.client_email, undefined, creds.private_key, ['https://www.googleapis.com/auth/spreadsheets'])
 }
 
 // чтение всех промокодов из Google Sheets
@@ -35,7 +36,7 @@ export async function fetchPromocodesFromSheet(sheetId: string): Promise<Promoco
   const sheets = google.sheets({ version: 'v4', auth })
   
   try {
-    const range = 'promocodes!A1:G1000'
+    const range = 'promocodes!A1:H1000'
     const res = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range })
     const rows = res.data.values ?? []
     
@@ -56,6 +57,7 @@ export async function fetchPromocodesFromSheet(sheetId: string): Promise<Promoco
       const expiresAtRaw = String(get('expires_at') || get('expiresat') || '').trim()
       const activeVal = String(get('active') || '').toLowerCase()
       const productSlugsRaw = String(get('product_slugs') || get('productslugs') || '').trim()
+      const sourceRaw = String(get('source') || '').trim()
       
       if (!code) continue // пропускаем строки без кода
       
@@ -100,7 +102,8 @@ export async function fetchPromocodesFromSheet(sheetId: string): Promise<Promoco
         value,
         expiresAt,
         active,
-        productSlugs
+        productSlugs,
+        ...(sourceRaw ? { source: sourceRaw } : {})
       })
     }
     
@@ -131,6 +134,110 @@ export function findPromocode(code: string): Promocode | undefined {
   const normalizedCode = code.trim().toUpperCase()
   return state.promocodes.find(p => p.code === normalizedCode)
 }
+
+// ── Certificate promo code generation ────────────────────────────────────────
+
+const CERT_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' // без 0/O/I/1
+
+function generateCertCode(): string {
+  let code: string
+  do {
+    code = 'CERT-' + Array.from({ length: 8 }, () =>
+      CERT_CHARS[Math.floor(Math.random() * CERT_CHARS.length)]
+    ).join('')
+  } while (state.promocodes.some(p => p.code === code))
+  return code
+}
+
+// Создаёт промокод сертификата: пишет в Google Sheets и добавляет в память.
+// Возвращает сгенерированный код.
+export async function saveCertificatePromocode(sheetId: string, certValue: number): Promise<string> {
+  const code = generateCertCode()
+
+  const auth = getWriteAuth()
+  const sheets = google.sheets({ version: 'v4', auth })
+
+  // читаем заголовки, чтобы выставить значения по позиции
+  const headersRes = await sheets.spreadsheets.values.get({
+    spreadsheetId: sheetId,
+    range: 'promocodes!A1:H1',
+  })
+  const headers = (headersRes.data.values?.[0] ?? []).map((h: string) => h.trim().toLowerCase())
+  const numCols = Math.max(headers.length, 7)
+  const row: string[] = new Array(numCols).fill('')
+
+  const set = (name: string, val: string) => {
+    const i = headers.indexOf(name)
+    if (i >= 0) row[i] = val
+  }
+
+  set('code', code)
+  set('type', 'amount')
+  set('value', String(certValue))
+  set('expires_at', '')
+  set('active', '1')
+  set('product_slugs', '')
+  set('source', 'certificate')
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: sheetId,
+    range: 'promocodes!A:H',
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: [row] },
+  })
+
+  // добавляем в память сразу, чтобы код был валиден без следующего импорта
+  state.promocodes.push({
+    code,
+    type: 'amount',
+    value: certValue,
+    active: true,
+    source: 'certificate',
+  })
+
+  return code
+}
+
+// Деактивирует промокод сертификата (одноразовый): в памяти и в Google Sheets.
+export async function deactivateCertificatePromocode(sheetId: string, code: string): Promise<void> {
+  const normalizedCode = code.trim().toUpperCase()
+
+  // сразу обновляем память
+  const promo = state.promocodes.find(p => p.code === normalizedCode)
+  if (promo) promo.active = false
+
+  // находим и обновляем строку в листе
+  const auth = getWriteAuth()
+  const sheets = google.sheets({ version: 'v4', auth })
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: sheetId,
+    range: 'promocodes!A1:H1000',
+  })
+  const rows = res.data.values ?? []
+  if (rows.length === 0) return
+
+  const headers = rows[0].map((h: string) => h.trim().toLowerCase())
+  const codeIdx = headers.indexOf('code')
+  const activeIdx = headers.indexOf('active')
+  if (codeIdx < 0 || activeIdx < 0) return
+
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i]?.[codeIdx] ?? '').trim().toUpperCase() === normalizedCode) {
+      const rowNum = i + 1 // 1-indexed
+      const activeCol = String.fromCharCode(65 + activeIdx)
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: sheetId,
+        range: `promocodes!${activeCol}${rowNum}`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [['0']] },
+      })
+      break
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 // проверка промокода (возвращает скидку или null)
 // orderItemSlugs - массив slug'ов товаров в заказе

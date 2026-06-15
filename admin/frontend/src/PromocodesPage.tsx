@@ -9,6 +9,7 @@ type Promocode = {
   expiresAt?: string
   active: boolean
   productSlugs?: string[]
+  source?: string
 }
 
 type Product = {
@@ -26,6 +27,7 @@ function PromocodesPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void
     window.location.href = '/'
   }
   const [promocodes, setPromocodes] = useState<Promocode[]>([])
+  const [activeTab, setActiveTab] = useState<'all' | 'certificate'>('all')
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<{ code: string } | null>(null)
@@ -145,76 +147,126 @@ function PromocodesPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void
           </button>
         </div>
         <div className="header-actions">
-          <button className="btn btn-add" onClick={() => setIsAddModalOpen(true)}>
-            + Добавить промокод
-          </button>
+          {activeTab === 'all' && (
+            <button className="btn btn-add" onClick={() => setIsAddModalOpen(true)}>
+              + Добавить промокод
+            </button>
+          )}
           <button onClick={handleLogout} className="logout-btn">
             Выйти
           </button>
         </div>
       </header>
 
+      <div style={{ padding: '0 1.5rem', borderBottom: '1px solid #e5e7eb', display: 'flex', gap: '0' }}>
+        <button
+          onClick={() => setActiveTab('all')}
+          style={{
+            padding: '0.75rem 1.25rem',
+            border: 'none',
+            background: 'none',
+            cursor: 'pointer',
+            fontWeight: activeTab === 'all' ? 600 : 400,
+            borderBottom: activeTab === 'all' ? '2px solid #6366f1' : '2px solid transparent',
+            color: activeTab === 'all' ? '#6366f1' : '#6b7280',
+          }}
+        >
+          Все промокоды ({promocodes.filter(p => p.source !== 'certificate').length})
+        </button>
+        <button
+          onClick={() => setActiveTab('certificate')}
+          style={{
+            padding: '0.75rem 1.25rem',
+            border: 'none',
+            background: 'none',
+            cursor: 'pointer',
+            fontWeight: activeTab === 'certificate' ? 600 : 400,
+            borderBottom: activeTab === 'certificate' ? '2px solid #6366f1' : '2px solid transparent',
+            color: activeTab === 'certificate' ? '#6366f1' : '#6b7280',
+          }}
+        >
+          Сертификаты ({promocodes.filter(p => p.source === 'certificate').length})
+        </button>
+      </div>
+
       <div className="promocodes-list">
-        {promocodes.length === 0 ? (
-          <div className="empty-state">Промокоды не найдены</div>
-        ) : (
-          <table className="promocodes-table">
-            <thead>
-              <tr>
-                <th>Код</th>
-                <th>Тип</th>
-                <th>Значение</th>
-                <th>Товары</th>
-                <th>Окончание</th>
-                <th>Статус</th>
-                <th>Действия</th>
-              </tr>
-            </thead>
-            <tbody>
-              {promocodes.map((promocode) => {
-                const expired = isExpired(promocode.expiresAt)
-                const status = !promocode.active ? 'Неактивен' : expired ? 'Истек' : 'Активен'
-                
-                return (
-                  <tr key={promocode.code} className={!promocode.active || expired ? 'inactive' : ''}>
-                    <td data-label="Код"><strong>{promocode.code}</strong></td>
-                    <td data-label="Тип">{promocode.type === 'amount' ? 'Сумма' : 'Процент'}</td>
-                    <td data-label="Значение">
-                      {promocode.type === 'amount' 
-                        ? `${promocode.value} ₽` 
-                        : `${promocode.value}%`}
-                    </td>
-                    <td data-label="Товары">
-                      {promocode.productSlugs === undefined || promocode.productSlugs.length === 0
-                        ? <span style={{ color: '#666' }}>Все товары</span>
-                        : <span title={promocode.productSlugs.join(', ')}>{promocode.productSlugs.length} товар(ов)</span>}
-                    </td>
-                    <td data-label="Окончание">{formatDate(promocode.expiresAt)}</td>
-                    <td data-label="Статус">{status}</td>
-                    <td>
-                      <div style={{ display: 'flex', gap: '0.5rem' }}>
-                        <button
-                          className="btn"
-                          onClick={() => setEditingPromocode(promocode)}
-                          style={{ fontSize: '0.875rem', padding: '0.5rem', minWidth: '2rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                          title="Редактировать"
-                        >
-                          ✏️
-                        </button>
-                        <button
-                          className="btn btn-delete"
-                          onClick={() => setDeleteConfirm({ code: promocode.code })}
-                        >
-                          Удалить
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        )}
+        {(() => {
+          const filtered = activeTab === 'certificate'
+            ? promocodes.filter(p => p.source === 'certificate')
+            : promocodes.filter(p => p.source !== 'certificate')
+
+          if (filtered.length === 0) {
+            return <div className="empty-state">Промокоды не найдены</div>
+          }
+
+          return (
+            <table className="promocodes-table">
+              <thead>
+                <tr>
+                  <th>Код</th>
+                  <th>Тип</th>
+                  <th>Значение</th>
+                  {activeTab === 'all' && <th>Товары</th>}
+                  {activeTab === 'all' && <th>Окончание</th>}
+                  <th>Статус</th>
+                  <th>Действия</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((promocode) => {
+                  const expired = isExpired(promocode.expiresAt)
+                  const status = !promocode.active ? 'Неактивен' : expired ? 'Истек' : 'Активен'
+                  const isCert = promocode.source === 'certificate'
+
+                  return (
+                    <tr key={promocode.code} className={!promocode.active || expired ? 'inactive' : ''}>
+                      <td data-label="Код"><strong>{promocode.code}</strong></td>
+                      <td data-label="Тип">{promocode.type === 'amount' ? 'Сумма' : 'Процент'}</td>
+                      <td data-label="Значение">
+                        {promocode.type === 'amount'
+                          ? `${promocode.value} ₽`
+                          : `${promocode.value}%`}
+                      </td>
+                      {activeTab === 'all' && (
+                        <td data-label="Товары">
+                          {promocode.productSlugs === undefined || promocode.productSlugs.length === 0
+                            ? <span style={{ color: '#666' }}>Все товары</span>
+                            : <span title={promocode.productSlugs.join(', ')}>{promocode.productSlugs.length} товар(ов)</span>}
+                        </td>
+                      )}
+                      {activeTab === 'all' && (
+                        <td data-label="Окончание">{formatDate(promocode.expiresAt)}</td>
+                      )}
+                      <td data-label="Статус">{status}</td>
+                      <td>
+                        {isCert ? (
+                          <span style={{ color: '#9ca3af', fontSize: '0.8rem' }}>авто</span>
+                        ) : (
+                          <div style={{ display: 'flex', gap: '0.5rem' }}>
+                            <button
+                              className="btn"
+                              onClick={() => setEditingPromocode(promocode)}
+                              style={{ fontSize: '0.875rem', padding: '0.5rem', minWidth: '2rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                              title="Редактировать"
+                            >
+                              ✏️
+                            </button>
+                            <button
+                              className="btn btn-delete"
+                              onClick={() => setDeleteConfirm({ code: promocode.code })}
+                            >
+                              Удалить
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )
+        })()}
       </div>
 
       {isAddModalOpen && (

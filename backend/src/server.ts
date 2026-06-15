@@ -17,7 +17,7 @@ import { calculateTariff as calculatePochtaTariff, triggerPochtaOrderAsync, down
 import { uploadBufferToS3 } from './s3.js';
 import { triggerAmoCrmAsync, updateAmoCrmLeadTrack, updateAmoCrmLeadBarcode, createAmoCrmLead, syncCdekToLead } from './amocrm.js';
 import { buildPaymentForm, buildReceipt, verifyResultSignature, queryOrderState } from './robokassa.js';
-import { fetchPromocodesFromSheet, loadPromocodes, findPromocode, validatePromocode, listPromocodes } from './promocodes.js';
+import { fetchPromocodesFromSheet, loadPromocodes, findPromocode, validatePromocode, listPromocodes, saveCertificatePromocode, deactivateCertificatePromocode } from './promocodes.js';
 import { getCachedOrdersSettings } from './settings.js';
 import { getCachedCategories } from './categories.js';
 import { loadPendingNotifications, addPendingNotification, claimPendingNotifications } from './pending-notifications.js';
@@ -1143,11 +1143,50 @@ export async function processPaidOrder(
     ).catch(() => {})
   }
 
+  // деактивируем одноразовый промокод сертификата если он был использован в этом заказе
+  const usedPromoCode = order.orderData.promocode?.code
+  if (usedPromoCode) {
+    const usedPromo = findPromocode(usedPromoCode)
+    if (usedPromo?.source === 'certificate') {
+      const importSheetId = process.env.IMPORT_SHEET_ID
+      if (importSheetId) {
+        deactivateCertificatePromocode(importSheetId, usedPromoCode).catch((e: any) => {
+          sendAlert(
+            `Не удалось деактивировать промокод сертификата ${usedPromoCode} (заказ ${orderId}): ${e?.message}`,
+            { tag: 'promo', level: 'low', code: 'CERT_PROMO_DEACTIVATE_FAILED' }
+          ).catch(() => {})
+        })
+      }
+    }
+  }
+
+  // если в заказе есть сертификаты — генерируем промокод для получателя
+  let certPromocode: string | undefined
+  const certItems = order.orderData.items.filter(item =>
+    listProducts().find(p => p.slug === item.slug)?.category === 'сертификаты'
+  )
+  if (certItems.length > 0) {
+    const certValue = certItems.reduce((sum, item) => sum + item.price * item.quantity, 0)
+    const importSheetId = process.env.IMPORT_SHEET_ID
+    if (importSheetId) {
+      try {
+        certPromocode = await saveCertificatePromocode(importSheetId, certValue)
+        logger.info({ orderId, certValue, certPromocode }, 'сертификатный промокод сгенерирован')
+      } catch (e: any) {
+        logger.error({ orderId, error: e?.message }, 'не удалось сгенерировать промокод сертификата')
+        sendAlert(
+          `Не удалось сгенерировать промокод сертификата для заказа ${orderId}: ${e?.message}`,
+          { tag: 'promo', level: 'high', hint: 'промокод не создан — нужно создать вручную', code: 'CERT_PROMO_CREATE_FAILED' }
+        ).catch(() => {})
+      }
+    }
+  }
+
   // создаём лид в amoCRM ДО продолжения: оплата уже подтверждена Робокассой,
   // и мы гарантируем, что попытка (с 3 ретраями) завершится. Повторный callback
   // от Робокассы дубль не создаст — triggerAmoCrmAsync идемпотентен по номеру заказа.
   // lead ID нужен в CDEK-callback ниже для обновления трека.
-  const amoCrmLeadId = await triggerAmoCrmAsync(order)
+  const amoCrmLeadId = await triggerAmoCrmAsync(order, certPromocode)
 
   // создание отправления зависит от способа доставки
   if (order.orderData.deliveryMethod === 'pickup') {
@@ -2182,6 +2221,73 @@ app.post('/api/amocrm/test', express.json(), async (req, res) => {
 })
 
 // ── Pochta (EMS) test endpoint — прогон пайплайна без оплаты Robokassa ─────────
+// Тест генерации промокода сертификата.
+// Создаёт промокод CERT-* в Google Sheets без реального заказа.
+// Body (optional): { certValue: 3000, createLead: true }
+// Guard: header x-admin-key == ADMIN_IMPORT_KEY.
+app.post('/api/admin/test-cert-promo', express.json(), async (req, res) => {
+  const key = req.header('x-admin-key')
+  if (!key || key !== process.env.ADMIN_IMPORT_KEY) {
+    return res.status(401).json({ error: 'unauthorized' })
+  }
+
+  const steps: Record<string, unknown> = {}
+  const certValue = Number(req.body?.certValue) || 3000
+
+  // ищем сертификатный товар в каталоге для отображения в шагах
+  const certProduct = listProducts().find(p => p.category === 'сертификаты')
+  steps.certProduct = certProduct
+    ? { found: true, slug: certProduct.slug, title: certProduct.title, price: certProduct.price_rub }
+    : { found: false, note: 'каталог не содержит товаров категории сертификаты — промокод всё равно будет создан с переданным certValue' }
+
+  const sheetId = process.env.IMPORT_SHEET_ID
+  if (!sheetId) {
+    steps.sheet = { ok: false, error: 'IMPORT_SHEET_ID не задан' }
+    return res.status(400).json({ ok: false, steps })
+  }
+  steps.sheet = { ok: true }
+
+  try {
+    const code = await saveCertificatePromocode(sheetId, certValue)
+    steps.promo = { ok: true, code, certValue }
+
+    if (req.body?.createLead === true) {
+      const fakeOrder = {
+        orderId: `TEST-CERT-${Date.now()}`,
+        status: 'paid' as const,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        platform: 'telegram' as const,
+        customerChatId: '0',
+        customerName: 'Тест Тестов',
+        orderData: {
+          fullName: 'Test User',
+          phone: '+70000000000',
+          country: '', city: 'Москва', address: '',
+          deliveryRegion: '',
+          deliveryCost: 0,
+          total: certValue,
+          deliveryMethod: 'pickup' as const,
+          items: certProduct
+            ? [{ slug: certProduct.slug, title: certProduct.title, price: certValue, quantity: 1, article: certProduct.article }]
+            : [{ slug: 'cert-test', title: `Сертификат ${certValue}₽`, price: certValue, quantity: 1 }],
+        },
+      }
+      try {
+        const leadId = await createAmoCrmLead(fakeOrder as any, code)
+        steps.amocrm = { ok: true, leadId }
+      } catch (e: any) {
+        steps.amocrm = { ok: false, error: e?.message }
+      }
+    }
+
+    return res.json({ ok: true, code, certValue, steps })
+  } catch (e: any) {
+    steps.promo = { ok: false, error: e?.message }
+    return res.status(500).json({ ok: false, error: e?.message, steps })
+  }
+})
+
 // ВАЖНО: создание заказа в backlog и партии у Почты НЕ списывает деньги — оплата
 // происходит только при физической сдаче посылки в отделении. Поэтому пайплайн
 // (заказ → партия → ШПИ → Ф7п → S3 → CRM) можно гонять бесплатно; тестовые заказы
