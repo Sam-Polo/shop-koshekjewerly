@@ -21,7 +21,7 @@ export function handleTildaOrder(req: Request, res: Response): void {
   if (products.length === 0) return
 
   const orderId  = String(payment?.orderid ?? '').trim()
-  const orderDate = new Date().toISOString().slice(0, 10)
+  const orderDate = new Date().toLocaleString('sv-SE', { timeZone: 'Europe/Moscow' }).slice(0, 10)
 
   if (!orderId) {
     logger.warn({ body }, 'Tilda webhook: no orderid in payment')

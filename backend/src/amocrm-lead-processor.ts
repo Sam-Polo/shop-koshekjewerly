@@ -47,11 +47,15 @@ export function readFieldEnum(lead: any, fieldId: number): number | null {
   return v !== undefined ? Number(v) : null
 }
 
+function toMoscowDate(d: Date): string {
+  return d.toLocaleString('sv-SE', { timeZone: 'Europe/Moscow' }).slice(0, 10)
+}
+
 export function readFieldDate(lead: any, fieldId: number): string {
   const cf: any[] = lead?.custom_fields_values ?? []
   const field = cf.find((f: any) => Number(f.field_id) === fieldId)
   const v = field?.values?.[0]?.value
-  if (v && Number(v) > 0) return new Date(Number(v) * 1000).toISOString().slice(0, 10)
+  if (v && Number(v) > 0) return toMoscowDate(new Date(Number(v) * 1000))
   return ''
 }
 
@@ -84,7 +88,7 @@ export async function processAmoCrmLead(
   const source         = sourceFromEnum(sourceEnum)
   const effectiveOrderId = orderId ?? `AMO-${leadId}`
   const orderDate      = readFieldDate(fullLead, FIELD_ORDER_DATE)
-    || new Date(fullLead.created_at * 1000).toISOString().slice(0, 10)
+    || toMoscowDate(new Date(fullLead.created_at * 1000))
   const shipDate       = (newStatus === 'sent' || newStatus === 'returned')
     ? new Date().toISOString().slice(0, 10)
     : ''

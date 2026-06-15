@@ -18,7 +18,7 @@ const PERIODS = [
 ] as const
 
 function todayIso() {
-  return new Date().toISOString().slice(0, 10)
+  return new Date().toLocaleString('sv-SE', { timeZone: 'Europe/Moscow' }).slice(0, 10)
 }
 
 function safeDate(iso: string) {
