@@ -1708,7 +1708,7 @@ app.get('/api/pochta/calculate', generalLimiter, async (req, res) => {
 // 2) синхронизируем трек/штрихкод в amoCRM (Тильдины лиды) с ретраями до 12 мин
 // CDEK шлёт POST на каждую смену статуса — отвечаем 200 МГНОВЕННО, иначе CDEK словит таймаут.
 // Опциональная защита: если задан CDEK_WEBHOOK_SECRET — требуем ?token=… в URL подписки.
-const DEFAULT_SHIPPED_MESSAGE = '📦 Ваш заказ отправлен!\n\nОтследить посылку:\n{{track}}\n\nСпасибо за ваш заказ 🤍'
+const DEFAULT_SHIPPED_MESSAGE = '📦 Ваш заказ отправлен!\n\nОтследить посылку:\n{{track-link}}\n\nСпасибо за ваш заказ 🤍'
 
 app.post('/api/cdek/webhook', express.json(), (req, res) => {
   const secret = process.env.CDEK_WEBHOOK_SECRET
@@ -1780,8 +1780,11 @@ app.post('/api/cdek/webhook', express.json(), (req, res) => {
         logger.warn({ orderNumber, error: e?.message }, 'CDEK shipped: не удалось прочитать shippedMessage из настроек, используем дефолт')
       }
 
-      const trackingUrl = `https://www.cdek.ru/track?order_id=${cdekNumber}`
-      const messageText = shippedTemplate.replace(/\{\{track\}\}/g, trackingUrl)
+      const trackLink = `https://cdek.ru/m/order/${cdekNumber}`
+      const messageText = shippedTemplate
+        .replace(/\{\{track\}\}/g, cdekNumber)
+        .replace(/\{\{track-link\}\}/g, trackLink)
+        .replace(/\{\{ord\}\}/g, orderNumber)
 
       const sendFn = sheetOrder.platform === 'max' ? sendMaxMessage : sendTelegramMessage
       const result = await sendFn(sheetOrder.customerChatId, messageText)

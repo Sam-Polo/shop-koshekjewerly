@@ -844,8 +844,10 @@ bot.command('test_message_order_send', async (ctx) => {
     return
   }
 
-  const DEMO_TRACK_URL = 'https://www.cdek.ru/track?order_id=1234567890'
-  const DEFAULT_TEMPLATE = '📦 Ваш заказ отправлен!\n\nОтследить посылку:\n{{track}}\n\nСпасибо за ваш заказ 🤍'
+  const DEMO_TRACK = '10279728990'
+  const DEMO_ORD = 'ORD-1234567890'
+  const DEMO_TRACK_LINK = `https://cdek.ru/m/order/${DEMO_TRACK}`
+  const DEFAULT_TEMPLATE = '📦 Ваш заказ отправлен!\n\nОтследить посылку:\n{{track-link}}\n\nСпасибо за ваш заказ 🤍'
 
   let template = DEFAULT_TEMPLATE
 
@@ -866,7 +868,10 @@ bot.command('test_message_order_send', async (ctx) => {
     // продолжаем с дефолтным шаблоном
   }
 
-  const previewText = template.replace(/\{\{track\}\}/g, DEMO_TRACK_URL)
+  const previewText = template
+    .replace(/\{\{track\}\}/g, DEMO_TRACK)
+    .replace(/\{\{track-link\}\}/g, DEMO_TRACK_LINK)
+    .replace(/\{\{ord\}\}/g, DEMO_ORD)
   await ctx.reply('🔍 Предпросмотр уведомления об отправке:')
   await ctx.reply(previewText, { parse_mode: 'HTML' })
 })

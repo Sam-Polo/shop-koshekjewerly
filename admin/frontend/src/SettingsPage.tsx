@@ -252,13 +252,13 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
                 <textarea
                   className="settings-textarea"
                   rows={5}
-                  placeholder={'📦 Ваш заказ отправлен!\n\nОтследить посылку:\n{{track}}\n\nСпасибо за ваш заказ 🤍'}
+                  placeholder={'📦 Ваш заказ отправлен!\n\nОтследить посылку:\n{{track-link}}\n\nСпасибо за ваш заказ 🤍'}
                   value={orders.shippedMessage}
                   onChange={e => setOrders(prev => ({ ...prev, shippedMessage: e.target.value }))}
                 />
                 <p className="settings-hint">
                   Отправляется покупателю когда СДЭК принял посылку в городе отправителя (статус RECEIVED_AT_SENDER_CITY).
-                  Используйте <b>{'{{track}}'}</b> для вставки ссылки на трекинг.
+                  Плейсхолдеры: <b>{'{{track}}'}</b> — трек-номер СДЭК, <b>{'{{track-link}}'}</b> — ссылка на отслеживание, <b>{'{{ord}}'}</b> — номер заказа.
                   Поддерживаются HTML-теги Telegram: <b>&lt;b&gt;</b>, <b>&lt;i&gt;</b>, <b>&lt;code&gt;</b>.
                   Если оставить пустым — используется стандартный текст.
                 </p>
