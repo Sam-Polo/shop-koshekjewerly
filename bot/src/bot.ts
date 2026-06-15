@@ -1483,6 +1483,43 @@ async function sendStartupAlert() {
 
 sendStartupAlert()
 
+// /test_message_order_send — предпросмотр сообщения об отправке (только для менеджеров)
+bot.command('test_message_order_send', async (ctx) => {
+  const chatId = ctx.from?.id
+  const username = ctx.from?.username
+
+  if (!isManager(chatId, username)) {
+    await ctx.reply('❌ У вас нет доступа к этой команде.')
+    return
+  }
+
+  const DEMO_TRACK_URL = 'https://www.cdek.ru/track?order_id=1234567890'
+  const DEFAULT_TEMPLATE = '📦 Ваш заказ отправлен!\n\nОтследить посылку:\n{{track}}\n\nСпасибо за ваш заказ 🤍'
+
+  let template = DEFAULT_TEMPLATE
+
+  const abortCtrl = new AbortController()
+  const abortTimer = setTimeout(() => abortCtrl.abort(), 12_000)
+  try {
+    const botSecret = process.env.BOT_API_SECRET
+    const url = `${BACKEND_URL}/api/settings/orders-status${botSecret ? `?secret=${encodeURIComponent(botSecret)}` : ''}`
+    const resp = await fetch(url, { signal: abortCtrl.signal })
+    const data = await resp.json() as any
+    clearTimeout(abortTimer)
+    if (data.shippedMessage) template = data.shippedMessage
+  } catch (e: any) {
+    clearTimeout(abortTimer)
+    if (e?.name === 'AbortError') {
+      sendAlert('test_message_order_send: бэкенд не ответил за 12с', { tag: 'bot', level: 'moderate', hint: 'Render спит', code: 'TEST_SHIPPED_MSG_TIMEOUT' }).catch(() => {})
+    }
+    // продолжаем с дефолтным шаблоном
+  }
+
+  const previewText = template.replace(/\{\{track\}\}/g, DEMO_TRACK_URL)
+  await ctx.reply('🔍 Предпросмотр уведомления об отправке:')
+  await ctx.reply(previewText, { parse_mode: 'HTML' })
+})
+
 // drop_pending_updates: пропускаем накопленный бэклог при старте (по offset'у, не по часам).
 // Заменяет прежний хрупкий фильтр по времени, который ломался при сбое часов сервера.
 // .catch обязателен: без него 409 (Telegram ещё не отпустил сессию после быстрого рестарта PM2)

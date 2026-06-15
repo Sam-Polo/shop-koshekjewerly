@@ -17,6 +17,7 @@ type OrdersSettings = {
   ordersClosed: boolean
   closeDate: string
   assemblyMessage: string
+  shippedMessage: string
   priorityOrderEnabled: boolean
   priorityOrderFee: number
 }
@@ -63,6 +64,7 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
     ordersClosed: false,
     closeDate: '',
     assemblyMessage: '',
+    shippedMessage: '',
     priorityOrderEnabled: true,
     priorityOrderFee: 30,
   })
@@ -107,6 +109,7 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
         ordersClosed: data.ordersClosed || false,
         closeDate: data.closeDate || '',
         assemblyMessage: data.assemblyMessage || '',
+        shippedMessage: data.shippedMessage || '',
         priorityOrderEnabled: data.priorityOrderEnabled !== false,
         priorityOrderFee: data.priorityOrderFee ?? 30,
       })
@@ -142,6 +145,7 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
         ordersClosed: orders.ordersClosed,
         closeDate: orders.closeDate || undefined,
         assemblyMessage: orders.assemblyMessage || undefined,
+        shippedMessage: orders.shippedMessage || undefined,
         priorityOrderEnabled: orders.priorityOrderEnabled,
         priorityOrderFee: orders.priorityOrderFee,
       })
@@ -223,6 +227,41 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
                   onChange={e => setOrders(prev => ({ ...prev, assemblyMessage: e.target.value }))}
                 />
                 <p className="settings-hint">Отправляется покупателю в Telegram/MAX после успешной оплаты. Если оставить пустым — используется стандартный текст.</p>
+              </div>
+
+              <button
+                className="settings-save-btn"
+                onClick={handleSaveOrders}
+                disabled={ordersSaving}
+              >
+                {ordersSaving ? 'Сохранение...' : 'Сохранить'}
+              </button>
+            </div>
+          )}
+        </section>
+
+        {/* ── УВЕДОМЛЕНИЕ ОБ ОТПРАВКЕ (СДЭК) ───────────── */}
+        <section className="settings-section">
+          <h2 className="settings-section__title">Уведомление об отправке (СДЭК)</h2>
+          {ordersLoading ? (
+            <div className="settings-loading">Загрузка...</div>
+          ) : (
+            <div className="settings-card">
+              <div className="settings-field">
+                <label className="settings-label">Текст сообщения покупателю</label>
+                <textarea
+                  className="settings-textarea"
+                  rows={5}
+                  placeholder={'📦 Ваш заказ отправлен!\n\nОтследить посылку:\n{{track}}\n\nСпасибо за ваш заказ 🤍'}
+                  value={orders.shippedMessage}
+                  onChange={e => setOrders(prev => ({ ...prev, shippedMessage: e.target.value }))}
+                />
+                <p className="settings-hint">
+                  Отправляется покупателю когда СДЭК принял посылку в городе отправителя (статус RECEIVED_AT_SENDER_CITY).
+                  Используйте <b>{'{{track}}'}</b> для вставки ссылки на трекинг.
+                  Поддерживаются HTML-теги Telegram: <b>&lt;b&gt;</b>, <b>&lt;i&gt;</b>, <b>&lt;code&gt;</b>.
+                  Если оставить пустым — используется стандартный текст.
+                </p>
               </div>
 
               <button

@@ -1742,12 +1742,22 @@ app.post('/api/cdek/webhook', express.json(), (req, res) => {
       const sheetOrder = await getOrderFromSheet(orderNumber).catch(() => null)
 
       if (!sheetOrder) {
-        // тильдин или EMS-заказ — не алертим, просто пропускаем
-        logger.info({ orderNumber, cdekNumber }, 'CDEK shipped: заказ не найден в Sheets — пропускаем уведомление')
+        // Различаем: наши заказы всегда начинаются с ORD- (созданы через мини-апп).
+        // Если ORD- не нашёлся — либо Sheets упал, либо заказ не записался: алертим.
+        // Тильдины заказы имеют другой формат номера — для них null нормален, пропускаем тихо.
+        if (orderNumber.startsWith('ORD-')) {
+          sendAlert(
+            `CDEK shipped: заказ ${orderNumber} (трек ${cdekNumber}) не найден в Sheets — покупатель не получит уведомление об отправке`,
+            { tag: 'cdek', level: 'high', hint: 'возможно Sheets недоступен или заказ не был записан при создании', code: 'CDEK_SHIPPED_ORDER_NOT_FOUND' }
+          ).catch(() => {})
+        } else {
+          logger.info({ orderNumber, cdekNumber }, 'CDEK shipped: Тильдин заказ, не найден в Sheets — пропускаем уведомление')
+        }
         return
       }
 
       if (!sheetOrder.customerChatId) {
+        // покупатель никогда не открывал бота — уведомить невозможно, это не ошибка нашей системы
         logger.info({ orderNumber }, 'CDEK shipped: нет customerChatId — уведомление не нужно')
         return
       }
@@ -1758,7 +1768,7 @@ app.post('/api/cdek/webhook', express.json(), (req, res) => {
         return
       }
 
-      // читаем шаблон сообщения из настроек
+      // читаем шаблон сообщения из настроек; при ошибке — дефолтный текст, уведомление всё равно уходит
       let shippedTemplate = DEFAULT_SHIPPED_MESSAGE
       try {
         const sheetId = process.env.IMPORT_SHEET_ID
@@ -1766,7 +1776,9 @@ app.post('/api/cdek/webhook', express.json(), (req, res) => {
           const settings = await getCachedOrdersSettings(sheetId)
           if (settings.shippedMessage) shippedTemplate = settings.shippedMessage
         }
-      } catch {}
+      } catch (e: any) {
+        logger.warn({ orderNumber, error: e?.message }, 'CDEK shipped: не удалось прочитать shippedMessage из настроек, используем дефолт')
+      }
 
       const trackingUrl = `https://www.cdek.ru/track?order_id=${cdekNumber}`
       const messageText = shippedTemplate.replace(/\{\{track\}\}/g, trackingUrl)
@@ -1777,7 +1789,14 @@ app.post('/api/cdek/webhook', express.json(), (req, res) => {
       if (result.ok) {
         const existingNote = sheetOrder.adminNote || ''
         const newNote = existingNote ? `${existingNote}\nshipped_notified` : 'shipped_notified'
-        updateOrderAdminNoteInSheet(orderNumber, newNote).catch(() => {})
+        // потеря флага = возможный повторный send при следующем вебхуке → алертим moderate
+        updateOrderAdminNoteInSheet(orderNumber, newNote).catch((e: any) => {
+          logger.error({ orderNumber, error: e?.message }, 'CDEK shipped: не удалось записать shipped_notified в Sheets')
+          sendAlert(
+            `CDEK shipped: уведомление отправлено, но флаг shipped_notified не записан (заказ ${orderNumber}). При повторном вебхуке покупатель может получить дубль.`,
+            { tag: 'cdek', level: 'moderate', hint: 'Sheets недоступен — нужна ручная проверка дубля', code: 'CDEK_SHIPPED_NOTE_WRITE_FAILED' }
+          ).catch(() => {})
+        })
         logger.info({ orderNumber, cdekNumber }, 'CDEK shipped: уведомление отправлено покупателю')
       } else {
         sendAlert(

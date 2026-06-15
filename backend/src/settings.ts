@@ -13,6 +13,7 @@ export type OrdersSettings = {
   ordersClosed: boolean
   closeDate?: string
   assemblyMessage?: string
+  shippedMessage?: string
   priorityOrderEnabled?: boolean
   priorityOrderFee?: number
   banner?: BannerSettings
@@ -113,6 +114,10 @@ export async function fetchOrdersSettingsFromSheet(sheetId: string): Promise<Ord
       } else if (key === 'assembly_message') {
         if (originalValue) {
           settings.assemblyMessage = originalValue
+        }
+      } else if (key === 'shipped_message') {
+        if (originalValue) {
+          settings.shippedMessage = originalValue
         }
       } else if (key === 'priority_order_enabled') {
         // отсутствие ключа = включено (обратная совместимость)
