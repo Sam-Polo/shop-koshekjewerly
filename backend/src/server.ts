@@ -13,7 +13,7 @@ import { createOrder, getOrder, updateOrderStatus, listOrders, restoreOrder, typ
 import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId, listPendingOrdersFromSheet, updateCdekInfoInSheet, updatePochtaInfoInSheet } from './orders-sheet.js'
 import { sendAlert } from './alerts.js';
 import { searchCities, getPickupPoints, calculateDelivery, triggerCdekOrderAsync, getCdekUuidByTrack, downloadCdekBarcode } from './cdek.js';
-import { calculateTariff as calculatePochtaTariff, triggerPochtaOrderAsync, downloadF7p, getCountries as getPochtaCountries, createPochtaOrder, createBatch, getShpiFromBatch, checkRequiredPochtaEnv } from './pochta.js';
+import { calculateTariff as calculatePochtaTariff, triggerPochtaOrderAsync, downloadF7p, getCountries as getPochtaCountries, createPochtaOrder, createBatch, getShpiFromBatch, checkRequiredPochtaEnv, pochtaFetch } from './pochta.js';
 import { uploadBufferToS3 } from './s3.js';
 import { triggerAmoCrmAsync, updateAmoCrmLeadTrack, updateAmoCrmLeadBarcode, createAmoCrmLead, syncCdekToLead } from './amocrm.js';
 import { buildPaymentForm, buildReceipt, verifyResultSignature, queryOrderState } from './robokassa.js';
@@ -2176,7 +2176,14 @@ app.post('/api/pochta/test', express.json(), async (req, res) => {
     }
     if (!shpi && lastShpiErr) steps.shpiError = lastShpiErr
     steps.shpi = { ok: !!shpi, shpi }
-    if (!shpi) return res.status(200).json({ ok: false, error: 'ШПИ не присвоен за 15с', steps })
+    if (!shpi) {
+      // диагностика: показываем сырой ответ партии, чтобы увидеть где лежит barcode / есть ли он
+      try {
+        const raw = await pochtaFetch('GET', `/1.0/batch/${encodeURIComponent(batchName)}?size=50&page=0`)
+        steps.batchRaw = JSON.stringify(raw).slice(0, 1200)
+      } catch (e: any) { steps.batchRaw = 'ERR: ' + e?.message }
+      return res.status(200).json({ ok: false, error: 'ШПИ не присвоен за 15с', steps })
+    }
 
     // 5. скачать ярлык Ф7п → загрузить в S3
     const pdf = await downloadF7p(shpi)

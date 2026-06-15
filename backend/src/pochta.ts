@@ -302,7 +302,8 @@ export async function createBatch(resultIds: number[]): Promise<string> {
  * GET /1.0/batch/{name} → данные о заказах в партии; у каждого заказа поле barcode (ШПИ).
  */
 export async function getShpiFromBatch(batchName: string): Promise<string | null> {
-  const data = await pochtaFetch('GET', `/1.0/batch/${encodeURIComponent(batchName)}`) as any
+  // эндпоинт пагинированный — явно просим страницу записей
+  const data = await pochtaFetch('GET', `/1.0/batch/${encodeURIComponent(batchName)}?size=50&page=0`) as any
   // ответ может быть массивом заказов либо объектом с вложенным списком — поддержим оба
   const list = Array.isArray(data)
     ? data
