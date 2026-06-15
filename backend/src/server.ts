@@ -13,7 +13,8 @@ import { createOrder, getOrder, updateOrderStatus, listOrders, restoreOrder, typ
 import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId, listPendingOrdersFromSheet, updateCdekInfoInSheet, updatePochtaInfoInSheet } from './orders-sheet.js'
 import { sendAlert } from './alerts.js';
 import { searchCities, getPickupPoints, calculateDelivery, triggerCdekOrderAsync, getCdekUuidByTrack, downloadCdekBarcode } from './cdek.js';
-import { calculateTariff as calculatePochtaTariff, triggerPochtaOrderAsync, downloadF7p, getCountries as getPochtaCountries } from './pochta.js';
+import { calculateTariff as calculatePochtaTariff, triggerPochtaOrderAsync, downloadF7p, getCountries as getPochtaCountries, createPochtaOrder, createBatch, getShpiFromBatch, checkRequiredPochtaEnv } from './pochta.js';
+import { uploadBufferToS3 } from './s3.js';
 import { triggerAmoCrmAsync, updateAmoCrmLeadTrack, updateAmoCrmLeadBarcode, createAmoCrmLead, syncCdekToLead } from './amocrm.js';
 import { buildPaymentForm, buildReceipt, verifyResultSignature, queryOrderState } from './robokassa.js';
 import { fetchPromocodesFromSheet, loadPromocodes, findPromocode, validatePromocode, listPromocodes } from './promocodes.js';
@@ -2093,6 +2094,104 @@ app.post('/api/amocrm/test', express.json(), async (req, res) => {
       leadUrl: `https://${process.env.AMOCRM_SUBDOMAIN}.amocrm.ru/leads/detail/${leadId}`,
       steps,
     })
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message, steps })
+  }
+})
+
+// ── Pochta (EMS) test endpoint — прогон пайплайна без оплаты Robokassa ─────────
+// ВАЖНО: создание заказа в backlog и партии у Почты НЕ списывает деньги — оплата
+// происходит только при физической сдаче посылки в отделении. Поэтому пайплайн
+// (заказ → партия → ШПИ → Ф7п → S3 → CRM) можно гонять бесплатно; тестовые заказы
+// потом удалить в ЛК Отправки (otpravka.pochta.ru → Заказы/Партии).
+// Guard: header x-admin-key == ADMIN_IMPORT_KEY.
+// Body (optional): { countryCode, recipientCity, recipientStreet, recipientIndex, fullName, phone, createLead: true }
+app.post('/api/pochta/test', express.json(), async (req, res) => {
+  const key = req.header('x-admin-key')
+  if (!key || key !== process.env.ADMIN_IMPORT_KEY) {
+    return res.status(401).json({ error: 'unauthorized' })
+  }
+
+  const b = req.body ?? {}
+  const countryCode = Number(b.countryCode) || 112 // Беларусь по умолчанию
+  const createLead = b.createLead === true
+  const steps: Record<string, unknown> = {}
+
+  const fakeOrder = {
+    orderId: `TEST-EMS-${Date.now()}`,
+    status: 'paid' as const,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    platform: 'telegram' as const,
+    customerChatId: '123456789',
+    customerName: 'Тест Тестов',
+    orderData: {
+      fullName: b.fullName || 'Ivan Petrov',
+      phone: b.phone || '+79991234567',
+      country: '', city: '', address: '',
+      deliveryRegion: '',
+      deliveryCost: 0,
+      total: 5000,
+      deliveryMethod: 'ems' as const,
+      recipientCountry: b.recipientCountry || 'Тест',
+      recipientCountryCode: countryCode,
+      recipientRegion: b.recipientRegion || '',
+      recipientCity: b.recipientCity || 'Minsk',
+      recipientStreet: b.recipientStreet || 'Test str 1',
+      recipientIndex: b.recipientIndex || '220000',
+      items: [{ slug: 'test-ring', title: 'Кольцо тест', price: 5000, quantity: 1 }],
+    },
+  }
+
+  try {
+    if (!checkRequiredPochtaEnv()) {
+      steps.env = { ok: false }
+      return res.status(400).json({ ok: false, error: 'POCHTA env not set', steps })
+    }
+    steps.env = { ok: true }
+
+    // 1. тариф (sanity, не блокирует)
+    try { steps.tariff = { ok: true, cost: await calculatePochtaTariff(countryCode) } }
+    catch (e: any) { steps.tariff = { ok: false, error: e?.message } }
+
+    // 2. создать заказ в backlog
+    const order = await createPochtaOrder(fakeOrder as any)
+    steps.backlog = { ok: true, id: order.id }
+
+    // 3. сформировать партию → присваивается ШПИ
+    const batchName = await createBatch([order.id])
+    steps.batch = { ok: true, batchName }
+
+    // 4. дождаться ШПИ (до 5 попыток × 3с)
+    let shpi: string | null = null
+    for (let i = 0; i < 5; i++) {
+      shpi = await getShpiFromBatch(batchName)
+      if (shpi) break
+      await new Promise(r => setTimeout(r, 3000))
+    }
+    steps.shpi = { ok: !!shpi, shpi }
+    if (!shpi) return res.status(200).json({ ok: false, error: 'ШПИ не присвоен за 15с', steps })
+
+    // 5. скачать ярлык Ф7п → загрузить в S3
+    const pdf = await downloadF7p(shpi)
+    const labelUrl = await uploadBufferToS3(`pochta-labels/test-${shpi}.pdf`, pdf, 'application/pdf')
+    steps.label = { ok: true, labelUrl }
+
+    const trackingUrl = `https://www.pochta.ru/tracking#${shpi}`
+
+    // 6. опционально — лид в amoCRM с треком + ярлыком (как в проде)
+    if (createLead) {
+      try {
+        const leadId = await createAmoCrmLead(fakeOrder as any)
+        await updateAmoCrmLeadTrack(leadId, shpi, trackingUrl)
+        await updateAmoCrmLeadBarcode(leadId, shpi, downloadF7p, 'pochta-labels')
+        steps.lead = { ok: true, leadUrl: `https://${process.env.AMOCRM_SUBDOMAIN}.amocrm.ru/leads/detail/${leadId}` }
+      } catch (e: any) {
+        steps.lead = { ok: false, error: e?.message }
+      }
+    }
+
+    res.json({ ok: true, shpi, trackingUrl, labelUrl, steps })
   } catch (e: any) {
     res.status(500).json({ ok: false, error: e?.message, steps })
   }
