@@ -39,6 +39,9 @@ type Order = {
   total: number
   clientComment: string
   adminNote: string
+  cdekTrackNumber: string
+  deliveryMethod: string
+  pochtaShpi: string
   items: OrderItem[]
 }
 
@@ -323,6 +326,35 @@ function OrdersTab({
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [editingNote, setEditingNote] = useState<{ orderId: string; value: string } | null>(null)
   const [saving, setSaving] = useState(false)
+  const [notifyingId, setNotifyingId] = useState<string | null>(null)
+
+  const handleNotifyShipped = async (o: Order) => {
+    const alreadyNotified = o.adminNote.includes('shipped_notified')
+    if (alreadyNotified) {
+      if (!confirm('Уведомление уже было отправлено (shipped_notified в заметке).\nОтправить повторно?')) return
+    }
+    setNotifyingId(o.orderId)
+    try {
+      await api.notifyShipped(o.orderId)
+      if (!alreadyNotified) {
+        const newNote = o.adminNote ? `${o.adminNote}\nshipped_notified` : 'shipped_notified'
+        onNoteSaved(o.orderId, newNote)
+      }
+    } catch (e: any) {
+      const msg = e?.message || ''
+      if (msg === 'no_chat_id') {
+        alert('❌ У покупателя нет chat_id — уведомить невозможно')
+      } else if (msg === 'send_failed') {
+        alert('❌ Telegram не доставил сообщение (алерт уже отправлен в канал ошибок)')
+      } else if (msg === 'order_not_found') {
+        alert('❌ Заказ не найден в Sheets')
+      } else {
+        alert('❌ Ошибка: ' + msg)
+      }
+    } finally {
+      setNotifyingId(null)
+    }
+  }
 
   const toggleExpand = (id: string) => {
     setExpanded(prev => {
@@ -398,7 +430,17 @@ function OrdersTab({
                       </div>
                     )}
                   </td>
-                  <td>
+                  <td className="stat-actions-cell">
+                    {o.customerChatId && (
+                      <button
+                        className={`btn btn-notify-shipped${o.adminNote.includes('shipped_notified') ? ' already-notified' : ''}`}
+                        onClick={() => handleNotifyShipped(o)}
+                        disabled={notifyingId === o.orderId}
+                        title={o.adminNote.includes('shipped_notified') ? 'Уже отправлено — нажмите для повторной отправки' : 'Отправить уведомление об отправке'}
+                      >
+                        {notifyingId === o.orderId ? '...' : o.adminNote.includes('shipped_notified') ? '✓ Отбито' : 'Отбить'}
+                      </button>
+                    )}
                     <button className="btn" onClick={() => toggleExpand(o.orderId)}>{isOpen ? '▲' : '▼'}</button>
                   </td>
                 </tr>

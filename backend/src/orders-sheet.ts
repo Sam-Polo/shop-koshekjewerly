@@ -247,9 +247,10 @@ export async function getOrderFromSheet(orderId: string): Promise<(Order & { she
     // 10=country, 11=city, 12=address, 13=delivery_region, 14=delivery_cost,
     // 15=items_total, 16=promocode_code, 17=promocode_discount,
     // 18=priority_order, 19=priority_fee, 20=total, 21=client_comment, 22=admin_note
+    // 23=cdek_uuid, 24=cdek_track_number, 25=delivery_method, 26=pochta_shpi
     const ordersRes = await api.spreadsheets.values.get({
       spreadsheetId,
-      range: `${ORDERS_SHEET}!A:Y`
+      range: `${ORDERS_SHEET}!A:AA`
     })
     const orderRows = ordersRes.data.values || []
     let orderRow: string[] | null = null

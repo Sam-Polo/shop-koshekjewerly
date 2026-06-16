@@ -293,6 +293,12 @@ export const api = {
     })
   },
 
+  async notifyShipped(orderId: string): Promise<{ ok: boolean; alreadyNotified?: boolean }> {
+    return fetchWithAuth(`/api/orders/${encodeURIComponent(orderId)}/notify-shipped`, {
+      method: 'POST'
+    })
+  },
+
   async getCustomers(search?: string) {
     const suffix = search ? `?search=${encodeURIComponent(search)}` : ''
     return fetchWithAuth(`/api/customers${suffix}`)

@@ -32,6 +32,9 @@ export type OrderRow = {
   total: number
   clientComment: string
   adminNote: string
+  cdekTrackNumber: string
+  deliveryMethod: string
+  pochtaShpi: string
 }
 
 export type OrderItemRow = {
@@ -106,6 +109,9 @@ function parseOrderRow(row: any[], rowNumber: number): OrderRow | null {
     total: toNum(row[20]),
     clientComment: String(row[21] || ''),
     adminNote: String(row[22] || ''),
+    cdekTrackNumber: String(row[24] || ''),
+    deliveryMethod: String(row[25] || ''),
+    pochtaShpi: String(row[26] || ''),
   }
 }
 
@@ -148,7 +154,7 @@ export async function loadAllOrders(): Promise<{ orders: OrderRow[]; items: Orde
   try {
     const res = await api.spreadsheets.values.batchGet({
       spreadsheetId: sheetId,
-      ranges: [`${ORDERS_SHEET}!A2:W10000`, `${ORDER_ITEMS_SHEET}!A2:G50000`]
+      ranges: [`${ORDERS_SHEET}!A2:AA10000`, `${ORDER_ITEMS_SHEET}!A2:G50000`]
     })
     ordersData = res.data.valueRanges?.[0]?.values || []
     itemsData = res.data.valueRanges?.[1]?.values || []

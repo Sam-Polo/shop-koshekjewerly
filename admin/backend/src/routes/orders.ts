@@ -1,4 +1,5 @@
 import express from 'express'
+import axios from 'axios'
 import { requireAuth } from '../auth.js'
 import { loadFullOrders, updateOrderNote, type FullOrder } from '../orders-utils.js'
 import pino from 'pino'
@@ -51,6 +52,32 @@ router.get('/', async (req, res) => {
   } catch (error: any) {
     logger.error({ error: error?.message }, 'ошибка загрузки заказов')
     res.status(500).json({ error: error?.message || 'failed' })
+  }
+})
+
+// POST /api/orders/:orderId/notify-shipped — отбивка покупателю об отправке
+router.post('/:orderId/notify-shipped', async (req, res) => {
+  try {
+    const { orderId } = req.params
+    const backendUrl = process.env.BACKEND_URL || 'https://shop-koshekjewerly.onrender.com'
+    const adminKey = process.env.ADMIN_IMPORT_KEY
+    if (!adminKey) {
+      return res.status(500).json({ error: 'ADMIN_IMPORT_KEY not configured' })
+    }
+    const response = await axios.post(
+      `${backendUrl}/admin/notify-shipped`,
+      { orderId },
+      { headers: { 'x-admin-key': adminKey }, timeout: 20000 }
+    )
+    return res.json(response.data)
+  } catch (error: any) {
+    const status = error?.response?.status
+    const data = error?.response?.data
+    if (status === 404) return res.status(404).json({ error: 'order_not_found' })
+    if (status === 422) return res.status(422).json({ error: data?.error || 'no_chat_id' })
+    if (status === 502) return res.status(502).json({ error: 'send_failed' })
+    logger.error({ error: error?.message }, 'ошибка отбивки покупателю')
+    return res.status(500).json({ error: error?.message || 'failed' })
   }
 })
 

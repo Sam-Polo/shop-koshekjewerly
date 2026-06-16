@@ -3295,6 +3295,40 @@
   border-radius: 0 6px 6px 0;
 }
 
+.stat-actions-cell {
+  white-space: nowrap;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.btn-notify-shipped {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.55rem;
+  background: #e8f4e8;
+  color: #2a7a2a;
+  border: 1px solid #b3d9b3;
+  border-radius: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-notify-shipped:hover:not(:disabled) {
+  background: #d0ecd0;
+}
+.btn-notify-shipped.already-notified {
+  background: #f0f0f0;
+  color: #888;
+  border-color: #ddd;
+}
+.btn-notify-shipped.already-notified:hover:not(:disabled) {
+  background: #e4e4e4;
+  color: #555;
+}
+.btn-notify-shipped:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 /* модалка клиента */
 .stat-customer-modal {
   max-width: 760px;
