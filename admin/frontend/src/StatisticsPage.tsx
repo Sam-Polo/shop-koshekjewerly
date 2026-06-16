@@ -324,8 +324,6 @@ function OrdersTab({
   onNoteSaved: (orderId: string, note: string) => void
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
-  const [editingNote, setEditingNote] = useState<{ orderId: string; value: string } | null>(null)
-  const [saving, setSaving] = useState(false)
   const [notifyingId, setNotifyingId] = useState<string | null>(null)
 
   const handleNotifyShipped = async (o: Order) => {
@@ -369,20 +367,6 @@ function OrdersTab({
     })
   }
 
-  const saveNote = async () => {
-    if (!editingNote) return
-    setSaving(true)
-    try {
-      await api.updateOrderNote(editingNote.orderId, editingNote.value)
-      onNoteSaved(editingNote.orderId, editingNote.value)
-      setEditingNote(null)
-    } catch (e: any) {
-      alert('Не удалось сохранить заметку: ' + (e?.message || ''))
-    } finally {
-      setSaving(false)
-    }
-  }
-
   if (loading) return <div className="loading">Загрузка заказов...</div>
   if (!orders.length) return <div className="stat-empty">Заказов не найдено</div>
 
@@ -397,7 +381,6 @@ function OrdersTab({
             <th>Платформа</th>
             <th>Сумма</th>
             <th>Статус</th>
-            <th>Заметка</th>
             <th></th>
           </tr>
         </thead>
@@ -416,24 +399,6 @@ function OrdersTab({
                   <td>{platformLabel(o.platform)}</td>
                   <td><strong>{fmtMoney(o.total)}</strong></td>
                   <td><span className={`stat-status stat-status-${o.status}`}>{o.status}</span></td>
-                  <td className="stat-note-cell">
-                    {editingNote?.orderId === o.orderId ? (
-                      <div className="stat-note-edit">
-                        <input
-                          autoFocus
-                          value={editingNote.value}
-                          onChange={e => setEditingNote({ orderId: o.orderId, value: e.target.value })}
-                          onKeyDown={e => { if (e.key === 'Enter') saveNote(); if (e.key === 'Escape') setEditingNote(null) }}
-                        />
-                        <button className="btn" onClick={saveNote} disabled={saving}>OK</button>
-                        <button className="btn btn-cancel" onClick={() => setEditingNote(null)}>×</button>
-                      </div>
-                    ) : (
-                      <div className="stat-note-display" onClick={() => setEditingNote({ orderId: o.orderId, value: o.adminNote })}>
-                        {o.adminNote ? o.adminNote : <span className="stat-muted">+ заметка</span>}
-                      </div>
-                    )}
-                  </td>
                   <td className="stat-actions-cell">
                     {o.customerChatId && (
                       <button
@@ -450,7 +415,7 @@ function OrdersTab({
                 </tr>
                 {isOpen && (
                   <tr className="stat-order-detail" key={`${o.orderId}-detail`}>
-                    <td colSpan={8}>
+                    <td colSpan={7}>
                       <div className="stat-order-grid">
                         <div>
                           <div className="stat-muted">Адрес</div>
@@ -517,7 +482,6 @@ export default function StatisticsPage({ onNavigate }: { onNavigate?: (page: Adm
   const [category, setCategory] = useState('')
   const [status, setStatus] = useState('')
   const [search, setSearch] = useState('')
-  const [hasNote, setHasNote] = useState('')
 
   const [categoriesList, setCategoriesList] = useState<string[]>([])
   const [stats, setStats] = useState<StatsResponse | null>(null)
@@ -552,11 +516,11 @@ export default function StatisticsPage({ onNavigate }: { onNavigate?: (page: Adm
   useEffect(() => {
     if (tab !== 'orders') return
     setOrdersLoading(true)
-    api.getOrders({ from: fromIso, to: toIso, platform, category, status, search, hasNote })
+    api.getOrders({ from: fromIso, to: toIso, platform, category, status, search })
       .then(d => setOrders(d.orders || []))
       .catch(() => setOrders([]))
       .finally(() => setOrdersLoading(false))
-  }, [tab, fromIso, toIso, platform, category, status, search, hasNote])
+  }, [tab, fromIso, toIso, platform, category, status, search])
 
   const handleLogout = () => { removeToken(); window.location.reload() }
 
@@ -624,18 +588,10 @@ export default function StatisticsPage({ onNavigate }: { onNavigate?: (page: Adm
               <label>Поиск</label>
               <input type="text" placeholder="имя, телефон, артикул, номер..." value={search} onChange={e => setSearch(e.target.value)} />
             </div>
-            <div className="stat-filter-group">
-              <label>Заметка</label>
-              <select value={hasNote} onChange={e => setHasNote(e.target.value)}>
-                <option value="">Все</option>
-                <option value="true">С заметкой</option>
-                <option value="false">Без заметки</option>
-              </select>
-            </div>
           </>
         )}
-        {(preset !== '30' || platform || category || status || search || hasNote) && (
-          <button className="stat-reset" onClick={() => { setPreset('30'); setPlatform(''); setCategory(''); setStatus(''); setSearch(''); setHasNote(''); setCustomFrom(''); setCustomTo('') }}>Сбросить</button>
+        {(preset !== '30' || platform || category || status || search) && (
+          <button className="stat-reset" onClick={() => { setPreset('30'); setPlatform(''); setCategory(''); setStatus(''); setSearch(''); setCustomFrom(''); setCustomTo('') }}>Сбросить</button>
         )}
       </div>
 
