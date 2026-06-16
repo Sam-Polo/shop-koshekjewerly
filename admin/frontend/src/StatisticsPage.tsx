@@ -348,6 +348,10 @@ function OrdersTab({
         alert('❌ Telegram не доставил сообщение (алерт уже отправлен в канал ошибок)')
       } else if (msg === 'order_not_found') {
         alert('❌ Заказ не найден в Sheets')
+      } else if (msg === 'admin_key_mismatch') {
+        alert('❌ ADMIN_IMPORT_KEY admin-бэкенда не совпадает с основным бэкендом (Render). Проверьте env.')
+      } else if (msg.includes('ADMIN_IMPORT_KEY')) {
+        alert('❌ ADMIN_IMPORT_KEY не задан в окружении admin-бэкенда')
       } else {
         alert('❌ Ошибка: ' + msg)
       }

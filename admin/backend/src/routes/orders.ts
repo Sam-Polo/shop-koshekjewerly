@@ -76,7 +76,12 @@ router.post('/:orderId/notify-shipped', async (req, res) => {
     if (status === 404) return res.status(404).json({ error: 'order_not_found' })
     if (status === 422) return res.status(422).json({ error: data?.error || 'no_chat_id' })
     if (status === 502) return res.status(502).json({ error: 'send_failed' })
-    logger.error({ error: error?.message }, 'ошибка отбивки покупателю')
+    if (status === 401) {
+      // ключ admin-backend не совпал с ADMIN_IMPORT_KEY основного бэкенда (Render)
+      logger.error('отбивка: 401 от основного бэкенда — ADMIN_IMPORT_KEY не совпадает с Render')
+      return res.status(500).json({ error: 'admin_key_mismatch' })
+    }
+    logger.error({ status, error: error?.message }, 'ошибка отбивки покупателю')
     return res.status(500).json({ error: error?.message || 'failed' })
   }
 })
