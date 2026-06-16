@@ -199,8 +199,16 @@ function buildLeadFields(order: Order, certPromocode?: string): FieldValue[] {
   push(fieldVal('AMOCRM_FIELD_ITEMS_ID', itemsWithPromo))
 
   // Адрес доставки
-  push(fieldVal('AMOCRM_FIELD_ADDRESS_ID', order.orderData.address || order.orderData.city))
-  if (order.orderData.city) push(fieldVal('AMOCRM_FIELD_CITY_ID', order.orderData.city))
+  if (order.orderData.deliveryMethod === 'ems') {
+    const d = order.orderData
+    const emsCity = [d.recipientCountry, d.recipientCity].filter(Boolean).join(', ')
+    const emsAddress = [d.recipientIndex, d.recipientRegion, d.recipientStreet].filter(Boolean).join(', ')
+    if (emsCity) push(fieldVal('AMOCRM_FIELD_CITY_ID', emsCity))
+    if (emsAddress) push(fieldVal('AMOCRM_FIELD_ADDRESS_ID', emsAddress))
+  } else {
+    push(fieldVal('AMOCRM_FIELD_ADDRESS_ID', order.orderData.address || order.orderData.city))
+    if (order.orderData.city) push(fieldVal('AMOCRM_FIELD_CITY_ID', order.orderData.city))
+  }
 
   // Имя в заказе и Имя контакта — временно одно и то же (fullName покупателя).
   // В будущем появится разделение: имя покупателя vs имя получателя.
