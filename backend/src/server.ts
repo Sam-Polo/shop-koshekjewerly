@@ -13,7 +13,7 @@ import { createOrder, getOrder, updateOrderStatus, listOrders, restoreOrder, typ
 import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId, listPendingOrdersFromSheet, updateCdekInfoInSheet, updatePochtaInfoInSheet } from './orders-sheet.js'
 import { sendAlert } from './alerts.js';
 import { searchCities, getPickupPoints, calculateDelivery, triggerCdekOrderAsync, getCdekUuidByTrack, downloadCdekBarcode } from './cdek.js';
-import { calculateTariff as calculatePochtaTariff, triggerPochtaOrderAsync, downloadF7p, getCountries as getPochtaCountries, createPochtaOrder, createBatch, getShpiFromBatch, checkRequiredPochtaEnv, pochtaFetch, _batchShipmentsPath } from './pochta.js';
+import { calculateTariff as calculatePochtaTariff, triggerPochtaOrderAsync, getCountries as getPochtaCountries, createPochtaOrder, createBatch, getShpiFromBatch, checkRequiredPochtaEnv, pochtaFetch, _batchShipmentsPath } from './pochta.js';
 import { uploadBufferToS3 } from './s3.js';
 import { triggerAmoCrmAsync, updateAmoCrmLeadTrack, updateAmoCrmLeadBarcode, createAmoCrmLead, syncCdekToLead } from './amocrm.js';
 import { buildPaymentForm, buildReceipt, verifyResultSignature, queryOrderState } from './robokassa.js';
@@ -1205,13 +1205,14 @@ export async function processPaidOrder(
             { tag: 'amocrm', level: 'low', code: 'AMOCRM_TRACK_UPDATE_FAILED' }
           ).catch(() => {})
         })
-        // ярлык Ф7п берётся по id заказа Почты (не по ШПИ); файл в S3 кладём под этим id
-        updateAmoCrmLeadBarcode(amoCrmLeadId, String(pochtaOrderId), downloadF7p, 'pochta-labels').catch((e: any) => {
-          sendAlert(
-            `amoCRM: не удалось прикрепить ярлык Ф7п к лиду ${amoCrmLeadId} (заказ ${orderId}): ${e?.message}`,
-            { tag: 'amocrm', level: 'low', code: 'AMOCRM_BARCODE_FAILED' }
-          ).catch(() => {})
-        })
+        // TODO: скачивание ярлыка Ф7п отключено — на аккаунте Почты не активирована
+        // схема оплаты отправлений (ошибка -1021). Раскомментировать после подключения:
+        // updateAmoCrmLeadBarcode(amoCrmLeadId, String(pochtaOrderId), downloadF7p, 'pochta-labels').catch((e: any) => {
+        //   sendAlert(
+        //     `amoCRM: не удалось прикрепить ярлык Ф7п к лиду ${amoCrmLeadId} (заказ ${orderId}): ${e?.message}`,
+        //     { tag: 'amocrm', level: 'low', code: 'AMOCRM_BARCODE_FAILED' }
+        //   ).catch(() => {})
+        // })
       }
       const trackMsg = [
         '🩷 Ваша посылочка скоро уедет к вам.',
@@ -1863,17 +1864,18 @@ app.post('/api/cdek/webhook', express.json(), (req, res) => {
     // и без них не может отправить посылку (а следующие статусы CDEK наступят только ПОСЛЕ отправки —
     // замкнутый круг). Поэтому неудача за все попытки = важный алерт, требует ручного вмешательства.
     const delays = [60_000, 120_000, 240_000, 300_000] // 1, 2, 4, 5 мин — последняя попытка на ~12-й мин
+    let lastError: string | null = null
     for (let i = 0; i < delays.length; i++) {
       await new Promise(r => setTimeout(r, delays[i]))
       let result
       try {
         result = await syncCdekToLead(orderNumber, cdekNumber, uuid, downloadCdekBarcode)
       } catch (e: any) {
-        sendAlert(
-          `CDEK webhook: ошибка синхронизации заказа ${orderNumber} (трек ${cdekNumber}): ${e?.message}`,
-          { tag: 'cdek', level: 'moderate', hint: 'Тильдин лид не получил трек/штрихкод', code: 'CDEK_WEBHOOK_SYNC_FAILED' }
-        ).catch(() => {})
-        return
+        // ошибка (429/сеть/временный сбой amoCRM) НЕ фатальна — пробуем следующую попытку,
+        // amoCRM за минуту-другую отпустит лимит. Алертим только если исчерпали все попытки.
+        lastError = e?.message ?? String(e)
+        logger.warn({ orderNumber, cdekNumber, attempt: i + 1, err: lastError }, 'CDEK webhook: ошибка синхронизации, повтор')
+        continue
       }
       if (result.matched) {
         if (result.action === 'other-track-skip') {
@@ -1886,13 +1888,23 @@ app.post('/api/cdek/webhook', express.json(), (req, res) => {
         }
         return
       }
+      lastError = null // нашли лид, но ещё не проиндексирован/не записан — это не ошибка
       // лид ещё не найден (вероятно не проиндексирован) — ждём следующую попытку
     }
-    logger.warn({ orderNumber, cdekNumber }, 'CDEK webhook: лид не найден после ретраев')
-    sendAlert(
-      `CDEK webhook: лид для заказа ${orderNumber} (трек ${cdekNumber}) не найден за ~12 мин. Менеджер не увидит трек/штрихкод и не сможет отправить посылку.`,
-      { tag: 'cdek', level: 'high', hint: 'найдите лид по номеру заказа в amoCRM и впишите трек/штрихкод вручную; если лида нет — проверьте интеграцию Тильда→amoCRM', code: 'CDEK_WEBHOOK_LEAD_NOT_FOUND' }
-    ).catch(() => {})
+    // исчерпали все попытки
+    if (lastError) {
+      logger.error({ orderNumber, cdekNumber, err: lastError }, 'CDEK webhook: синхронизация не удалась после ретраев')
+      sendAlert(
+        `CDEK webhook: не удалось синхронизировать заказ ${orderNumber} (трек ${cdekNumber}) за ~12 мин: ${lastError}`,
+        { tag: 'cdek', level: 'high', hint: 'amoCRM недоступен/лимит — впишите трек/штрихкод в лид вручную', code: 'CDEK_WEBHOOK_SYNC_FAILED' }
+      ).catch(() => {})
+    } else {
+      logger.warn({ orderNumber, cdekNumber }, 'CDEK webhook: лид не найден после ретраев')
+      sendAlert(
+        `CDEK webhook: лид для заказа ${orderNumber} (трек ${cdekNumber}) не найден за ~12 мин. Менеджер не увидит трек/штрихкод и не сможет отправить посылку.`,
+        { tag: 'cdek', level: 'high', hint: 'найдите лид по номеру заказа в amoCRM и впишите трек/штрихкод вручную; если лида нет — проверьте интеграцию Тильда→amoCRM', code: 'CDEK_WEBHOOK_LEAD_NOT_FOUND' }
+      ).catch(() => {})
+    }
   })()
 })
 
@@ -2070,6 +2082,75 @@ app.post('/admin/import/sheets', async (req, res) => {
     }
   }
 });
+
+// Ручная отбивка покупателю (из админки) — для ЕМС и как fallback для СДЭК.
+// Авторизация: тот же x-admin-key что и у /admin/import/sheets.
+app.post('/admin/notify-shipped', express.json(), async (req, res) => {
+  const key = req.header('x-admin-key')
+  if (!key || key !== process.env.ADMIN_IMPORT_KEY) {
+    return res.status(401).json({ error: 'unauthorized' })
+  }
+
+  const { orderId } = req.body
+  if (!orderId || typeof orderId !== 'string') {
+    return res.status(400).json({ error: 'orderId required' })
+  }
+
+  const sheetOrder = await getOrderFromSheet(orderId).catch(() => null)
+  if (!sheetOrder) {
+    return res.status(404).json({ error: 'order_not_found' })
+  }
+  if (!sheetOrder.customerChatId) {
+    return res.status(422).json({ error: 'no_chat_id' })
+  }
+
+  const alreadyNotified = !!sheetOrder.adminNote?.includes('shipped_notified')
+
+  const deliveryMethod = sheetOrder.orderData.deliveryMethod
+  const cdekTrack = sheetOrder.cdekTrackNumber || ''
+  const emsTrack = sheetOrder.pochtaShpi || ''
+  const trackNumber = deliveryMethod === 'ems' ? emsTrack : cdekTrack
+  const trackLink = deliveryMethod === 'ems'
+    ? `https://www.pochta.ru/tracking#${emsTrack}`
+    : `https://cdek.ru/m/order/${cdekTrack}`
+
+  const sheetId = process.env.IMPORT_SHEET_ID
+  let shippedTemplate = DEFAULT_SHIPPED_MESSAGE
+  try {
+    if (sheetId) {
+      const settings = await getCachedOrdersSettings(sheetId)
+      if (settings.shippedMessage) shippedTemplate = settings.shippedMessage
+    }
+  } catch (e: any) {
+    logger.warn({ orderId, error: e?.message }, 'notify-shipped: не удалось прочитать shippedMessage, используем дефолт')
+  }
+
+  const messageText = shippedTemplate
+    .replace(/\{\{track\}\}/g, trackNumber)
+    .replace(/\{\{track-link\}\}/g, trackLink)
+    .replace(/\{\{ord\}\}/g, orderId)
+
+  const sendFn = sheetOrder.platform === 'max' ? sendMaxMessage : sendTelegramMessage
+  const result = await sendFn(sheetOrder.customerChatId, messageText)
+
+  if (!result.ok) {
+    sendAlert(`notify-shipped: сообщение не доставлено покупателю (заказ ${orderId}, chat ${sheetOrder.customerChatId})`,
+      { tag: 'admin', level: 'high', code: 'ADMIN_NOTIFY_SHIPPED_FAILED' }).catch(() => {})
+    return res.status(502).json({ error: 'send_failed' })
+  }
+
+  const existingNote = sheetOrder.adminNote || ''
+  if (!existingNote.includes('shipped_notified')) {
+    const newNote = existingNote ? `${existingNote}\nshipped_notified` : 'shipped_notified'
+    updateOrderAdminNoteInSheet(orderId, newNote).catch((e: any) => {
+      logger.error({ orderId, error: e?.message }, 'notify-shipped: не удалось записать флаг shipped_notified')
+      sendAlert(`notify-shipped: сообщение отправлено, но флаг shipped_notified не записан (заказ ${orderId})`,
+        { tag: 'admin', level: 'moderate', code: 'ADMIN_NOTIFY_SHIPPED_NOTE_FAILED' }).catch(() => {})
+    })
+  }
+
+  res.json({ ok: true, alreadyNotified })
+})
 
 // 1.2: проверяем статус pending-заказов через Robokassa OpStateExt
 // запускается по таймеру; если Result URL пришёл до рестарта — обрабатываем здесь
@@ -2373,26 +2454,28 @@ app.post('/api/pochta/test', express.json(), async (req, res) => {
       return res.status(200).json({ ok: false, error: 'ШПИ не присвоен за 15с', steps })
     }
 
-    // 5. скачать ярлык Ф7п (по id заказа Почты, не по ШПИ) → загрузить в S3
-    const pdf = await downloadF7p(order.id)
-    const labelUrl = await uploadBufferToS3(`pochta-labels/test-${order.id}.pdf`, pdf, 'application/pdf')
-    steps.label = { ok: true, labelUrl }
+    // скачивание ярлыка Ф7п отключено — на аккаунте Почты не активирована схема оплаты
+    // (ошибка -1021 в ЛК; API /1.0/forms/{id}/forms → 403). Раскомментировать после активации:
+    // const pdf = await downloadF7p(order.id)
+    // const labelUrl = await uploadBufferToS3(`pochta-labels/test-${order.id}.pdf`, pdf, 'application/pdf')
+    // steps.label = { ok: true, labelUrl }
+    steps.label = { ok: false, skipped: true, reason: 'disabled: payment scheme not activated on Pochta account' }
 
     const trackingUrl = `https://www.pochta.ru/tracking#${shpi}`
 
-    // 6. опционально — лид в amoCRM с треком + ярлыком (как в проде)
+    // лид в amoCRM с треком (без ярлыка — отключён выше)
     if (createLead) {
       try {
         const leadId = await createAmoCrmLead(fakeOrder as any)
         await updateAmoCrmLeadTrack(leadId, shpi, trackingUrl)
-        await updateAmoCrmLeadBarcode(leadId, String(order.id), downloadF7p, 'pochta-labels')
+        // updateAmoCrmLeadBarcode — отключено вместе со скачиванием ярлыка
         steps.lead = { ok: true, leadUrl: `https://${process.env.AMOCRM_SUBDOMAIN}.amocrm.ru/leads/detail/${leadId}` }
       } catch (e: any) {
         steps.lead = { ok: false, error: e?.message }
       }
     }
 
-    res.json({ ok: true, shpi, trackingUrl, labelUrl, steps })
+    res.json({ ok: true, shpi, trackingUrl, steps })
   } catch (e: any) {
     res.status(500).json({ ok: false, error: e?.message, steps })
   }

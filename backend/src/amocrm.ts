@@ -16,7 +16,7 @@ const getToken = () => {
 
 // ── Authenticated fetch ───────────────────────────────────────────────────────
 
-async function amoFetch(method: string, path: string, body?: unknown): Promise<unknown> {
+async function amoFetch(method: string, path: string, body?: unknown, attempt = 1): Promise<unknown> {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), 12_000)
   try {
@@ -31,6 +31,15 @@ async function amoFetch(method: string, path: string, body?: unknown): Promise<u
     })
     clearTimeout(timer)
     if (resp.status === 204) return null
+    // amoCRM лимит ~7 req/sec на аккаунт → 429. Ретраим с backoff (учитываем Retry-After).
+    if (resp.status === 429 && attempt <= 4) {
+      const retryAfter = Number(resp.headers.get('Retry-After'))
+      const delayMs = Number.isFinite(retryAfter) && retryAfter > 0
+        ? Math.min(retryAfter * 1000, 10_000)
+        : [500, 1500, 4000, 8000][attempt - 1]
+      await sleep(delayMs)
+      return amoFetch(method, path, body, attempt + 1)
+    }
     if (!resp.ok) {
       const text = await resp.text().catch(() => '')
       throw new Error(`amoCRM ${method} ${path} → HTTP ${resp.status}: ${text.slice(0, 300)}`)
