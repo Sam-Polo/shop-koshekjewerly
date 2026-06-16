@@ -49,6 +49,9 @@ const WATCHDOG_TIMEOUT_MS = Number(process.env.WATCHDOG_TIMEOUT_MS ?? 150_000)
 // а getMe в ту же секунду отвечает ok. 10с возвращается ДО разрыва: опрашиваем чаще,
 // но стабильно. Тюнится через env GETUPDATES_TIMEOUT.
 const GETUPDATES_TIMEOUT = Number(process.env.GETUPDATES_TIMEOUT ?? 10)
+// Таймаут на исходящие TG API вызовы (sendMessage/reply/...). grammY-дефолт ~500с:
+// зависший вызов морозит последовательную очередь до срабатывания handler-watchdog (150с).
+const API_CALL_TIMEOUT_MS = Number(process.env.BOT_API_TIMEOUT_MS ?? 30_000)
 let lastSuccessfulPollAt = Date.now()
 let inFlightSince: number | null = null
 let inFlightInfo = ''
@@ -60,7 +63,21 @@ function bumpWatchdog() { if (inFlightSince !== null) inFlightSince = Date.now()
 // Логируем ok:false (напр. 409 conflict) и исключения — иначе сбои поллинга невидимы
 // (grammY глушит ошибки getUpdates, видны только при DEBUG=grammy*).
 bot.api.config.use(async (prev, method, payload, signal) => {
-  if (method !== 'getUpdates') return prev(method, payload, signal)
+  if (method !== 'getUpdates') {
+    // Все НЕ-getUpdates вызовы (sendMessage, reply, sendPhoto, ...) — жёсткий таймаут.
+    // Без него зависший TG API морозит последовательную очередь grammY до дефолта (~500с) → watchdog-рестарт.
+    const ac = new AbortController()
+    const timer = setTimeout(() => ac.abort(), API_CALL_TIMEOUT_MS)
+    if (signal) {
+      if (signal.aborted) ac.abort()
+      else signal.addEventListener('abort', () => ac.abort())
+    }
+    try {
+      return await prev(method, payload, ac.signal as any)
+    } finally {
+      clearTimeout(timer)
+    }
+  }
   const p = { ...(payload as any), timeout: GETUPDATES_TIMEOUT }
 
   // Hard deadline: если прокси завис и не ответил (нет ECONNREFUSED, просто тишина),
