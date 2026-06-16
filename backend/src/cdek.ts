@@ -156,6 +156,9 @@ export async function createCdekOrder(order: Order, pvzCode: string): Promise<Cd
 
   const data = await cdekFetch('POST', '/orders', {
     tariff_code: TARIFF_CODE,
+    // «Номер ИМ» = orderId → совпадает с полем 774543 в amoCRM.
+    // Без него CDEK генерит свой UUID, и CDEK-вебхук не находит бот-лид (ложный alert).
+    number: order.orderId.slice(0, 40),
     comment: `Заказ ${order.orderId}`,
     from_location: { code: FROM_CITY_CODE },
     delivery_point: pvzCode,

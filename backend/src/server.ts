@@ -1898,6 +1898,10 @@ app.post('/api/cdek/webhook', express.json(), (req, res) => {
         `CDEK webhook: не удалось синхронизировать заказ ${orderNumber} (трек ${cdekNumber}) за ~12 мин: ${lastError}`,
         { tag: 'cdek', level: 'high', hint: 'amoCRM недоступен/лимит — впишите трек/штрихкод в лид вручную', code: 'CDEK_WEBHOOK_SYNC_FAILED' }
       ).catch(() => {})
+    } else if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orderNumber)) {
+      // «Номер ИМ» = UUID → CDEK сгенерил его сам (заказ создан без нашего number — старый бот-заказ
+      // до фикса cdek.ts). Бот-лиды получают трек напрямую через processPaidOrder, вебхук тут лишний.
+      logger.info({ orderNumber, cdekNumber }, 'CDEK webhook: автоген-UUID (бот-заказ), лида по номеру нет — пропуск без алерта')
     } else {
       logger.warn({ orderNumber, cdekNumber }, 'CDEK webhook: лид не найден после ретраев')
       sendAlert(
