@@ -201,6 +201,84 @@ export async function upsertOrderItems(
 }
 
 /**
+ * Bulk version of upsertOrderItems for the nightly sync.
+ * Reads the sheet ONCE, computes all changes in memory, then writes with a
+ * single batchUpdate + single append — avoids the Google Sheets read quota
+ * blowout of reading the whole sheet per lead.
+ */
+export async function bulkUpsertOrders(
+  orders: { orderId: string; newStatus: ShipStatus; items: ShipmentItem[]; shipDate: string }[]
+): Promise<{ created: number; updated: number; noop: number }> {
+  const stats = { created: 0, updated: 0, noop: 0 }
+  if (orders.length === 0) return stats
+
+  const auth = getAuth()
+  const sheets = google.sheets({ version: 'v4', auth })
+  const spreadsheetId = getSheetId()
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${SHEET_NAME}!A:I`,
+  })
+  const rows = res.data.values ?? []
+
+  // index existing rows by order_id
+  const byOrder = new Map<string, { r: string[]; rowNum: number }[]>()
+  for (let i = 1; i < rows.length; i++) {
+    const oid = rows[i][0]
+    if (!oid) continue
+    if (!byOrder.has(oid)) byOrder.set(oid, [])
+    byOrder.get(oid)!.push({ r: rows[i], rowNum: i + 1 })
+  }
+
+  const updates: { range: string; values: string[][] }[] = []
+  const appendRows: string[][] = []
+  const appendedOrderIds = new Set<string>()  // guard against intra-batch dup appends
+
+  for (const { orderId, newStatus, items, shipDate } of orders) {
+    const existing = byOrder.get(orderId)
+
+    if (!existing || existing.length === 0) {
+      if (items.length === 0 || appendedOrderIds.has(orderId)) { stats.noop++; continue }
+      appendedOrderIds.add(orderId)
+      appendRows.push(...items.map(itemToRow))
+      stats.created++
+      continue
+    }
+
+    const rowUpdates = existing
+      .filter(({ r }) => r[5] !== newStatus)
+      .map(({ r, rowNum }) => {
+        const u = [...r]
+        u[5] = newStatus
+        u[6] = (newStatus === 'sent' || newStatus === 'returned') ? shipDate : ''
+        while (u.length < 9) u.push('')
+        return { range: `${SHEET_NAME}!A${rowNum}:I${rowNum}`, values: [u.slice(0, 9)] }
+      })
+
+    if (rowUpdates.length === 0) stats.noop++
+    else { updates.push(...rowUpdates); stats.updated++ }
+  }
+
+  if (updates.length > 0) {
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId,
+      requestBody: { valueInputOption: 'RAW', data: updates },
+    })
+  }
+  if (appendRows.length > 0) {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: `${SHEET_NAME}!A:I`,
+      valueInputOption: 'RAW',
+      requestBody: { values: appendRows },
+    })
+  }
+
+  return stats
+}
+
+/**
  * Updates all pending items for a given order_id to the specified status.
  * Called from the amoCRM stage-change webhook.
  */

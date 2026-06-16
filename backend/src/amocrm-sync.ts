@@ -1,5 +1,6 @@
 import pino from 'pino'
-import { PIPELINE_ID, getAmoBase, getAmoToken, processAmoCrmLead } from './amocrm-lead-processor.js'
+import { PIPELINE_ID, getAmoBase, getAmoToken, prepareLeadUpsert, type LeadUpsert } from './amocrm-lead-processor.js'
+import { bulkUpsertOrders } from './shipment-items-sheet.js'
 
 const logger = pino()
 
@@ -41,6 +42,9 @@ export async function syncRecentAmoCrmLeads(hours = 48): Promise<SyncResult> {
   const since = Math.floor((Date.now() - hours * 3600 * 1000) / 1000)
   const result: SyncResult = { fetched: 0, created: 0, updated: 0, noop: 0, skipped: 0, errors: 0 }
 
+  // Phase 1: fetch all pages from amoCRM and build upsert payloads in memory.
+  // prepareLeadUpsert does no Sheets I/O, so we never hit the read quota here.
+  const preps: LeadUpsert[] = []
   let page = 1
   while (true) {
     const data = await amoGet(
@@ -51,17 +55,15 @@ export async function syncRecentAmoCrmLeads(hours = 48): Promise<SyncResult> {
     if (leads.length === 0) break
 
     result.fetched += leads.length
-    logger.info({ page, count: leads.length }, 'amocrm-sync: processing page')
+    logger.info({ page, count: leads.length }, 'amocrm-sync: fetched page')
 
     for (const lead of leads) {
       try {
-        const r = await processAmoCrmLead(lead)
-        if (r === 'created')       result.created++
-        else if (r === 'updated')  result.updated++
-        else if (r === 'noop')     result.noop++
-        else                       result.skipped++
+        const prep = prepareLeadUpsert(lead)
+        if (prep) preps.push(prep)
+        else result.skipped++
       } catch (e: any) {
-        logger.error({ leadId: lead.id, err: e?.message }, 'amocrm-sync: error processing lead')
+        logger.error({ leadId: lead.id, err: e?.message }, 'amocrm-sync: error preparing lead')
         result.errors++
       }
     }
@@ -70,6 +72,19 @@ export async function syncRecentAmoCrmLeads(hours = 48): Promise<SyncResult> {
     page++
     // small delay between pages to avoid amoCRM rate limiting
     await new Promise<void>(r => setTimeout(r, 300))
+  }
+
+  // Phase 2: one read + one batchUpdate + one append for the whole sync.
+  if (preps.length > 0) {
+    try {
+      const { created, updated, noop } = await bulkUpsertOrders(preps)
+      result.created = created
+      result.updated = updated
+      result.noop = noop
+    } catch (e: any) {
+      logger.error({ err: e?.message }, 'amocrm-sync: bulk upsert failed')
+      result.errors += preps.length
+    }
   }
 
   logger.info(result, 'amocrm-sync: completed')
