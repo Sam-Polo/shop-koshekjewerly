@@ -62,7 +62,7 @@ router.put('/orders-status', async (req, res) => {
       return res.status(500).json({ error: 'GOOGLE_SHEET_ID not configured' })
     }
 
-    const { ordersClosed, closeDate, assemblyMessage, shippedMessage, priorityOrderEnabled, priorityOrderFee } = req.body
+    const { ordersClosed, closeDate, assemblyMessage, trackMessage, shippedMessage, priorityOrderEnabled, priorityOrderFee } = req.body
 
     if (typeof ordersClosed !== 'boolean') {
       return res.status(400).json({ error: 'ordersClosed must be a boolean' })
@@ -77,6 +77,10 @@ router.put('/orders-status', async (req, res) => {
 
     if (assemblyMessage !== undefined && typeof assemblyMessage !== 'string') {
       return res.status(400).json({ error: 'assemblyMessage must be a string' })
+    }
+
+    if (trackMessage !== undefined && typeof trackMessage !== 'string') {
+      return res.status(400).json({ error: 'trackMessage must be a string' })
     }
 
     if (shippedMessage !== undefined && typeof shippedMessage !== 'string') {
@@ -95,6 +99,7 @@ router.put('/orders-status', async (req, res) => {
       ordersClosed,
       closeDate: closeDate || undefined,
       assemblyMessage: assemblyMessage || undefined,
+      trackMessage: trackMessage || undefined,
       shippedMessage: shippedMessage || undefined,
       priorityOrderEnabled: priorityOrderEnabled !== false,
       priorityOrderFee: priorityOrderFee !== undefined ? Number(priorityOrderFee) : undefined

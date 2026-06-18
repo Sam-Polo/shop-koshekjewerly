@@ -576,16 +576,19 @@ function extractUserFromInitData(initData: string): { id: string | null; display
 
 // отправка уведомлений о заказе (вызывается после успешной оплаты)
 const DEFAULT_ASSEMBLY_MESSAGE = 'Ваш заказ будет отправлен в течении 3-5 дней, мы пришлем уведомление с трек номером для отслеживания. Благодарим за заказ 🤍'
+const DEFAULT_TRACK_MESSAGE = '🩷 Ваша посылочка скоро уедет к вам.\nОтследить можно по ссылке:\n\n{{track-link}}\n\nСпасибо за заказ, всегда будем счастливы видеть ваши отзывы 🥰'
 
 async function sendOrderNotifications(order: any) {
-  // читаем assembly_message и priorityOrderFee из настроек
+  // читаем assembly_message, track_message и priorityOrderFee из настроек
   let assemblyMessage = DEFAULT_ASSEMBLY_MESSAGE
+  let trackMessageTemplate = DEFAULT_TRACK_MESSAGE
   let notifPriorityFeePct = 30
   try {
     const sheetId = process.env.IMPORT_SHEET_ID
     if (sheetId) {
       const settings = await getCachedOrdersSettings(sheetId)
       if (settings.assemblyMessage) assemblyMessage = settings.assemblyMessage
+      if (settings.trackMessage) trackMessageTemplate = settings.trackMessage
       if (settings.priorityOrderFee !== undefined) notifPriorityFeePct = settings.priorityOrderFee
     }
   } catch {
@@ -1214,14 +1217,10 @@ export async function processPaidOrder(
         //   ).catch(() => {})
         // })
       }
-      const trackMsg = [
-        '🩷 Ваша посылочка скоро уедет к вам.',
-        'Отследить можно по ссылке:',
-        '',
-        trackingUrl,
-        '',
-        'Спасибо за заказ, всегда будем счастливы видеть ваши отзывы 🥰',
-      ].join('\n')
+      const trackMsg = trackMessageTemplate
+        .replace(/\{\{track\}\}/g, shpi)
+        .replace(/\{\{track-link\}\}/g, trackingUrl)
+        .replace(/\{\{ord\}\}/g, orderId)
       if (order.customerChatId) {
         const result = order.platform === 'max'
           ? await sendMaxMessage(order.customerChatId, trackMsg)
@@ -1272,14 +1271,11 @@ export async function processPaidOrder(
         })
       }
       const trackingUrl = `https://www.cdek.ru/track?order_id=${cdekNumber}`
-      const trackMsg = [
-        '🩷 Ваша посылочка скоро уедет к вам.',
-        'Отследить можно по ссылке:',
-        '',
-        trackingUrl,
-        '',
-        'Спасибо за заказ, всегда будем счастливы видеть ваши отзывы 🥰',
-      ].join('\n')
+      const cdekTrackLink = `https://cdek.ru/m/order/${cdekNumber}`
+      const trackMsg = trackMessageTemplate
+        .replace(/\{\{track\}\}/g, cdekNumber)
+        .replace(/\{\{track-link\}\}/g, cdekTrackLink)
+        .replace(/\{\{ord\}\}/g, orderId)
       if (order.customerChatId) {
         const result = order.platform === 'max'
           ? await sendMaxMessage(order.customerChatId, trackMsg)
@@ -1988,14 +1984,24 @@ app.post('/api/orders/:orderId/send-tracking', express.json(), async (req, res) 
     return res.status(400).json({ error: 'no_customer_chat_id' })
   }
 
-  const trackingMessage = [
-    '🩷 Ваша посылочка скоро уедет к вам.',
-    'Отследить можно по ссылке:',
-    '',
-    trackingUrl,
-    '',
-    'Спасибо за заказ, всегда будем счастливы видеть ваши отзывы 🥰'
-  ].join('\n')
+  let sendTrackTemplate = DEFAULT_TRACK_MESSAGE
+  try {
+    const sheetId = process.env.IMPORT_SHEET_ID
+    if (sheetId) {
+      const settings = await getCachedOrdersSettings(sheetId)
+      if (settings.trackMessage) sendTrackTemplate = settings.trackMessage
+    }
+  } catch { /* используем дефолт */ }
+
+  // извлекаем трек-номер из URL для подстановки в {{track}}
+  const cdekMatch = trackingUrl.match(/cdek\.ru\/.*?(?:order_id=|m\/order\/)(\d+)/)
+  const pochtaMatch = trackingUrl.match(/pochta\.ru\/tracking#(.+)/)
+  const trackNumber = cdekMatch?.[1] ?? pochtaMatch?.[1] ?? ''
+
+  const trackingMessage = sendTrackTemplate
+    .replace(/\{\{track\}\}/g, trackNumber)
+    .replace(/\{\{track-link\}\}/g, trackingUrl)
+    .replace(/\{\{ord\}\}/g, orderId)
 
   const result = order.platform === 'max'
     ? await sendMaxMessage(order.customerChatId, trackingMessage)

@@ -17,10 +17,13 @@ type OrdersSettings = {
   ordersClosed: boolean
   closeDate: string
   assemblyMessage: string
+  trackMessage: string
   shippedMessage: string
   priorityOrderEnabled: boolean
   priorityOrderFee: number
 }
+
+type MessageTab = 'order_confirmed' | 'track_assigned' | 'shipped'
 
 const STYLE_LABELS: Record<BannerStyle, string> = {
   pink: 'Розовый',
@@ -64,10 +67,12 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
     ordersClosed: false,
     closeDate: '',
     assemblyMessage: '',
+    trackMessage: '',
     shippedMessage: '',
     priorityOrderEnabled: true,
     priorityOrderFee: 30,
   })
+  const [messageTab, setMessageTab] = useState<MessageTab>('order_confirmed')
   const [ordersLoading, setOrdersLoading] = useState(true)
   const [ordersSaving, setOrdersSaving] = useState(false)
 
@@ -109,6 +114,7 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
         ordersClosed: data.ordersClosed || false,
         closeDate: data.closeDate || '',
         assemblyMessage: data.assemblyMessage || '',
+        trackMessage: data.trackMessage || '',
         shippedMessage: data.shippedMessage || '',
         priorityOrderEnabled: data.priorityOrderEnabled !== false,
         priorityOrderFee: data.priorityOrderFee ?? 30,
@@ -145,6 +151,7 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
         ordersClosed: orders.ordersClosed,
         closeDate: orders.closeDate || undefined,
         assemblyMessage: orders.assemblyMessage || undefined,
+        trackMessage: orders.trackMessage || undefined,
         shippedMessage: orders.shippedMessage || undefined,
         priorityOrderEnabled: orders.priorityOrderEnabled,
         priorityOrderFee: orders.priorityOrderFee,
@@ -217,18 +224,6 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
                 <p className="settings-hint">Отображается в мини-приложении как «до&nbsp;[дата]»</p>
               </div>
 
-              <div className="settings-field">
-                <label className="settings-label">Сообщение о сроке сборки (в уведомлении бота)</label>
-                <textarea
-                  className="settings-textarea"
-                  rows={3}
-                  placeholder="Ваш заказ будет отправлен в течении 3-5 дней, мы пришлем уведомление с трек номером для отслеживания. Благодарим за заказ 🤍"
-                  value={orders.assemblyMessage}
-                  onChange={e => setOrders(prev => ({ ...prev, assemblyMessage: e.target.value }))}
-                />
-                <p className="settings-hint">Отправляется покупателю в Telegram/MAX после успешной оплаты. Если оставить пустым — используется стандартный текст.</p>
-              </div>
-
               <button
                 className="settings-save-btn"
                 onClick={handleSaveOrders}
@@ -240,29 +235,88 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
           )}
         </section>
 
-        {/* ── УВЕДОМЛЕНИЕ ОБ ОТПРАВКЕ (СДЭК) ───────────── */}
+        {/* ── СООБЩЕНИЯ БОТА ────────────────────────────── */}
         <section className="settings-section">
-          <h2 className="settings-section__title">Уведомление об отправке (СДЭК)</h2>
+          <h2 className="settings-section__title">Сообщения бота</h2>
           {ordersLoading ? (
             <div className="settings-loading">Загрузка...</div>
           ) : (
             <div className="settings-card">
-              <div className="settings-field">
-                <label className="settings-label">Текст сообщения покупателю</label>
-                <textarea
-                  className="settings-textarea"
-                  rows={5}
-                  placeholder={'📦 Ваш заказ отправлен!\n\nОтследить посылку:\n{{track-link}}\n\nСпасибо за ваш заказ 🤍'}
-                  value={orders.shippedMessage}
-                  onChange={e => setOrders(prev => ({ ...prev, shippedMessage: e.target.value }))}
-                />
-                <p className="settings-hint">
-                  Отправляется покупателю когда СДЭК принял посылку в городе отправителя (статус RECEIVED_AT_SENDER_CITY).
-                  Плейсхолдеры: <b>{'{{track}}'}</b> — трек-номер СДЭК, <b>{'{{track-link}}'}</b> — ссылка на отслеживание, <b>{'{{ord}}'}</b> — номер заказа.
-                  Поддерживаются HTML-теги Telegram: <b>&lt;b&gt;</b>, <b>&lt;i&gt;</b>, <b>&lt;code&gt;</b>.
-                  Если оставить пустым — используется стандартный текст.
-                </p>
+              <div className="msg-tabs">
+                <button
+                  className={`msg-tab${messageTab === 'order_confirmed' ? ' msg-tab--active' : ''}`}
+                  onClick={() => setMessageTab('order_confirmed')}
+                >
+                  1. Заказ оформлен
+                </button>
+                <button
+                  className={`msg-tab${messageTab === 'track_assigned' ? ' msg-tab--active' : ''}`}
+                  onClick={() => setMessageTab('track_assigned')}
+                >
+                  2. Трек назначен
+                </button>
+                <button
+                  className={`msg-tab${messageTab === 'shipped' ? ' msg-tab--active' : ''}`}
+                  onClick={() => setMessageTab('shipped')}
+                >
+                  3. Отправлен
+                </button>
               </div>
+
+              {messageTab === 'order_confirmed' && (
+                <div className="settings-field">
+                  <label className="settings-label">Блок о сроках сборки</label>
+                  <textarea
+                    className="settings-textarea"
+                    rows={3}
+                    placeholder="Ваш заказ будет отправлен в течении 3-5 дней, мы пришлем уведомление с трек номером для отслеживания. Благодарим за заказ 🤍"
+                    value={orders.assemblyMessage}
+                    onChange={e => setOrders(prev => ({ ...prev, assemblyMessage: e.target.value }))}
+                  />
+                  <p className="settings-hint">
+                    Вставляется в конец сообщения «🎉 Ваш заказ оформлен!» после блока доставки.
+                    Если оставить пустым — используется стандартный текст. Плейсхолдеры не поддерживаются.
+                  </p>
+                </div>
+              )}
+
+              {messageTab === 'track_assigned' && (
+                <div className="settings-field">
+                  <label className="settings-label">Текст сообщения с трек-номером</label>
+                  <textarea
+                    className="settings-textarea"
+                    rows={5}
+                    placeholder={'🩷 Ваша посылочка скоро уедет к вам.\nОтследить можно по ссылке:\n\n{{track-link}}\n\nСпасибо за заказ, всегда будем счастливы видеть ваши отзывы 🥰'}
+                    value={orders.trackMessage}
+                    onChange={e => setOrders(prev => ({ ...prev, trackMessage: e.target.value }))}
+                  />
+                  <p className="settings-hint">
+                    Отправляется покупателю сразу после оформления заказа — когда СДЭК или Почта России создала отправление.
+                    Плейсхолдеры: <b>{'{{track}}'}</b> — трек-номер, <b>{'{{track-link}}'}</b> — ссылка на отслеживание, <b>{'{{ord}}'}</b> — номер заказа.
+                    Поддерживаются HTML-теги Telegram: <b>&lt;b&gt;</b>, <b>&lt;i&gt;</b>, <b>&lt;code&gt;</b>.
+                    Если оставить пустым — используется стандартный текст.
+                  </p>
+                </div>
+              )}
+
+              {messageTab === 'shipped' && (
+                <div className="settings-field">
+                  <label className="settings-label">Текст уведомления об отправке</label>
+                  <textarea
+                    className="settings-textarea"
+                    rows={5}
+                    placeholder={'📦 Ваш заказ отправлен!\n\nОтследить посылку:\n{{track-link}}\n\nСпасибо за ваш заказ 🤍'}
+                    value={orders.shippedMessage}
+                    onChange={e => setOrders(prev => ({ ...prev, shippedMessage: e.target.value }))}
+                  />
+                  <p className="settings-hint">
+                    Отправляется через кнопку «Отбить» в разделе Заказы или автоматически от СДЭК (статус RECEIVED_AT_SENDER_CITY).
+                    Плейсхолдеры: <b>{'{{track}}'}</b> — трек-номер, <b>{'{{track-link}}'}</b> — ссылка на отслеживание, <b>{'{{ord}}'}</b> — номер заказа.
+                    Поддерживаются HTML-теги Telegram: <b>&lt;b&gt;</b>, <b>&lt;i&gt;</b>, <b>&lt;code&gt;</b>.
+                    Если оставить пустым — используется стандартный текст.
+                  </p>
+                </div>
+              )}
 
               <button
                 className="settings-save-btn"

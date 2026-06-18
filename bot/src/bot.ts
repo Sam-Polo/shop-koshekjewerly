@@ -851,7 +851,7 @@ bot.command('help', async (ctx) => {
   await ctx.reply(getHelpMessage())
 });
 
-// /test_message_order_send — предпросмотр сообщения об отправке (только для менеджеров)
+// /test_message_order_send — предпросмотр всех трёх сообщений бота (только для менеджеров)
 bot.command('test_message_order_send', async (ctx) => {
   const chatId = ctx.from?.id
   const username = ctx.from?.username
@@ -864,9 +864,13 @@ bot.command('test_message_order_send', async (ctx) => {
   const DEMO_TRACK = '10279728990'
   const DEMO_ORD = 'ORD-1234567890'
   const DEMO_TRACK_LINK = `https://cdek.ru/m/order/${DEMO_TRACK}`
-  const DEFAULT_TEMPLATE = '📦 Ваш заказ отправлен!\n\nОтследить посылку:\n{{track-link}}\n\nСпасибо за ваш заказ 🤍'
+  const DEFAULT_ASSEMBLY = 'Ваш заказ будет отправлен в течении 3-5 дней, мы пришлем уведомление с трек номером для отслеживания. Благодарим за заказ 🤍'
+  const DEFAULT_TRACK_MSG = '🩷 Ваша посылочка скоро уедет к вам.\nОтследить можно по ссылке:\n\n{{track-link}}\n\nСпасибо за заказ, всегда будем счастливы видеть ваши отзывы 🥰'
+  const DEFAULT_SHIPPED = '📦 Ваш заказ отправлен!\n\nОтследить посылку:\n{{track-link}}\n\nСпасибо за ваш заказ 🤍'
 
-  let template = DEFAULT_TEMPLATE
+  let assemblyMsg = DEFAULT_ASSEMBLY
+  let trackTemplate = DEFAULT_TRACK_MSG
+  let shippedTemplate = DEFAULT_SHIPPED
 
   const abortCtrl = new AbortController()
   const abortTimer = setTimeout(() => abortCtrl.abort(), 12_000)
@@ -876,21 +880,53 @@ bot.command('test_message_order_send', async (ctx) => {
     const resp = await fetch(url, { signal: abortCtrl.signal })
     const data = await resp.json() as any
     clearTimeout(abortTimer)
-    if (data.shippedMessage) template = data.shippedMessage
+    if (data.assemblyMessage) assemblyMsg = data.assemblyMessage
+    if (data.trackMessage) trackTemplate = data.trackMessage
+    if (data.shippedMessage) shippedTemplate = data.shippedMessage
   } catch (e: any) {
     clearTimeout(abortTimer)
     if (e?.name === 'AbortError') {
       sendAlert('test_message_order_send: бэкенд не ответил за 12с', { tag: 'bot', level: 'moderate', hint: 'Render спит', code: 'TEST_SHIPPED_MSG_TIMEOUT' }).catch(() => {})
     }
-    // продолжаем с дефолтным шаблоном
+    // продолжаем с дефолтными шаблонами
   }
 
-  const previewText = template
+  const sub = (t: string) => t
     .replace(/\{\{track\}\}/g, DEMO_TRACK)
     .replace(/\{\{track-link\}\}/g, DEMO_TRACK_LINK)
     .replace(/\{\{ord\}\}/g, DEMO_ORD)
-  await ctx.reply('🔍 Предпросмотр уведомления об отправке:')
-  await ctx.reply(previewText, { parse_mode: 'HTML' })
+
+  // Сообщение 1: Заказ оформлен
+  const msg1 = [
+    '🎉 <b>Ваш заказ оформлен!</b>',
+    '',
+    `Номер заказа: <code>${DEMO_ORD}</code>`,
+    '',
+    'Товары:',
+    '• Кольцо Vintage (арт: 0001) × 1 — 2 500 ₽',
+    '• Подвеска Pearl (арт: 0042) × 1 — 1 800 ₽',
+    '',
+    'Доставка: 500 ₽',
+    'Итого: 4 800 ₽',
+    '',
+    '📍 Пункт СДЭК:',
+    'г. Москва, Ленинградский пр-т 80 к1',
+    '',
+    assemblyMsg,
+    '',
+    `💬 Для связи: @${(process.env.SUPPORT_USERNAME || 'support').replace('@', '')}`,
+  ].join('\n')
+
+  await ctx.reply('— Сообщение 1: Заказ оформлен —')
+  await ctx.reply(msg1, { parse_mode: 'HTML' })
+
+  // Сообщение 2: Трек назначен
+  await ctx.reply('— Сообщение 2: Трек назначен (CDEK) —')
+  await ctx.reply(sub(trackTemplate), { parse_mode: 'HTML' })
+
+  // Сообщение 3: Отправлен (отбивка)
+  await ctx.reply('— Сообщение 3: Отправлен (отбивка) —')
+  await ctx.reply(sub(shippedTemplate), { parse_mode: 'HTML' })
 })
 
 // обработка callback_query (кнопки)

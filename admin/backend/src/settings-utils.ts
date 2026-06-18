@@ -8,6 +8,7 @@ export type OrdersSettings = {
   ordersClosed: boolean
   closeDate?: string
   assemblyMessage?: string
+  trackMessage?: string
   shippedMessage?: string
   priorityOrderEnabled?: boolean
   priorityOrderFee?: number
@@ -46,7 +47,7 @@ async function readSettingsRows(sheets: ReturnType<typeof google.sheets>, sheetI
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: sheetId,
-      range: 'settings!A1:B20'
+      range: 'settings!A1:B25'
     })
     return res.data.values ?? []
   } catch {
@@ -119,6 +120,8 @@ export async function fetchOrdersSettingsFromSheet(sheetId: string): Promise<Ord
         if (originalValue) settings.closeDate = originalValue
       } else if (key === 'assembly_message') {
         if (originalValue) settings.assemblyMessage = originalValue
+      } else if (key === 'track_message') {
+        if (originalValue) settings.trackMessage = originalValue
       } else if (key === 'shipped_message') {
         if (originalValue) settings.shippedMessage = originalValue
       } else if (key === 'priority_order_enabled') {
@@ -209,6 +212,7 @@ export async function saveOrdersSettingsToSheet(sheetId: string, settings: Order
     await upsertSettingRow(sheets, sheetId, rows, 'orders_closed', settings.ordersClosed ? 'true' : 'false')
     await upsertSettingRow(sheets, sheetId, rows, 'close_date', settings.closeDate || '')
     await upsertSettingRow(sheets, sheetId, rows, 'assembly_message', settings.assemblyMessage || '')
+    await upsertSettingRow(sheets, sheetId, rows, 'track_message', settings.trackMessage || '')
     await upsertSettingRow(sheets, sheetId, rows, 'shipped_message', settings.shippedMessage || '')
     await upsertSettingRow(sheets, sheetId, rows, 'priority_order_enabled', settings.priorityOrderEnabled === false ? 'false' : 'true')
     await upsertSettingRow(sheets, sheetId, rows, 'priority_order_fee', String(settings.priorityOrderFee ?? 30))

@@ -13,6 +13,7 @@ export type OrdersSettings = {
   ordersClosed: boolean
   closeDate?: string
   assemblyMessage?: string
+  trackMessage?: string
   shippedMessage?: string
   priorityOrderEnabled?: boolean
   priorityOrderFee?: number
@@ -78,7 +79,7 @@ export async function fetchOrdersSettingsFromSheet(sheetId: string): Promise<Ord
     }
 
     // читаем настройки (расширен диапазон для баннера)
-    const range = 'settings!A1:B20'
+    const range = 'settings!A1:B25'
     const res = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range })
     const rows = res.data.values ?? []
 
@@ -114,6 +115,10 @@ export async function fetchOrdersSettingsFromSheet(sheetId: string): Promise<Ord
       } else if (key === 'assembly_message') {
         if (originalValue) {
           settings.assemblyMessage = originalValue
+        }
+      } else if (key === 'track_message') {
+        if (originalValue) {
+          settings.trackMessage = originalValue
         }
       } else if (key === 'shipped_message') {
         if (originalValue) {
