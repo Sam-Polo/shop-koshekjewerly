@@ -245,6 +245,7 @@ export async function createAmoCrmLead(order: Order, certPromocode?: string): Pr
   const pipelineId = Number(process.env.AMOCRM_PIPELINE_ID) || undefined
   const normalStageId = Number(process.env.AMOCRM_STAGE_TO_SEND_ID) || undefined
   const priorityStageId = Number(process.env.AMOCRM_STAGE_PRIORITY_ID) || undefined
+  const pickupStageId = Number(process.env.AMOCRM_STAGE_PICKUP_ID) || undefined
 
   // без воронки лид уйдёт в воронку по умолчанию (не KOSHEK) — заказ «не туда».
   if (!pipelineId) {
@@ -271,6 +272,20 @@ export async function createAmoCrmLead(order: Order, certPromocode?: string): Pr
       sendAlert(
         `amoCRM: приоритетный заказ ${order.orderId}, но AMOCRM_STAGE_PRIORITY_ID не задан — лид уйдёт в обычный этап`,
         { tag: 'amocrm', level: 'high', hint: 'добавьте AMOCRM_STAGE_PRIORITY_ID в Render env', code: 'AMOCRM_PRIORITY_STAGE_MISSING' }
+      ).catch(() => {})
+    }
+  }
+
+  // самовывоз → отдельный этап «САМОВЫВОЗ». Имеет приоритет над приоритетным заказом:
+  // путь фулфилмента принципиально другой (ничего не отправляем). Если не настроен —
+  // конфиг-ошибка, лид уйдёт в обычный/приоритетный этап.
+  if (order.orderData.deliveryMethod === 'pickup') {
+    if (pickupStageId) {
+      stageId = pickupStageId
+    } else {
+      sendAlert(
+        `amoCRM: самовывоз ${order.orderId}, но AMOCRM_STAGE_PICKUP_ID не задан — лид уйдёт в обычный этап, а не в «САМОВЫВОЗ»`,
+        { tag: 'amocrm', level: 'high', hint: 'добавьте AMOCRM_STAGE_PICKUP_ID в Render env', code: 'AMOCRM_PICKUP_STAGE_MISSING' }
       ).catch(() => {})
     }
   }
