@@ -734,7 +734,7 @@ ${order.orderData.comments ? `Комментарии: ${escapeHtml(order.orderDa
     logger.warn({ platform: order.platform }, `MANAGER_CHAT_ID не задан, сообщение менеджеру не отправлено`)
   }
 
-  return { customer: customerDelivery, manager: managerDelivery }
+  return { customer: customerDelivery, manager: managerDelivery, trackMessage: trackMessageTemplate }
 }
 
 // адрес самовывоза (фиксированный)
@@ -1122,6 +1122,9 @@ export async function processPaidOrder(
 
   // отправляем уведомления
   const delivery = await sendOrderNotifications(order)
+  // шаблон трек-сообщения резолвится внутри sendOrderNotifications (из настроек или дефолт);
+  // переиспользуем его ниже для трека покупателю по EMS/СДЭК
+  const trackMessageTemplate = delivery?.trackMessage ?? DEFAULT_TRACK_MESSAGE
 
   logger.info({
     invId, orderId, amount: robokassaAmount,
