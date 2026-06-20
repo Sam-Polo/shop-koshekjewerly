@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express'
 import pino from 'pino'
 import { sendAlert } from './alerts.js'
-import { PIPELINE_ID, STAGE_MAP, getAmoBase, getAmoToken, processAmoCrmLead } from './amocrm-lead-processor.js'
+import { PIPELINE_ID, STAGE_MAP, getAmoBase, getAmoToken, processAmoCrmLead, isTildaPickupInNew, routeLeadToPickupStage } from './amocrm-lead-processor.js'
 import { deleteRowsByLeadId } from './shipment-items-sheet.js'
 
 const logger = pino()
@@ -97,6 +97,20 @@ export function handleAmoCrmWebhook(req: Request, res: Response): void {
           `amoCRM webhook: не удалось обновить учёт для лида ${leadId}: ${e?.message}`,
           { tag: 'amocrm', level: 'moderate', code: 'AMOCRM_WEBHOOK_SHEET_UPDATE_FAILED' }
         ).catch(() => {})
+      }
+
+      // Tilda pickup leads land in «Новый» — route them to the САМОВЫВОЗ stage.
+      if (isTildaPickupInNew(fullLead)) {
+        try {
+          await routeLeadToPickupStage(leadId)
+          logger.info({ leadId }, 'amoCRM webhook: Tilda pickup lead routed to САМОВЫВОЗ')
+        } catch (e: any) {
+          logger.error({ leadId, err: e?.message }, 'amoCRM webhook: pickup routing failed')
+          sendAlert(
+            `amoCRM webhook: не удалось перенести самовывоз-лид ${leadId} в этап САМОВЫВОЗ: ${e?.message}`,
+            { tag: 'amocrm', level: 'moderate', code: 'AMOCRM_WEBHOOK_PICKUP_ROUTE_FAILED' }
+          ).catch(() => {})
+        }
       }
     }
   })()

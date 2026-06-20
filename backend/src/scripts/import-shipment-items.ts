@@ -35,6 +35,7 @@ const STAGE_MAP: Record<number, ShipStatus | 'skip'> = {
   86486586: 'assembled', // Собран
   86462242: 'sent',     // Отправлен
   86423894: 'returned', // ВОЗВРАЩЕН
+  86584502: 'pending',  // САМОВЫВОЗ — учитываем как «к отправке»
   142:       'sent',    // Завершён (success)
   143:       'skip',    // Закрыто — не учитываем
 }

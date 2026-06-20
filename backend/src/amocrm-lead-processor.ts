@@ -21,6 +21,7 @@ export const STAGE_MAP: Record<number, ShipStatus | 'skip'> = {
   86486586: 'assembled', // Собран
   86462242: 'sent',      // Отправлен
   86423894: 'returned',  // ВОЗВРАЩЕН
+  86584502: 'pending',   // САМОВЫВОЗ (env AMOCRM_STAGE_PICKUP_ID) — учитываем как «к отправке»
   142:       'sent',     // Завершён
   143:       'skip',     // Закрыто
 }
@@ -29,8 +30,12 @@ export const FIELD_ORDER_NUMBER = 774543
 export const FIELD_COMPOSITION  = 774547
 export const FIELD_SOURCE       = 770993
 export const FIELD_ORDER_DATE   = 770485
+export const FIELD_DELIVERY_TYPE = 774553
 export const ENUM_TELEGRAM      = 998663
 export const ENUM_MAX           = 998667
+export const ENUM_TILDA         = 998665
+export const STAGE_NEW          = 86423886  // НОВЫЙ, ЖДЕТ ОТПРАВКИ — куда Тильда кидает по умолчанию
+export const STAGE_PICKUP       = 86584502  // САМОВЫВОЗ
 
 export function getAmoBase(): string {
   return `https://${process.env.AMOCRM_SUBDOMAIN}.amocrm.ru`
@@ -132,4 +137,47 @@ export async function processAmoCrmLead(
   const result = await upsertOrderItems(prep.orderId, prep.newStatus, prep.items, prep.shipDate)
   logger.info({ leadId: Number(fullLead.id), effectiveOrderId: prep.orderId, newStatus: prep.newStatus, result }, 'amocrm: lead processed')
   return result
+}
+
+/**
+ * Strict AND-predicate: true ONLY for a Tilda lead sitting in the «Новый»
+ * stage whose delivery type starts with «Самовывоз». Used to auto-route such
+ * leads to the dedicated САМОВЫВОЗ stage (Tilda can't do this itself).
+ * Anything failing one condition is left untouched — least blast radius.
+ * Idempotent by construction: once moved, status != Новый → predicate is false.
+ */
+export function isTildaPickupInNew(fullLead: any): boolean {
+  if (Number(fullLead.pipeline_id) !== PIPELINE_ID) return false
+  if (Number(fullLead.status_id) !== STAGE_NEW) return false
+  if (readFieldEnum(fullLead, FIELD_SOURCE) !== ENUM_TILDA) return false
+  const delivery = (readField(fullLead, FIELD_DELIVERY_TYPE) ?? '').trim().toLowerCase()
+  return delivery.startsWith('самовывоз')
+}
+
+/**
+ * Moves a lead to the САМОВЫВОЗ stage. Touches ONLY status_id (isolation).
+ * Throws on non-OK response so the caller can alert.
+ */
+export async function routeLeadToPickupStage(leadId: number): Promise<void> {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 12_000)
+  try {
+    const resp = await fetch(`${getAmoBase()}/api/v4/leads/${leadId}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${getAmoToken()}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ pipeline_id: PIPELINE_ID, status_id: STAGE_PICKUP }),
+      signal: ctrl.signal,
+    })
+    clearTimeout(timer)
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '')
+      throw new Error(`PATCH lead ${leadId} → ${resp.status}: ${text.slice(0, 200)}`)
+    }
+  } catch (e) {
+    clearTimeout(timer)
+    throw e
+  }
 }
