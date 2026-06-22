@@ -205,8 +205,48 @@ async function sleep(ms: number) {
   return new Promise<void>(r => setTimeout(r, ms))
 }
 
+// Пытается скачать PDF готового штрихкода по uuid задачи печати.
+// Возвращает Buffer если готов (HTTP 200 + сигнатура %PDF), null если ещё не готов (404/202).
+// URL детерминированный: {base}/print/barcodes/{taskUuid}.pdf — это тот же url, что CDEK
+// кладёт в related_entities заказа. Статус задачи (entity.url) заполняется ненадёжно,
+// поэтому ground-truth готовности — сам факт скачивания PDF.
+async function tryDownloadBarcodePdf(taskUuid: string): Promise<Buffer | null> {
+  const token = await getToken()
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 30_000)
+  try {
+    const resp = await fetch(`${CDEK_BASE}/print/barcodes/${taskUuid}.pdf`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: ctrl.signal,
+    })
+    clearTimeout(timer)
+    if (resp.status === 404 || resp.status === 202) return null // ещё не готов
+    if (!resp.ok) throw new Error(`CDEK barcode download HTTP ${resp.status}`)
+    const buf = Buffer.from(await resp.arrayBuffer())
+    if (buf.length < 5 || buf.subarray(0, 4).toString('latin1') !== '%PDF') return null // не PDF — ещё не готов
+    return buf
+  } catch (e) {
+    clearTimeout(timer)
+    throw e
+  }
+}
+
 export async function downloadCdekBarcode(orderUuid: string): Promise<Buffer> {
-  // step 1: create print task
+  // step 1: переиспользуем уже созданную задачу печати, если её PDF готов —
+  // иначе каждый ретрай плодит новую задачу (best-effort, ошибку поиска заказа игнорируем).
+  try {
+    const order = await cdekFetch('GET', `/orders/${orderUuid}`) as any
+    const existing = (order?.related_entities ?? [])
+      .filter((e: any) => e?.type === 'barcode' && e?.uuid)
+    for (const e of existing) {
+      const buf = await tryDownloadBarcodePdf(e.uuid).catch(() => null)
+      if (buf) return buf
+    }
+  } catch {
+    // поиск заказа не критичен — падаем к созданию новой задачи
+  }
+
+  // step 2: создаём новую задачу печати
   const task = await cdekFetch('POST', '/print/barcodes', {
     orders: [{ order_uuid: orderUuid }],
     format: 'A6',
@@ -215,52 +255,21 @@ export async function downloadCdekBarcode(orderUuid: string): Promise<Buffer> {
   const taskUuid = task?.entity?.uuid as string | undefined
   if (!taskUuid) throw new Error(`CDEK barcode: no task uuid, response: ${JSON.stringify(task).slice(0, 300)}`)
 
-  // step 2: poll until url is ready. CDEK ставит задачу печати в очередь — URL
-  // часто появляется только через 30–60с после создания заказа, поэтому окно щедрое.
-  // Транзиентный сбой GET-статуса не должен ронять весь поллинг — ловим и продолжаем.
+  // step 3: поллим прямую загрузку PDF, пока не готов. CDEK ставит задачу в очередь —
+  // PDF может появиться через десятки секунд. Транзиентный сбой не роняет поллинг.
   const pollAttempts = Number(process.env.CDEK_BARCODE_POLL_ATTEMPTS ?? 40) // 40 × 2s = 80s
-  let downloadUrl: string | null = null
   let lastPollErr: string | null = null
   for (let i = 0; i < pollAttempts; i++) {
     await sleep(2_000)
-    let status: any
     try {
-      status = await cdekFetch('GET', `/print/barcodes/${taskUuid}`)
+      const buf = await tryDownloadBarcodePdf(taskUuid)
+      if (buf) return buf
     } catch (e: any) {
-      // транзиентный сбой GET (429/5xx/таймаут) — не фатально, пробуем дальше
       lastPollErr = e?.message ?? String(e)
-      continue
-    }
-    const url = status?.entity?.url as string | undefined
-    if (url) { downloadUrl = url; break }
-    // CDEK вернул статус задачи INVALID — URL не появится, нет смысла ждать дальше
-    const invalid = status?.entity?.statuses?.some((s: any) => s?.code === 'INVALID')
-    if (invalid) {
-      throw new Error(`CDEK barcode: task ${taskUuid} INVALID: ${JSON.stringify(status?.entity?.errors ?? status?.entity?.statuses).slice(0, 200)}`)
     }
   }
-  if (!downloadUrl) {
-    const waited = pollAttempts * 2
-    throw new Error(`CDEK barcode: task ${taskUuid} did not produce a URL after ${waited}s${lastPollErr ? ` (last poll error: ${lastPollErr})` : ''}`)
-  }
-
-  // step 3: download the file
-  const token = await getToken()
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), 30_000)
-  try {
-    const resp = await fetch(downloadUrl, {
-      headers: { Authorization: `Bearer ${token}` },
-      signal: ctrl.signal,
-    })
-    clearTimeout(timer)
-    if (!resp.ok) throw new Error(`CDEK barcode download HTTP ${resp.status}`)
-    const buf = await resp.arrayBuffer()
-    return Buffer.from(buf)
-  } catch (e) {
-    clearTimeout(timer)
-    throw e
-  }
+  const waited = pollAttempts * 2
+  throw new Error(`CDEK barcode: task ${taskUuid} not ready (PDF not available) after ${waited}s${lastPollErr ? ` (last: ${lastPollErr})` : ''}`)
 }
 
 // ── High-level: create order with retry + async track polling ─────────────────
