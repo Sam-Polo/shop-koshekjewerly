@@ -215,15 +215,34 @@ export async function downloadCdekBarcode(orderUuid: string): Promise<Buffer> {
   const taskUuid = task?.entity?.uuid as string | undefined
   if (!taskUuid) throw new Error(`CDEK barcode: no task uuid, response: ${JSON.stringify(task).slice(0, 300)}`)
 
-  // step 2: poll until url is ready (up to 10 attempts × 2s)
+  // step 2: poll until url is ready. CDEK ставит задачу печати в очередь — URL
+  // часто появляется только через 30–60с после создания заказа, поэтому окно щедрое.
+  // Транзиентный сбой GET-статуса не должен ронять весь поллинг — ловим и продолжаем.
+  const pollAttempts = Number(process.env.CDEK_BARCODE_POLL_ATTEMPTS ?? 40) // 40 × 2s = 80s
   let downloadUrl: string | null = null
-  for (let i = 0; i < 10; i++) {
+  let lastPollErr: string | null = null
+  for (let i = 0; i < pollAttempts; i++) {
     await sleep(2_000)
-    const status = await cdekFetch('GET', `/print/barcodes/${taskUuid}`) as any
+    let status: any
+    try {
+      status = await cdekFetch('GET', `/print/barcodes/${taskUuid}`)
+    } catch (e: any) {
+      // транзиентный сбой GET (429/5xx/таймаут) — не фатально, пробуем дальше
+      lastPollErr = e?.message ?? String(e)
+      continue
+    }
     const url = status?.entity?.url as string | undefined
     if (url) { downloadUrl = url; break }
+    // CDEK вернул статус задачи INVALID — URL не появится, нет смысла ждать дальше
+    const invalid = status?.entity?.statuses?.some((s: any) => s?.code === 'INVALID')
+    if (invalid) {
+      throw new Error(`CDEK barcode: task ${taskUuid} INVALID: ${JSON.stringify(status?.entity?.errors ?? status?.entity?.statuses).slice(0, 200)}`)
+    }
   }
-  if (!downloadUrl) throw new Error(`CDEK barcode: task ${taskUuid} did not produce a URL after 20s`)
+  if (!downloadUrl) {
+    const waited = pollAttempts * 2
+    throw new Error(`CDEK barcode: task ${taskUuid} did not produce a URL after ${waited}s${lastPollErr ? ` (last poll error: ${lastPollErr})` : ''}`)
+  }
 
   // step 3: download the file
   const token = await getToken()
