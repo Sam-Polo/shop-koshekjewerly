@@ -266,7 +266,7 @@ const PrivacyPolicyModal = ({ onClose }: { onClose: () => void }) => {
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content policy-modal" onClick={e => e.stopPropagation()}>
-        <button type="button" className="modal-close" onClick={onClose}>&times;</button>
+        <button type="button" className="policy-modal__close" onClick={onClose} aria-label="Закрыть">&times;</button>
         <h3>Политика в отношении обработки персональных данных</h3>
 
         <h4>1. Общие положения</h4>
