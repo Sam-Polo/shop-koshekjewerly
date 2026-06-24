@@ -16,7 +16,7 @@ const ORDERS_HEADERS = [
   'country', 'city', 'address', 'delivery_region', 'delivery_cost',
   'items_total', 'promocode_code', 'promocode_discount',
   'priority_order', 'priority_fee', 'total', 'client_comment', 'admin_note',
-  'cdek_uuid', 'cdek_track_number', 'delivery_method', 'pochta_shpi'
+  'cdek_uuid', 'cdek_track_number', 'delivery_method', 'pochta_shpi', 'pd_consent'
 ]
 
 const ORDER_ITEMS_HEADERS = [
@@ -145,6 +145,7 @@ function buildOrderRow(order: Order): (string | number)[] {
     order.cdekTrackNumber ?? '',
     d.deliveryMethod ?? '',
     order.pochtaShpi ?? '',
+    d.consent ? 'true' : 'false', // pd_consent — согласие на обработку ПДн (152-ФЗ)
   ]
 }
 
