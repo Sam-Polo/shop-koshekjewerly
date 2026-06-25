@@ -54,6 +54,8 @@ export type Order = {
       value: number
       discount: number
     }
+    /** согласие покупателя на обработку ПДн — храним «для галочки» (152-ФЗ), на логику не влияет */
+    consent?: boolean
   }
   customerChatId?: string | null
   /** имя пользователя из initData (для MAX — first_name + last_name) */

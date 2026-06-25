@@ -1009,7 +1009,8 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
       recipientIndex: deliveryMethod === 'ems' ? (orderData.recipientIndex || undefined) : undefined,
       priorityOrder: priorityOrder && priorityFee > 0,
       priorityFee: priorityFee > 0 ? priorityFee : undefined,
-      promocode: promocodeInfo
+      promocode: promocodeInfo,
+      consent: orderData.consent === true // согласие на обработку ПДн, фиксируем для 152-ФЗ
     }, customerChatId, orderPlatform, initDataUser.displayName)
 
     logger.info({
