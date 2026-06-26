@@ -10,6 +10,7 @@ export type OrdersSettings = {
   assemblyMessage?: string
   trackMessage?: string
   shippedMessage?: string
+  assembledMessage?: string
   priorityOrderEnabled?: boolean
   priorityOrderFee?: number
 }
@@ -124,6 +125,8 @@ export async function fetchOrdersSettingsFromSheet(sheetId: string): Promise<Ord
         if (originalValue) settings.trackMessage = originalValue
       } else if (key === 'shipped_message') {
         if (originalValue) settings.shippedMessage = originalValue
+      } else if (key === 'assembled_message') {
+        if (originalValue) settings.assembledMessage = originalValue
       } else if (key === 'priority_order_enabled') {
         settings.priorityOrderEnabled = !(value === 'false' || value === '0' || value === 'no')
       } else if (key === 'priority_order_fee') {
@@ -214,6 +217,7 @@ export async function saveOrdersSettingsToSheet(sheetId: string, settings: Order
     await upsertSettingRow(sheets, sheetId, rows, 'assembly_message', settings.assemblyMessage || '')
     await upsertSettingRow(sheets, sheetId, rows, 'track_message', settings.trackMessage || '')
     await upsertSettingRow(sheets, sheetId, rows, 'shipped_message', settings.shippedMessage || '')
+    await upsertSettingRow(sheets, sheetId, rows, 'assembled_message', settings.assembledMessage || '')
     await upsertSettingRow(sheets, sheetId, rows, 'priority_order_enabled', settings.priorityOrderEnabled === false ? 'false' : 'true')
     await upsertSettingRow(sheets, sheetId, rows, 'priority_order_fee', String(settings.priorityOrderFee ?? 30))
 

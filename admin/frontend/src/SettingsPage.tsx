@@ -19,11 +19,12 @@ type OrdersSettings = {
   assemblyMessage: string
   trackMessage: string
   shippedMessage: string
+  assembledMessage: string
   priorityOrderEnabled: boolean
   priorityOrderFee: number
 }
 
-type MessageTab = 'order_confirmed' | 'track_assigned' | 'shipped'
+type MessageTab = 'order_confirmed' | 'track_assigned' | 'shipped' | 'assembled'
 
 const STYLE_LABELS: Record<BannerStyle, string> = {
   pink: 'Розовый',
@@ -69,6 +70,7 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
     assemblyMessage: '',
     trackMessage: '',
     shippedMessage: '',
+    assembledMessage: '',
     priorityOrderEnabled: true,
     priorityOrderFee: 30,
   })
@@ -116,6 +118,7 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
         assemblyMessage: data.assemblyMessage || '',
         trackMessage: data.trackMessage || '',
         shippedMessage: data.shippedMessage || '',
+        assembledMessage: data.assembledMessage || '',
         priorityOrderEnabled: data.priorityOrderEnabled !== false,
         priorityOrderFee: data.priorityOrderFee ?? 30,
       })
@@ -153,6 +156,7 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
         assemblyMessage: orders.assemblyMessage || undefined,
         trackMessage: orders.trackMessage || undefined,
         shippedMessage: orders.shippedMessage || undefined,
+        assembledMessage: orders.assembledMessage || undefined,
         priorityOrderEnabled: orders.priorityOrderEnabled,
         priorityOrderFee: orders.priorityOrderFee,
       })
@@ -261,6 +265,12 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
                 >
                   3. Отправлен
                 </button>
+                <button
+                  className={`msg-tab${messageTab === 'assembled' ? ' msg-tab--active' : ''}`}
+                  onClick={() => setMessageTab('assembled')}
+                >
+                  4. Собран (самовывоз)
+                </button>
               </div>
 
               {messageTab === 'order_confirmed' && (
@@ -312,6 +322,26 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
                   <p className="settings-hint">
                     Отправляется через кнопку «Отбить» в разделе Заказы или автоматически от СДЭК (статус RECEIVED_AT_SENDER_CITY).
                     Плейсхолдеры: <b>{'{{track}}'}</b> — трек-номер, <b>{'{{track-link}}'}</b> — ссылка на отслеживание, <b>{'{{ord}}'}</b> — номер заказа.
+                    Поддерживаются HTML-теги Telegram: <b>&lt;b&gt;</b>, <b>&lt;i&gt;</b>, <b>&lt;code&gt;</b>.
+                    Если оставить пустым — используется стандартный текст.
+                  </p>
+                </div>
+              )}
+
+              {messageTab === 'assembled' && (
+                <div className="settings-field">
+                  <label className="settings-label">Текст уведомления «Заказ собран»</label>
+                  <textarea
+                    className="settings-textarea"
+                    rows={5}
+                    placeholder={'✅ Ваш заказ {{ord}} собран и готов к выдаче!\nЖдём вас по адресу: г. Москва, ул. Горбунова, 2 💗'}
+                    value={orders.assembledMessage}
+                    onChange={e => setOrders(prev => ({ ...prev, assembledMessage: e.target.value }))}
+                  />
+                  <p className="settings-hint">
+                    Отправляется автоматически при переходе лида в этап «Собран» в amoCRM — только для заказов
+                    из Telegram с типом доставки «Самовывоз».
+                    Плейсхолдер: <b>{'{{ord}}'}</b> — номер заказа.
                     Поддерживаются HTML-теги Telegram: <b>&lt;b&gt;</b>, <b>&lt;i&gt;</b>, <b>&lt;code&gt;</b>.
                     Если оставить пустым — используется стандартный текст.
                   </p>
