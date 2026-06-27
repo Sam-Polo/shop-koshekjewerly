@@ -370,6 +370,35 @@ button, input, select, textarea { font-family: inherit; }
 .product-modal__thumbnail { width: 60px; height: 75px; flex-shrink: 0; border: 2px solid transparent; border-radius: 4px; background-size: cover; background-position: center; cursor: pointer; transition: all 0.2s; opacity: 0.6; background-color: #f0f0f0; }
 .product-modal__thumbnail:hover { opacity: 0.8; }
 .product-modal__thumbnail.active { border-color: #d480e0; opacity: 1; }
+
+/* видео в галерее товара (см. docs/VIDEO_SUPPORT.md) */
+.product-modal__video { position: relative; width: 100%; aspect-ratio: 4 / 5; background-color: #f0f0f0; cursor: pointer; overflow: hidden; }
+.product-modal__video video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.product-modal__video-indicator {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: 64px; height: 64px; border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none; transition: opacity 0.35s ease;
+  animation: video-pulse 1.6s ease-in-out infinite;
+}
+.product-modal__video-indicator svg { width: 30px; height: 30px; margin-left: 3px; }
+.product-modal__video-indicator.is-hidden { opacity: 0; animation: none; }
+@keyframes video-pulse {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.35); }
+  50% { transform: translate(-50%, -50%) scale(1.08); box-shadow: 0 0 0 12px rgba(255, 255, 255, 0); }
+}
+/* миниатюра видео — первый кадр + бейдж play */
+.product-modal__thumbnail--video { position: relative; overflow: hidden; padding: 0; background-color: #f0f0f0; }
+.product-modal__thumbnail--video video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.product-modal__thumbnail-play {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: 22px; height: 22px; border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5); color: #fff;
+  display: flex; align-items: center; justify-content: center; pointer-events: none;
+}
+.product-modal__thumbnail-play svg { width: 12px; height: 12px; margin-left: 1px; }
+
 .product-modal__info { padding: 24px; }
 
 /* полноэкранное изображение */

@@ -139,14 +139,15 @@ export const api = {
     })
   },
 
-  // загрузка фото в S3 (таймаут 2 мин — большие фото по медленной сети)
-  async uploadImage(file: File): Promise<string> {
+  // загрузка фото/видео в S3 (таймаут 2 мин для фото; для видео больше —
+  // конвертация на сервере дольше, см. docs/VIDEO_SUPPORT.md)
+  async uploadImage(file: File, timeoutMs: number = 120000): Promise<string> {
     const formData = new FormData()
     formData.append('file', file)
 
     const token = getToken()
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 120000)
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
 
     const response = await fetch(`${API_URL}/api/upload`, {
       method: 'POST',

@@ -5,6 +5,17 @@ export function rewriteImageUrl(url: string): string {
   return url.startsWith(OLD_IMG_BASE) ? NEW_IMG_BASE + url.slice(OLD_IMG_BASE.length) : url
 }
 
+// видео и фото лежат в одном списке images, тип определяется по расширению.
+// см. docs/VIDEO_SUPPORT.md
+const VIDEO_EXT = /\.(mp4|webm|mov)$/i
+export function isVideo(url: string): boolean {
+  return !!url && VIDEO_EXT.test(url.split('?')[0])
+}
+// обложка/миниатюра в гриде — всегда самое раннее ФОТО (видео для обложки пропускаем)
+export function firstPhoto(images: string[]): string {
+  return images.find(u => !isVideo(u)) ?? images[0] ?? ''
+}
+
 // генерация UUID v4 с fallback для не-secure контекстов (HTTP без HTTPS).
 // crypto.randomUUID доступен только в secure context (HTTPS, localhost).
 export function genUuid(): string {

@@ -17,6 +17,17 @@ function rewriteImageUrl(url: string): string {
   return url.startsWith(OLD_IMG_BASE) ? NEW_IMG_BASE + url.slice(OLD_IMG_BASE.length) : url
 }
 
+// видео и фото лежат в одном списке images, тип определяется по расширению.
+// см. docs/VIDEO_SUPPORT.md
+const VIDEO_EXT = /\.(mp4|webm|mov)$/i
+function isVideo(url: string): boolean {
+  return !!url && VIDEO_EXT.test(url.split('?')[0])
+}
+// обложка/миниатюра — всегда самое раннее ФОТО (видео для обложки пропускаем)
+function firstPhoto(images: string[]): string {
+  return images.find(u => !isVideo(u)) ?? images[0] ?? ''
+}
+
 const TYPE_TITLES: Record<JewelryType, string> = {
   necklace: 'Колье',
   earrings: 'Серьги',
@@ -183,6 +194,83 @@ const ImageWithLoader = ({ src, alt }: { src: string, alt: string }) => {
     />
   )
 }
+
+// минималистичный плеер: autoplay, без звука, loop, без перемотки.
+// единственный контрол — пауза/плей по тапу. Анимация-индикатор play показывается,
+// пока видео не играет (до старта autoplay + после ручной паузы) — она же служит
+// fallback'ом, если браузер заблокировал autoplay (iOS low-power). см. docs/VIDEO_SUPPORT.md
+const VideoPlayer = ({ src, isActive }: { src: string, isActive: boolean }) => {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const [playing, setPlaying] = useState(false)
+  const [userPaused, setUserPaused] = useState(false)
+
+  // играем только на активном слайде; при уходе со слайда — пауза и сброс ручной паузы,
+  // чтобы при возврате видео снова автозапускалось
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v) return
+    if (isActive && !userPaused) {
+      v.play().catch(() => {/* autoplay заблокирован — индикатор остаётся как «тапни» */})
+    } else {
+      v.pause()
+      if (!isActive && userPaused) setUserPaused(false)
+    }
+  }, [isActive, userPaused])
+
+  const togglePlay = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    const v = videoRef.current
+    if (!v) return
+    if (v.paused) {
+      v.play().catch(() => {})
+      setUserPaused(false)
+    } else {
+      v.pause()
+      setUserPaused(true)
+    }
+  }
+
+  return (
+    <div className="product-modal__video" onClick={togglePlay}>
+      <video
+        ref={videoRef}
+        src={src}
+        muted
+        loop
+        playsInline
+        preload={isActive ? 'auto' : 'metadata'}
+        autoPlay={isActive}
+        onPlaying={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+      />
+      <div className={`product-modal__video-indicator ${playing ? 'is-hidden' : ''}`} aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+          <path d="M8 5v14l11-7L8 5z" />
+        </svg>
+      </div>
+    </div>
+  )
+}
+
+// миниатюра видео: первый кадр (#t=0.1 подсказывает браузеру показать кадр) + бейдж play
+const VideoThumbnail = ({
+  src, isActive, onClick, 'aria-label': ariaLabel
+}: {
+  src: string, isActive: boolean, onClick: () => void, 'aria-label': string
+}) => (
+  <button
+    className={`product-modal__thumbnail product-modal__thumbnail--video ${isActive ? 'active' : ''}`}
+    onClick={onClick}
+    aria-label={ariaLabel}
+  >
+    <video src={`${src}#t=0.1`} muted playsInline preload="metadata" tabIndex={-1} />
+    <span className="product-modal__thumbnail-play" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+        <path d="M8 5v14l11-7L8 5z" />
+      </svg>
+    </span>
+  </button>
+)
 
 const AccordionItem = ({ question, children }: { question: string, children: React.ReactNode }) => {
   const [isOpen, setIsOpen] = useState(false)
@@ -444,9 +532,11 @@ const ProductModal = ({
   const [isAdding, setIsAdding] = useState(false)
   const [addedState, setAddedState] = useState(false)
   const swiperRef = useRef<SwiperClass | null>(null)
-  const { loading: mainImageLoading } = useImageLoader(
-    product.images?.[selectedImageIndex] || ''
-  )
+  const currentMedia = product.images?.[selectedImageIndex] || ''
+  // image-loader только для фото; для видео отдаём '' (Image() не грузит видео)
+  const { loading: mainImageLoading } = useImageLoader(isVideo(currentMedia) ? '' : currentMedia)
+  // fullscreen-зум — только для фото, видео туда не попадает
+  const photoImages = product.images?.filter(u => !isVideo(u)) ?? []
   const cartItem = cart.find(item => item.kind === 'regular' && item.slug === product.slug)
   const currentQuantity = cartItem?.quantity || 0
   const maxQuantity = product.stock !== undefined ? product.stock : 999
@@ -522,15 +612,19 @@ const ProductModal = ({
             >
               {product.images.map((img, idx) => (
                 <SwiperSlide key={idx}>
-                  <div 
-                    className={`product-modal__image ${mainImageLoading && selectedImageIndex === idx ? 'shimmer-bg' : 'fade-in-image'}`}
-                    style={
-                      mainImageLoading && selectedImageIndex === idx
-                        ? {} 
-                        : { backgroundImage: `url(${img})` }
-                    }
-                    onClick={() => setFullscreenImage(img)}
-                  />
+                  {isVideo(img) ? (
+                    <VideoPlayer src={img} isActive={selectedImageIndex === idx} />
+                  ) : (
+                    <div
+                      className={`product-modal__image ${mainImageLoading && selectedImageIndex === idx ? 'shimmer-bg' : 'fade-in-image'}`}
+                      style={
+                        mainImageLoading && selectedImageIndex === idx
+                          ? {}
+                          : { backgroundImage: `url(${img})` }
+                      }
+                      onClick={() => setFullscreenImage(img)}
+                    />
+                  )}
                 </SwiperSlide>
               ))}
             </Swiper>
@@ -538,13 +632,23 @@ const ProductModal = ({
             {product.images.length > 1 && (
               <div className="product-modal__thumbnails">
                 {product.images.map((img, idx) => (
-                  <ThumbnailButton
-                    key={idx}
-                    src={img}
-                    isActive={selectedImageIndex === idx}
-                    onClick={() => setSelectedImageIndex(idx)}
-                    aria-label={`Фото ${idx + 1}`}
-                  />
+                  isVideo(img) ? (
+                    <VideoThumbnail
+                      key={idx}
+                      src={img}
+                      isActive={selectedImageIndex === idx}
+                      onClick={() => setSelectedImageIndex(idx)}
+                      aria-label={`Видео ${idx + 1}`}
+                    />
+                  ) : (
+                    <ThumbnailButton
+                      key={idx}
+                      src={img}
+                      isActive={selectedImageIndex === idx}
+                      onClick={() => setSelectedImageIndex(idx)}
+                      aria-label={`Фото ${idx + 1}`}
+                    />
+                  )
                 ))}
               </div>
             )}
@@ -623,13 +727,15 @@ const ProductModal = ({
         </div>
       </div>
       {fullscreenImage && (
-        <FullscreenImage 
-          images={product.images}
-          currentIndex={selectedImageIndex}
+        <FullscreenImage
+          images={photoImages}
+          currentIndex={Math.max(0, photoImages.indexOf(fullscreenImage))}
           onClose={() => setFullscreenImage(null)}
           onNavigate={(newIndex) => {
-            setSelectedImageIndex(newIndex)
-            setFullscreenImage(product.images[newIndex])
+            const url = photoImages[newIndex]
+            setFullscreenImage(url)
+            const fullIdx = product.images.indexOf(url)
+            if (fullIdx >= 0) setSelectedImageIndex(fullIdx)
           }}
         />
       )}
@@ -1874,7 +1980,7 @@ const CartModal = ({
                     {product.images && product.images.length > 0 && (
                       <div
                         className="cart-item__image"
-                        style={{ backgroundImage: `url(${product.images[0]})` }}
+                        style={{ backgroundImage: `url(${firstPhoto(product.images)})` }}
                       />
                     )}
                     <div className="cart-item__info">
@@ -2616,7 +2722,7 @@ export default function App() {
                     >
                       <div className="product-card__image-wrapper">
                         <ImageWithLoader
-                          src={product.images && product.images.length > 0 ? product.images[0] : ''}
+                          src={product.images && product.images.length > 0 ? firstPhoto(product.images) : ''}
                           alt={product.title}
                         />
                         {comingDrop ? (

@@ -1,5 +1,6 @@
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import { randomUUID } from 'crypto'
+import fs from 'fs'
 import path from 'path'
 import { logger } from './logger.js'
 
@@ -73,4 +74,48 @@ export async function uploadToS3(fileBuffer: Buffer, fileName: string, mimeType:
   const fileUrl = `${publicPrefix.replace(/\/+$/, '')}/${key}`
   logger.info({ fileName, fileUrl, sizeBytes: fileBuffer.length }, 'файл загружен в S3')
   return fileUrl
+}
+
+// заливка сырого файла в S3 СТРИМОМ (без буфера в памяти) под префикс incoming/.
+// используется для видео перед конвертацией: контейнер скачивает его по key, сжимает
+// и кладёт результат в products/. см. docs/VIDEO_SUPPORT.md
+export async function uploadRawToS3FromPath(
+  filePath: string,
+  originalName: string,
+  mimeType: string,
+  sizeBytes: number
+): Promise<{ key: string; bucket: string }> {
+  const bucket = process.env.S3_BUCKET
+  if (!bucket) {
+    throw new Error('S3_BUCKET должен быть задан в .env')
+  }
+  const incomingPrefix = (process.env.S3_INCOMING_PREFIX || 'incoming').replace(/^\/+|\/+$/g, '')
+
+  const ext = path.extname(originalName).replace(/^\./, '') || 'bin'
+  const objectName = `${randomUUID()}.${ext}`
+  const key = incomingPrefix ? `${incomingPrefix}/${objectName}` : objectName
+
+  const client = getClient()
+
+  try {
+    await client.send(new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: fs.createReadStream(filePath),
+      ContentLength: sizeBytes,
+      ContentType: mimeType
+      // без ACL: сырьё не публичное, контейнер читает по ключу с креденшелами
+    }))
+  } catch (error: any) {
+    logger.error({
+      error: error?.message,
+      code: error?.Code || error?.name,
+      originalName,
+      key
+    }, 'ошибка при заливке сырого видео в S3')
+    throw new Error(`Ошибка загрузки в S3: ${error?.message || 'unknown'}`)
+  }
+
+  logger.info({ originalName, key, sizeBytes }, 'сырое видео залито в S3 (incoming)')
+  return { key, bucket }
 }

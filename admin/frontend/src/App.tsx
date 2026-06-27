@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { api, getToken, saveToken, removeToken } from './api'
-import { generateSlug, formatArticle, parseArticle, normalizeArticle, rewriteImageUrl } from './utils'
+import { generateSlug, formatArticle, parseArticle, normalizeArticle, rewriteImageUrl, isVideo, firstPhoto } from './utils'
 import PromocodesPage from './PromocodesPage'
 import CategoriesPage from './CategoriesPage'
 import BasesPage, { type AdminPage } from './BasesPage'
@@ -758,7 +758,7 @@ function ProductsList({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
                         <div className="product-images">
                           {product.images.length > 0 ? (
                             <>
-                              <img src={rewriteImageUrl(product.images[0])} alt={product.title} />
+                              <img src={rewriteImageUrl(firstPhoto(product.images))} alt={product.title} />
                               {product.coming_drop ? (
                                 <div className="product-card-badge">скоро в продаже</div>
                               ) : (
@@ -1113,11 +1113,18 @@ function ProductModal({
                           onClick={() => openFullscreen(originalIndex >= 0 ? originalIndex : idx)}
                           onTouchStart={(e) => handleImageTouch(e, originalIndex >= 0 ? originalIndex : idx)}
                         >
-                          <img
-                            src={rewriteImageUrl(img)}
-                            alt={`${product.title} ${idx + 1}`}
-                            className="clickable-image"
-                          />
+                          {isVideo(img) ? (
+                            <>
+                              <video src={`${rewriteImageUrl(img)}#t=0.1`} muted playsInline preload="metadata" />
+                              <span className="admin-video-badge" aria-hidden="true">▶</span>
+                            </>
+                          ) : (
+                            <img
+                              src={rewriteImageUrl(img)}
+                              alt={`${product.title} ${idx + 1}`}
+                              className="clickable-image"
+                            />
+                          )}
                         </div>
                       )
                     })}
@@ -1303,11 +1310,18 @@ function SortableImageItem({
       {...attributes}
       {...listeners}
     >
-      <img
-        src={rewriteImageUrl(img)}
-        alt={`${productTitle} ${index + 1}`}
-        draggable={false}
-      />
+      {isVideo(img) ? (
+        <>
+          <video src={`${rewriteImageUrl(img)}#t=0.1`} muted playsInline preload="metadata" draggable={false} />
+          <span className="admin-video-badge" aria-hidden="true">▶</span>
+        </>
+      ) : (
+        <img
+          src={rewriteImageUrl(img)}
+          alt={`${productTitle} ${index + 1}`}
+          draggable={false}
+        />
+      )}
       <div className="drag-handle">⋮⋮</div>
     </div>
   )
@@ -1452,7 +1466,14 @@ function SortableFormImageItem({
       {...attributes}
       {...listeners}
     >
-      <img src={rewriteImageUrl(img)} alt={`Фото ${index + 1}`} draggable={false} />
+      {isVideo(img) ? (
+        <>
+          <video src={`${rewriteImageUrl(img)}#t=0.1`} muted playsInline preload="metadata" draggable={false} />
+          <span className="admin-video-badge" aria-hidden="true">▶</span>
+        </>
+      ) : (
+        <img src={rewriteImageUrl(img)} alt={`Фото ${index + 1}`} draggable={false} />
+      )}
       <div className="image-preview-actions">
         <button
           type="button"
@@ -1496,11 +1517,23 @@ function ImageFullscreen({
         ›
       </button>
       <div className="fullscreen-image-container" onClick={(e) => e.stopPropagation()}>
-        <img
-          src={rewriteImageUrl(images[currentIndex])}
-          alt={`${productTitle} ${currentIndex + 1}`}
-          className="fullscreen-image"
-        />
+        {isVideo(images[currentIndex]) ? (
+          <video
+            src={rewriteImageUrl(images[currentIndex])}
+            className="fullscreen-image"
+            controls
+            autoPlay
+            loop
+            muted
+            playsInline
+          />
+        ) : (
+          <img
+            src={rewriteImageUrl(images[currentIndex])}
+            alt={`${productTitle} ${currentIndex + 1}`}
+            className="fullscreen-image"
+          />
+        )}
         <div className="fullscreen-counter">
           {currentIndex + 1} / {images.length}
         </div>
@@ -1678,6 +1711,7 @@ function ProductFormModal({
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
   const [uploadingImages, setUploadingImages] = useState<Set<number>>(new Set())
+  const [uploadingVideos, setUploadingVideos] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // настройка сенсоров для drag-and-drop в форме
@@ -1804,23 +1838,27 @@ function ProductFormModal({
   const handleFileUpload = async (file: File) => {
     // используем уникальный ID для каждой загрузки (timestamp + случайное число)
     const uploadId = Date.now() + Math.random()
+    // видео конвертируется на стороне сервера — это дольше, нужен больший таймаут
+    const video = file.type.toLowerCase().startsWith('video/')
     setUploadingImages(prev => new Set(prev).add(uploadId))
+    if (video) setUploadingVideos(prev => prev + 1)
 
     try {
-      const url = await api.uploadImage(file)
+      const url = await api.uploadImage(file, video ? 300000 : 120000)
       // добавляем URL к текущему списку изображений используя функциональное обновление
       setFormData(prev => {
         const currentImages = prev.images || []
         return { ...prev, images: [...currentImages, url] }
       })
     } catch (err: any) {
-      showToast(err.message || 'Ошибка загрузки фото', 'error')
+      showToast(err.message || (video ? 'Ошибка загрузки видео' : 'Ошибка загрузки фото'), 'error')
     } finally {
       setUploadingImages(prev => {
         const newSet = new Set(prev)
         newSet.delete(uploadId)
         return newSet
       })
+      if (video) setUploadingVideos(prev => Math.max(0, prev - 1))
     }
   }
 
@@ -1829,12 +1867,13 @@ function ProductFormModal({
     if (!files || files.length === 0) return
 
     Array.from(files).forEach(file => {
-      // поддерживаем jpeg, jpg, png, webp
-      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
-      if (allowedTypes.includes(file.type.toLowerCase())) {
+      // фото: jpeg, jpg, png, webp; видео: mp4, webm, mov
+      const allowedImages = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
+      const type = file.type.toLowerCase()
+      if (allowedImages.includes(type) || type.startsWith('video/')) {
         handleFileUpload(file)
-      } else if (!file.type.startsWith('image/')) {
-        showToast('Поддерживаются только изображения: JPG, PNG, WebP', 'error')
+      } else {
+        showToast('Поддерживаются фото (JPG, PNG, WebP) и видео (MP4, WebM, MOV)', 'error')
       }
     })
 
@@ -2081,22 +2120,26 @@ function ProductFormModal({
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/jpeg,image/jpg,image/png,image/webp"
+                accept="image/jpeg,image/jpg,image/png,image/webp,video/mp4,video/webm,video/quicktime"
                 multiple
                 onChange={handleFileSelect}
                 style={{ display: 'none' }}
                 id="image-upload-input"
               />
               <label htmlFor="image-upload-input" className="image-upload-button">
-                {uploadingImages.size > 0 ? 'Загрузка...' : 'Загрузить фото'}
+                {uploadingImages.size > 0
+                  ? (uploadingVideos > 0 ? 'Обработка видео…' : 'Загрузка...')
+                  : 'Загрузить фото или видео'}
               </label>
               {uploadingImages.size > 0 && (
                 <div className="uploading-indicator">
-                  Загружается {uploadingImages.size} фото...
+                  {uploadingVideos > 0
+                    ? 'Видео обрабатывается на сервере, это может занять до минуты…'
+                    : `Загружается ${uploadingImages.size} фото...`}
                 </div>
               )}
             </div>
-            <small>Загрузите фото через кнопку выше или вставьте URL вручную</small>
+            <small>Загрузите фото или видео через кнопку выше или вставьте URL вручную</small>
             
             {/* текстовое поле для ручного ввода URL (опционально) */}
             <details style={{ marginTop: '0.5rem', width: '100%' }}>
