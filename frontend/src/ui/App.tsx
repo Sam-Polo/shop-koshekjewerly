@@ -203,6 +203,15 @@ const VideoPlayer = ({ src, isActive }: { src: string, isActive: boolean }) => {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [playing, setPlaying] = useState(false)
   const [userPaused, setUserPaused] = useState(false)
+  const [loadProgress, setLoadProgress] = useState(0)
+
+  // прогресс буферизации: сколько видео уже докачалось (по buffered/duration)
+  const handleProgress = () => {
+    const v = videoRef.current
+    if (!v || !v.duration || !isFinite(v.duration) || v.buffered.length === 0) return
+    const end = v.buffered.end(v.buffered.length - 1)
+    setLoadProgress(Math.min(100, (end / v.duration) * 100))
+  }
 
   // играем только на активном слайде; при уходе со слайда — пауза и сброс ручной паузы,
   // чтобы при возврате видео снова автозапускалось
@@ -242,11 +251,20 @@ const VideoPlayer = ({ src, isActive }: { src: string, isActive: boolean }) => {
         autoPlay={isActive}
         onPlaying={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
+        onProgress={handleProgress}
+        onLoadedMetadata={handleProgress}
+        onTimeUpdate={handleProgress}
       />
       <div className={`product-modal__video-indicator ${playing ? 'is-hidden' : ''}`} aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
           <path d="M8 5v14l11-7L8 5z" />
         </svg>
+      </div>
+      <div
+        className={`product-modal__video-loadbar ${loadProgress >= 99.5 ? 'is-hidden' : ''}`}
+        aria-hidden="true"
+      >
+        <div className="product-modal__video-loadbar-fill" style={{ width: `${loadProgress}%` }} />
       </div>
     </div>
   )

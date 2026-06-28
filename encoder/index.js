@@ -1,5 +1,5 @@
 import express from 'express'
-import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
+import { S3Client, GetObjectCommand, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { randomUUID } from 'crypto'
@@ -26,6 +26,10 @@ const s3 = new S3Client({
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
   },
   forcePathStyle: true,
+  // Yandex Object Storage не поддерживает новые flexible-checksum заголовки, которые
+  // свежие версии AWS SDK добавляют по умолчанию → иначе SignatureDoesNotMatch (403).
+  requestChecksumCalculation: 'when_required',
+  responseChecksumValidation: 'when_required',
 })
 
 app.get('/health', (_req, res) => res.json({ ok: true }))
@@ -81,6 +85,16 @@ app.post('/', async (req, res) => {
 
     const url = `${PUB_PREFIX.replace(/\/+$/, '')}/${outputKey}`
     console.log(`[encode] uploaded  url=${url}  size=${(size / 1024 / 1024).toFixed(1)}MB`)
+
+    // убираем сырьё из incoming/ — иначе оно копится в бакете. Ошибка удаления не
+    // должна валить запрос: результат уже готов и отдан.
+    try {
+      await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: inputKey }))
+      console.log(`[encode] deleted source ${inputKey}`)
+    } catch (e) {
+      console.warn(`[encode] failed to delete source ${inputKey}: ${e.message}`)
+    }
+
     res.json({ url })
   } catch (err) {
     console.error('[encode] error', err)
