@@ -504,22 +504,33 @@ const FullscreenImage = ({
     onClose()
   }
 
+  const [activeIndex, setActiveIndex] = useState(currentIndex)
+
   return (
     <div className="fullscreen-image" onClick={onClose}>
       <button className="fullscreen-image__close" onClick={handleClose}>&times;</button>
-      
+
       <Swiper
         modules={[Pagination, Zoom]}
         pagination={{ clickable: true }}
         zoom={true}
         initialSlide={currentIndex}
-        onSlideChange={(swiper: SwiperClass) => onNavigate(swiper.activeIndex)}
+        onSlideChange={(swiper: SwiperClass) => {
+          setActiveIndex(swiper.activeIndex)
+          onNavigate(swiper.activeIndex)
+        }}
       >
-        {images.map((img, idx) => (
+        {images.map((media, idx) => (
           <SwiperSlide key={idx} onClick={(e) => e.stopPropagation()}>
-            <div className="swiper-zoom-container">
-              <img src={img} alt={`Товар (фото ${idx + 1})`} />
-            </div>
+            {isVideo(media) ? (
+              <div className="fullscreen-image__video">
+                <VideoPlayer src={media} isActive={activeIndex === idx} />
+              </div>
+            ) : (
+              <div className="swiper-zoom-container">
+                <img src={media} alt={`Товар (${idx + 1})`} />
+              </div>
+            )}
           </SwiperSlide>
         ))}
       </Swiper>
@@ -550,11 +561,10 @@ const ProductModal = ({
   const [isAdding, setIsAdding] = useState(false)
   const [addedState, setAddedState] = useState(false)
   const swiperRef = useRef<SwiperClass | null>(null)
+  const thumbnailsRef = useRef<HTMLDivElement>(null)
   const currentMedia = product.images?.[selectedImageIndex] || ''
   // image-loader только для фото; для видео отдаём '' (Image() не грузит видео)
   const { loading: mainImageLoading } = useImageLoader(isVideo(currentMedia) ? '' : currentMedia)
-  // fullscreen-зум — только для фото, видео туда не попадает
-  const photoImages = product.images?.filter(u => !isVideo(u)) ?? []
   const cartItem = cart.find(item => item.kind === 'regular' && item.slug === product.slug)
   const currentQuantity = cartItem?.quantity || 0
   const maxQuantity = product.stock !== undefined ? product.stock : 999
@@ -573,6 +583,17 @@ const ProductModal = ({
     if (swiperRef.current && swiperRef.current.activeIndex !== selectedImageIndex) {
       swiperRef.current.slideTo(selectedImageIndex)
     }
+  }, [selectedImageIndex])
+
+  // лента миниатюр едет за галереей: активную миниатюру держим по центру видимой области,
+  // чтобы при листании галереи за границы строки нужная миниатюра всегда была видна
+  useEffect(() => {
+    const container = thumbnailsRef.current
+    if (!container) return
+    const active = container.children[selectedImageIndex] as HTMLElement | undefined
+    if (!active) return
+    const target = active.offsetLeft - (container.clientWidth - active.clientWidth) / 2
+    container.scrollTo({ left: Math.max(0, target), behavior: 'smooth' })
   }, [selectedImageIndex])
 
   // разбиваем описание по переносам строк
@@ -648,7 +669,7 @@ const ProductModal = ({
             </Swiper>
             
             {product.images.length > 1 && (
-              <div className="product-modal__thumbnails">
+              <div className="product-modal__thumbnails" ref={thumbnailsRef}>
                 {product.images.map((img, idx) => (
                   isVideo(img) ? (
                     <VideoThumbnail
@@ -746,14 +767,15 @@ const ProductModal = ({
       </div>
       {fullscreenImage && (
         <FullscreenImage
-          images={photoImages}
-          currentIndex={Math.max(0, photoImages.indexOf(fullscreenImage))}
+          images={product.images ?? []}
+          currentIndex={Math.max(0, (product.images ?? []).indexOf(fullscreenImage))}
           onClose={() => setFullscreenImage(null)}
           onNavigate={(newIndex) => {
-            const url = photoImages[newIndex]
-            setFullscreenImage(url)
-            const fullIdx = product.images.indexOf(url)
-            if (fullIdx >= 0) setSelectedImageIndex(fullIdx)
+            const url = (product.images ?? [])[newIndex]
+            if (url) {
+              setFullscreenImage(url)
+              setSelectedImageIndex(newIndex)
+            }
           }}
         />
       )}
