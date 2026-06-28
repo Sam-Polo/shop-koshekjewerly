@@ -373,7 +373,7 @@ export interface LeadCdekState {
 export async function findLeadByOrderNumber(orderNumber: string): Promise<LeadCdekState | null> {
   const numberFieldId = Number(process.env.AMOCRM_FIELD_ORDER_NUMBER_ID)
   if (!numberFieldId) throw new Error('AMOCRM_FIELD_ORDER_NUMBER_ID not set')
-  const search = await amoFetch('GET', `/leads?query=${encodeURIComponent(orderNumber)}&limit=10`) as any
+  const search = await amoFetch('GET', `/leads?query=${encodeURIComponent(orderNumber)}&limit=10&with=custom_fields`) as any
   const leads: any[] = search?._embedded?.leads ?? []
   const lead = leads.find(l => readLeadField(l, numberFieldId) === orderNumber)
   if (!lead?.id) return null
