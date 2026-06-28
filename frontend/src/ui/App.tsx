@@ -262,8 +262,8 @@ const VideoPlayer = ({ src, isActive, onFullscreen }: { src: string, isActive: b
       />
       <div className={`product-modal__video-indicator ${playing ? 'is-hidden' : ''}`} aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-          <rect x="6" y="4" width="4.5" height="16" rx="1.5" />
-          <rect x="13.5" y="4" width="4.5" height="16" rx="1.5" />
+          <rect x="6" y="4" width="4.5" height="16" />
+          <rect x="13.5" y="4" width="4.5" height="16" />
         </svg>
       </div>
       <div
