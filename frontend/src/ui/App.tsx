@@ -199,7 +199,7 @@ const ImageWithLoader = ({ src, alt }: { src: string, alt: string }) => {
 // единственный контрол — пауза/плей по тапу. Анимация-индикатор play показывается,
 // пока видео не играет (до старта autoplay + после ручной паузы) — она же служит
 // fallback'ом, если браузер заблокировал autoplay (iOS low-power). см. docs/VIDEO_SUPPORT.md
-const VideoPlayer = ({ src, isActive }: { src: string, isActive: boolean }) => {
+const VideoPlayer = ({ src, isActive, onFullscreen }: { src: string, isActive: boolean, onFullscreen?: () => void }) => {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [playing, setPlaying] = useState(false)
   const [userPaused, setUserPaused] = useState(false)
@@ -239,6 +239,11 @@ const VideoPlayer = ({ src, isActive }: { src: string, isActive: boolean }) => {
     }
   }
 
+  const handleFullscreen = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    onFullscreen?.()
+  }
+
   return (
     <div className="product-modal__video" onClick={togglePlay}>
       <video
@@ -257,7 +262,8 @@ const VideoPlayer = ({ src, isActive }: { src: string, isActive: boolean }) => {
       />
       <div className={`product-modal__video-indicator ${playing ? 'is-hidden' : ''}`} aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-          <path d="M8 5v14l11-7L8 5z" />
+          <rect x="6" y="4" width="4.5" height="16" rx="1.5" />
+          <rect x="13.5" y="4" width="4.5" height="16" rx="1.5" />
         </svg>
       </div>
       <div
@@ -266,6 +272,18 @@ const VideoPlayer = ({ src, isActive }: { src: string, isActive: boolean }) => {
       >
         <div className="product-modal__video-loadbar-fill" style={{ width: `${loadProgress}%` }} />
       </div>
+      {onFullscreen && (
+        <button
+          className="product-modal__video-fullscreen"
+          onClick={handleFullscreen}
+          aria-label="Открыть видео на весь экран"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+            strokeLinecap="round" strokeLinejoin="round" xmlns="http://www.w3.org/2000/svg">
+            <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+          </svg>
+        </button>
+      )}
     </div>
   )
 }
@@ -652,7 +670,11 @@ const ProductModal = ({
               {product.images.map((img, idx) => (
                 <SwiperSlide key={idx}>
                   {isVideo(img) ? (
-                    <VideoPlayer src={img} isActive={selectedImageIndex === idx} />
+                    <VideoPlayer
+                      src={img}
+                      isActive={selectedImageIndex === idx}
+                      onFullscreen={() => setFullscreenImage(img)}
+                    />
                   ) : (
                     <div
                       className={`product-modal__image ${mainImageLoading && selectedImageIndex === idx ? 'shimmer-bg' : 'fade-in-image'}`}
