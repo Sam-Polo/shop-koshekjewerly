@@ -345,6 +345,11 @@ button, input, select, textarea { font-family: inherit; }
 .product-modal__gallery .swiper-button-next {
   width: 36px;
   height: 36px;
+  /* истинное центрирование по вертикали: дефолтный margin-top Swiper рассчитан на
+     размер 44px и сдвигает стрелки выше центра — обнуляем и центрируем transform'ом,
+     чтобы стрелки совпадали с индикатором паузы (он ровно по центру слайда) */
+  margin-top: 0;
+  transform: translateY(-50%);
   background: rgba(255, 255, 255, 0.1);
   border-radius: 50%;
   color: #fff;
@@ -398,18 +403,18 @@ button, input, select, textarea { font-family: inherit; }
   height: 100%; background: rgba(255, 255, 255, 0.9);
   transition: width 0.2s linear;
 }
-/* микро-кнопка «на весь экран» — едва заметна в правом нижнем углу видео */
+/* микро-кнопка «на весь экран» — только иконка, без подложки, в правом нижнем углу видео */
 .product-modal__video-fullscreen {
   position: absolute; right: 8px; bottom: 8px;
   width: 26px; height: 26px; padding: 0;
-  border: none; border-radius: 6px;
-  background: rgba(0, 0, 0, 0.3); color: #fff;
+  border: none; background: none; color: #fff;
   display: flex; align-items: center; justify-content: center;
-  cursor: pointer; opacity: 0.55; transition: opacity 0.2s ease;
+  cursor: pointer; opacity: 0.75; transition: opacity 0.2s ease;
+  filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.55));
   z-index: 2;
 }
 .product-modal__video-fullscreen:hover { opacity: 1; }
-.product-modal__video-fullscreen svg { width: 15px; height: 15px; }
+.product-modal__video-fullscreen svg { width: 16px; height: 16px; }
 /* миниатюра видео — первый кадр + бейдж play */
 .product-modal__thumbnail--video { position: relative; overflow: hidden; padding: 0; background-color: #f0f0f0; }
 .product-modal__thumbnail--video video { width: 100%; height: 100%; object-fit: cover; display: block; }
