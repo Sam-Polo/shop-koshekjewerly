@@ -246,6 +246,31 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true });
 });
 
+// ── Bot heartbeat watchdog ──────────────────────────────────────────────────
+// Амстердамский VDS с ботом может стать недоступен целиком (авария ДЦ, обрыв сети) —
+// тогда сам бот не может пожаловаться в канал ошибок (sendAlert бота идёт через ту же
+// упавшую сеть). Бэкенд на Render — независимая инфраструктура, поэтому он служит
+// внешним сторожем: ждёт heartbeat от бота каждые ~5 мин (см. bot/src/bot.ts) и
+// алертит только на ПЕРЕХОДЕ состояния (недоступен / снова на связи), а не на каждой
+// проверке — иначе канал ошибок был бы завален одинаковыми алертами всю аварию.
+let lastBotHeartbeatAt = Date.now()
+let botHeartbeatDown = false
+
+app.post('/internal/bot-heartbeat', (req, res) => {
+  const secret = process.env.BOT_API_SECRET
+  if (secret && req.query.secret !== secret) {
+    res.status(401).json({ error: 'unauthorized' }); return
+  }
+  lastBotHeartbeatAt = Date.now()
+  if (botHeartbeatDown) {
+    botHeartbeatDown = false
+    sendAlert('Бот на Амстердамском VDS снова на связи.', {
+      tag: 'bot-heartbeat', level: 'info', code: 'BOT_HEARTBEAT_RECOVERED'
+    }).catch(() => {})
+  }
+  res.json({ ok: true })
+})
+
 // in-memory очередь новых пользователей для каждой платформы.
 // Боты периодически забирают её через GET /api/pending-users?platform=...&secret=...
 // и сами сохраняют в свой user-chat-ids.json.
@@ -2573,6 +2598,23 @@ app.listen(port, async () => {
   if (process.env.FEATURE_PAYMENT_POLLING !== 'false' && pollIntervalMinutes > 0) {
     setInterval(() => { checkPendingOrders().catch(() => {}) }, pollIntervalMinutes * 60 * 1000)
     logger.info({ intervalMinutes: pollIntervalMinutes }, '1.2: опрос pending-заказов настроен')
+  }
+
+  // сторож heartbeat'а бота: проверяем раз в минуту, алертим только на переходе состояния
+  const botHeartbeatStaleMs = Number(process.env.BOT_HEARTBEAT_STALE_MINUTES ?? 12) * 60 * 1000
+  if (process.env.FEATURE_BOT_HEARTBEAT_WATCHDOG !== 'false') {
+    setInterval(() => {
+      if (botHeartbeatDown) return // уже сообщили, не повторяем пока бот не пришлёт heartbeat снова
+      const staleMs = Date.now() - lastBotHeartbeatAt
+      if (staleMs <= botHeartbeatStaleMs) return
+      botHeartbeatDown = true
+      const minutes = Math.round(staleMs / 60000)
+      sendAlert(
+        `Бот на Амстердамском VDS не присылал heartbeat ${minutes} мин — вероятно недоступен (сеть/VDS/процесс).`,
+        { tag: 'bot-heartbeat', level: 'critical', hint: 'проверьте PM2 telegram-bot и доступность VDS 72.56.77.228 (Амстердам)', code: 'BOT_HEARTBEAT_STALE' }
+      ).catch(() => {})
+    }, 60 * 1000)
+    logger.info({ staleMinutes: botHeartbeatStaleMs / 60000 }, 'сторож heartbeat бота настроен')
   }
 
   // стартовый self-check — в канал ошибок при каждом рестарте

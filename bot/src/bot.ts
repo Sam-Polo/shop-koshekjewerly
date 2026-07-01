@@ -1377,6 +1377,27 @@ keepAlive();
 console.log(`[keep-alive] настроен, интервал: ${KEEP_ALIVE_INTERVAL / 1000} секунд`);
 console.log(`[keep-alive] URL бэкенда: ${BACKEND_URL}/health`);
 
+// heartbeat для бэкенда: сигнал "бот жив" (независимо от keep-alive для Render).
+// Бэкенд на Render — отдельная инфраструктура, поэтому именно он алертит в канал
+// ошибок, если этот пинг не приходит слишком долго (см. /internal/bot-heartbeat
+// и сторож в backend/src/server.ts). Так ловим аварии, когда у VDS/ЦОД в Амстердаме
+// пропадает сеть целиком — в этом случае sendAlert() самого бота тоже не дойдёт.
+async function pingBackendHeartbeat() {
+  const abortCtrl = new AbortController()
+  const abortTimer = setTimeout(() => abortCtrl.abort(), 12_000)
+  try {
+    const secret = process.env.BOT_API_SECRET
+    const url = `${BACKEND_URL}/internal/bot-heartbeat${secret ? `?secret=${encodeURIComponent(secret)}` : ''}`
+    await fetch(url, { method: 'POST', signal: abortCtrl.signal })
+  } catch (e: any) {
+    console.warn('[heartbeat] не удалось отправить heartbeat бэкенду:', e?.message)
+  } finally {
+    clearTimeout(abortTimer)
+  }
+}
+setInterval(pingBackendHeartbeat, KEEP_ALIVE_INTERVAL);
+pingBackendHeartbeat();
+
 // ── Ночная синхронизация amoCRM → shipment_items ──────────────────────────
 // Запускается каждую ночь в 02:00 МСК. Подтягивает все лиды amoCRM, обновлённые
 // за последние 48ч, и upsert'ит их в sheet — страховка от вебхуков, пропущенных
