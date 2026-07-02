@@ -30,3 +30,5 @@ contacts-fields.json
 pipelines.json
 backend/src/scripts/result.json
 convert-csv.js
+# локальные одноразовые скрипты (отладка, сверки) — не коммитим
+backend/src/scripts/local/

@@ -100,8 +100,9 @@ export function prepareLeadUpsert(fullLead: any): LeadUpsert | null {
   const effectiveOrderId = orderId ?? `AMO-${leadId}`
   const orderDate      = readFieldDate(fullLead, FIELD_ORDER_DATE)
     || toMoscowDate(new Date(fullLead.created_at * 1000))
+  // дата отгрузки: updated_at лида (для webhook ≈ сейчас, для catch-up синка — историческая)
   const shipDate       = (newStatus === 'sent' || newStatus === 'returned')
-    ? toMoscowDate(new Date())
+    ? toMoscowDate(new Date((Number(fullLead.updated_at) || Date.now() / 1000) * 1000))
     : ''
 
   let items: ShipmentItem[] = []
