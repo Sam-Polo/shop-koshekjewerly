@@ -1626,7 +1626,7 @@ const CheckoutForm = ({
 
         {isEms && (<>
           <p className="checkout-form__ems-hint">
-            Адрес и имя получателя укажите латинскими буквами (как в загранпаспорте) — этого требует Почта России для международных отправлений.
+            Адрес и имя получателя укажите латинскими буквами.
           </p>
           <label className="checkout-form__label">
             Страна <span className="checkout-form__required">*</span>
