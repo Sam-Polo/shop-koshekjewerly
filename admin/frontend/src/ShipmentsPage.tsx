@@ -395,7 +395,7 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
         {report && (
           <div className={loading ? 'sh-content sh-content--loading' : 'sh-content'}>
             <div className="sh-counters">
-              <ArcCounter value={totals.priority + totals.pending} total={totalAll} label="К отправке" color="#db2777" track="rgba(244,114,182,0.22)" />
+              <ArcCounter value={priorityOnly ? totals.priority : totals.priority + totals.pending} total={totalAll} label="К отправке" color="#db2777" track="rgba(244,114,182,0.22)" />
               <ArcCounter value={totals.in_work}   total={totalAll} label="В работе"    color="#ea580c" track="rgba(251,146,60,0.22)"  />
               <ArcCounter value={totals.assembled} total={totalAll} label="Собран"      color="#0284c7" track="rgba(56,189,248,0.22)"  />
               <ArcCounter value={totals.sent}      total={totalAll} label="Отправлено"  color="#7c3aed" track="rgba(139,92,246,0.2)"   />
@@ -457,7 +457,10 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
                           {item.titleSource === 'composition' && <UnknownBadge />}
                         </td>
                         <td className="sh-td-p">
-                          {(item.priority + item.pending) > 0 ? <strong>{item.priority + item.pending}</strong> : <span className="sh-muted">—</span>}
+                          {(() => {
+                            const toShip = priorityOnly ? item.priority : item.priority + item.pending
+                            return toShip > 0 ? <strong>{toShip}</strong> : <span className="sh-muted">—</span>
+                          })()}
                         </td>
                         {hasInWork && (
                           <td className="sh-td-w">{item.in_work > 0 ? item.in_work : <span className="sh-muted">—</span>}</td>

@@ -181,6 +181,7 @@ export async function upsertOrderItems(
   }
 
   // existing order — update all rows to new status (backward moves allowed for corrections)
+  const leadId = items[0]?.lead_id ?? ''
   const updates = orderRows
     .filter(({ r }) => r[5] !== newStatus)  // skip rows already at target status
     .map(({ r, rowNum }) => {
@@ -188,6 +189,7 @@ export async function upsertOrderItems(
       updated[5] = newStatus
       updated[6] = (newStatus === 'sent' || newStatus === 'returned') ? shipDate : ''
       while (updated.length < 9) updated.push('')
+      if (!updated[8] && leadId) updated[8] = leadId  // backfill lead_id for tilda-webhook rows
       return { range: `${SHEET_NAME}!A${rowNum}:I${rowNum}`, values: [updated.slice(0, 9)] }
     })
 
@@ -246,6 +248,7 @@ export async function bulkUpsertOrders(
       continue
     }
 
+    const leadId = items[0]?.lead_id ?? ''
     const rowUpdates = existing
       .filter(({ r }) => r[5] !== newStatus)
       .map(({ r, rowNum }) => {
@@ -253,6 +256,7 @@ export async function bulkUpsertOrders(
         u[5] = newStatus
         u[6] = (newStatus === 'sent' || newStatus === 'returned') ? shipDate : ''
         while (u.length < 9) u.push('')
+        if (!u[8] && leadId) u[8] = leadId  // backfill lead_id for tilda-webhook rows
         return { range: `${SHEET_NAME}!A${rowNum}:I${rowNum}`, values: [u.slice(0, 9)] }
       })
 
