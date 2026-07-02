@@ -1237,14 +1237,15 @@ export async function processPaidOrder(
             { tag: 'amocrm', level: 'low', code: 'AMOCRM_TRACK_UPDATE_FAILED' }
           ).catch(() => {})
         })
-        // TODO: скачивание ярлыка Ф7п отключено — на аккаунте Почты не активирована
-        // схема оплаты отправлений (ошибка -1021). Раскомментировать после подключения:
-        // updateAmoCrmLeadBarcode(amoCrmLeadId, String(pochtaOrderId), downloadF7p, 'pochta-labels').catch((e: any) => {
-        //   sendAlert(
-        //     `amoCRM: не удалось прикрепить ярлык Ф7п к лиду ${amoCrmLeadId} (заказ ${orderId}): ${e?.message}`,
-        //     { tag: 'amocrm', level: 'low', code: 'AMOCRM_BARCODE_FAILED' }
-        //   ).catch(() => {})
-        // })
+        // ярлык Ф7п берётся по id заказа Почты (не по ШПИ); файл в S3 кладём под этим id.
+        // Работает только с партиями, созданными с use-online-balance=true — без признака
+        // онлайн-баланса формы отдают 403 (указание техподдержки Почты, июль 2026).
+        updateAmoCrmLeadBarcode(amoCrmLeadId, String(pochtaOrderId), downloadF7p, 'pochta-labels').catch((e: any) => {
+          sendAlert(
+            `amoCRM: не удалось прикрепить ярлык Ф7п к лиду ${amoCrmLeadId} (заказ ${orderId}): ${e?.message}`,
+            { tag: 'amocrm', level: 'low', code: 'AMOCRM_BARCODE_FAILED' }
+          ).catch(() => {})
+        })
       }
       const trackMsg = trackMessageTemplate
         .replace(/\{\{track\}\}/g, shpi)
