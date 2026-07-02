@@ -11,6 +11,7 @@ type ShipmentsReport = { summary: SummaryItem[]; bySource: BySource; totals: Tot
 const SOURCE_LABELS: Record<string, string> = { telegram: 'Telegram', tilda: 'Тильда', max: 'Max' }
 const ALL_SOURCES = ['telegram', 'tilda', 'max'] as const
 const PERIODS = [
+  { label: 'Весь период', days: 0 },
   { label: 'Сегодня', days: 1 },
   { label: '3 дня',   days: 3 },
   { label: '7 дней',  days: 7 },
@@ -42,8 +43,11 @@ function formatDayLabel(iso: string) {
 }
 
 function formatRangeLabel(from: string, to: string) {
-  if (from === to) return formatDayLabel(from)
   const fmt = (iso: string) => safeDate(iso).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
+  if (!from && !to) return 'Весь период'
+  if (from && !to)  return `с ${fmt(from)}`
+  if (!from && to)  return `до ${fmt(to)}`
+  if (from === to) return formatDayLabel(from)
   return `${fmt(from)} — ${fmt(to)}`
 }
 
@@ -102,9 +106,9 @@ function UnknownBadge() {
 }
 
 export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }) {
-  const [dateFrom, setDateFrom] = useState(todayIso)
-  const [dateTo,   setDateTo]   = useState(todayIso)
-  const [activePeriod, setActivePeriod] = useState<number | null>(1)   // 1 = "Сегодня"
+  const [dateFrom, setDateFrom] = useState('')   // '' = без нижней границы
+  const [dateTo,   setDateTo]   = useState('')   // '' = без верхней границы
+  const [activePeriod, setActivePeriod] = useState<number | null>(0)   // 0 = "Весь период"
   const [activeSources, setActiveSources] = useState<Set<string>>(new Set())
   const [priorityOnly, setPriorityOnly] = useState(false)
   const [report,  setReport]  = useState<ShipmentsReport | null>(null)
@@ -117,6 +121,12 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
   const dateToRef       = useRef<HTMLInputElement>(null)
 
   const setPeriod = useCallback((days: number) => {
+    if (days === 0) {
+      setDateFrom('')
+      setDateTo('')
+      setActivePeriod(0)
+      return
+    }
     const today = todayIso()
     setDateFrom(days === 1 ? today : shiftIso(today, -(days - 1)))
     setDateTo(today)
@@ -124,7 +134,7 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
   }, [])
 
   const navigateDay = (delta: number) => {
-    if (dateFrom !== dateTo) return
+    if (!dateFrom || dateFrom !== dateTo) return
     const next = shiftIso(dateFrom, delta)
     if (next <= todayIso()) {
       setDateFrom(next)
@@ -227,15 +237,30 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
     })
   }
 
-  const totals = report?.totals ?? { priority: 0, pending: 0, in_work: 0, assembled: 0, sent: 0, returned: 0 }
-  const totalAll = totals.priority + totals.pending + totals.in_work + totals.assembled + totals.sent + totals.returned
+  const baseTotals = report?.totals ?? { priority: 0, pending: 0, in_work: 0, assembled: 0, sent: 0, returned: 0 }
   const bySource = report?.bySource ?? {}
   const summary  = report?.summary ?? []
   const visibleSummary = priorityOnly ? summary.filter(s => s.priority > 0) : summary
+  // при активном фильтре «Приоритетные» счётчики считаем по видимым строкам
+  const totals = priorityOnly
+    ? visibleSummary.reduce(
+        (acc, s) => ({
+          priority:  acc.priority  + s.priority,
+          pending:   acc.pending   + s.pending,
+          in_work:   acc.in_work   + s.in_work,
+          assembled: acc.assembled + s.assembled,
+          sent:      acc.sent      + s.sent,
+          returned:  acc.returned  + s.returned,
+        }),
+        { priority: 0, pending: 0, in_work: 0, assembled: 0, sent: 0, returned: 0 }
+      )
+    : baseTotals
+  const totalAll = totals.priority + totals.pending + totals.in_work + totals.assembled + totals.sent + totals.returned
   const hasInWork    = visibleSummary.some(s => s.in_work > 0)
   const hasAssembled = visibleSummary.some(s => s.assembled > 0)
   const hasReturned  = visibleSummary.some(s => s.returned > 0)
-  const isRangeMode  = dateFrom !== dateTo
+  const isAllMode    = !dateFrom && !dateTo
+  const isRangeMode  = isAllMode || dateFrom !== dateTo
   const isTodayDay   = !isRangeMode && dateFrom === todayIso()
 
   return (
@@ -393,13 +418,13 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
                   </button>
                 )
               })}
-              {totals.priority > 0 && (
+              {baseTotals.priority > 0 && (
                 <button
                   className={`sh-chip sh-chip--priority ${priorityOnly ? 'sh-chip--on' : ''}`}
                   onClick={() => setPriorityOnly(v => !v)}
                 >
                   Приоритетные
-                  <span className="sh-chip-num">{totals.priority}</span>
+                  <span className="sh-chip-num">{baseTotals.priority}</span>
                 </button>
               )}
             </div>
