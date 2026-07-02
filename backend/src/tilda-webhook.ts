@@ -50,6 +50,7 @@ export function handleTildaOrder(req: Request, res: Response): void {
       ship_date:   '',
       title:       String(p?.name ?? '').trim(),
       lead_id:     '',
+      priority:    '',
     })
   }
 

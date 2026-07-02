@@ -29,7 +29,7 @@ const PIPELINE_ID = 10993830
 // See GOODS_TRACKING_PLAN.md §7
 const STAGE_MAP: Record<number, ShipStatus | 'skip'> = {
   86423882: 'pending',  // Неразобранное
-  86486222: 'priority', // ПРИОРИТЕТНЫЙ ЗАКАЗ
+  86486222: 'pending',  // ПРИОРИТЕТНЫЙ ЗАКАЗ — статус pending + флаг priority
   86423886: 'pending',  // НОВЫЙ, ЖДЕТ ОТПРАВКИ
   86486582: 'in_work',   // В РАБОТЕ
   86486586: 'assembled', // Собран
@@ -43,6 +43,8 @@ const STAGE_MAP: Record<number, ShipStatus | 'skip'> = {
 const FIELD_ORDER_NUMBER = 774543   // № заказа
 const FIELD_COMPOSITION  = 774547   // Состав (текст)
 const FIELD_SOURCE       = 770993   // Источник (enum)
+const FIELD_PRIORITY     = 776409   // чекбокс «Приоритетный заказ»
+const STAGE_PRIORITY     = 86486222
 const ENUM_TELEGRAM      = 998663
 const ENUM_MAX           = 998667   // 998665 = tilda, 998667 = max
 
@@ -76,6 +78,13 @@ function readFieldEnum(lead: any, fieldId: number): number | null {
   const field = cf.find((f: any) => Number(f.field_id) === fieldId)
   const v = field?.values?.[0]?.enum_id
   return v !== undefined ? Number(v) : null
+}
+
+function readFieldBool(lead: any, fieldId: number): boolean {
+  const cf: any[] = lead?.custom_fields_values ?? []
+  const field = cf.find((f: any) => Number(f.field_id) === fieldId)
+  const v = field?.values?.[0]?.value
+  return v === true || v === 'true' || v === 1 || v === '1'
 }
 
 // amoCRM date fields store value as Unix timestamp (number)
@@ -211,6 +220,8 @@ async function main() {
       continue
     }
 
+    const priority = (stageId === STAGE_PRIORITY || readFieldBool(lead, FIELD_PRIORITY)) ? '1' : ''
+
     const rows: ShipmentItem[] = items.map(item => ({
       order_id:    effectiveOrderId,
       source,
@@ -221,6 +232,7 @@ async function main() {
       ship_date:   shipDate,
       title:       String(item.name ?? '').trim(),
       lead_id:     String(lead.id),
+      priority,
     }))
 
     console.log(`  [${format.toUpperCase()}] ${effectiveOrderId} [${status}] → ${rows.length} позиц.`)

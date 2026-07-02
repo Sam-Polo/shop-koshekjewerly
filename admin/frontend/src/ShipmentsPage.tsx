@@ -4,7 +4,7 @@ import { api, removeToken } from './api'
 import type { AdminPage } from './BasesPage'
 
 type SummaryItem = { article: string; title: string; titleSource: 'catalog' | 'composition' | 'none'; priority: number; pending: number; in_work: number; assembled: number; sent: number; returned: number }
-type BySource = Record<string, { priority: number; pending: number; in_work: number; assembled: number; sent: number }>
+type BySource = Record<string, { pending: number; in_work: number; assembled: number; sent: number }>
 type Totals = { priority: number; pending: number; in_work: number; assembled: number; sent: number; returned: number }
 type ShipmentsReport = { summary: SummaryItem[]; bySource: BySource; totals: Totals }
 
@@ -175,7 +175,7 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
             from: dateFrom,
             to: dateTo,
             ...(src ? { source: src } : {}),
-            ...(priorityOnly ? { status: 'priority' } : {}),
+            ...(priorityOnly ? { priority: '1' } : {}),
             ...(nocache ? { nocache: true } : {}),
           })
         )
@@ -212,7 +212,7 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
           summary: [...articleMap.values()].sort((a, b) => {
             const ap = a.priority > 0 ? 1 : 0, bp = b.priority > 0 ? 1 : 0
             if (bp !== ap) return bp - ap
-            return (b.priority + b.pending + b.in_work + b.assembled) - (a.priority + a.pending + a.in_work + a.assembled)
+            return (b.pending + b.in_work + b.assembled) - (a.pending + a.in_work + a.assembled)
           }),
           totals,
           bySource,
@@ -238,12 +238,13 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
     })
   }
 
-  // Фильтр «Приоритетные» применяется на бэкенде (status=priority), как фильтр
-  // источника: отчёт целиком — круги, чипы, таблица — считается по этим строкам.
+  // Фильтр «Приоритетные» применяется на бэкенде (priority=1), как фильтр источника:
+  // отчёт целиком — круги, чипы, таблица — считается по строкам приоритетных заказов.
+  // Приоритет — флаг поверх статусов, поэтому статусы дают полное разбиение (totalAll без priority).
   const totals = report?.totals ?? { priority: 0, pending: 0, in_work: 0, assembled: 0, sent: 0, returned: 0 }
   const bySource = report?.bySource ?? {}
   const summary  = report?.summary ?? []
-  const totalAll = totals.priority + totals.pending + totals.in_work + totals.assembled + totals.sent + totals.returned
+  const totalAll = totals.pending + totals.in_work + totals.assembled + totals.sent + totals.returned
   const hasInWork    = summary.some(s => s.in_work > 0)
   const hasAssembled = summary.some(s => s.assembled > 0)
   const hasReturned  = summary.some(s => s.returned > 0)
@@ -395,7 +396,7 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
             <div className="sh-chips">
               {ALL_SOURCES.map(src => {
                 const c = bySource[src]
-                const n = (c?.priority ?? 0) + (c?.pending ?? 0) + (c?.in_work ?? 0) + (c?.assembled ?? 0) + (c?.sent ?? 0)
+                const n = (c?.pending ?? 0) + (c?.in_work ?? 0) + (c?.assembled ?? 0) + (c?.sent ?? 0)
                 return (
                   <button
                     key={src}
@@ -439,14 +440,14 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
                   </thead>
                   <tbody>
                     {summary.map(item => (
-                      <tr key={item.article} className={item.priority + item.pending + item.in_work + item.assembled > 0 ? 'sh-row-hot' : ''}>
+                      <tr key={item.article} className={item.pending + item.in_work + item.assembled > 0 ? 'sh-row-hot' : ''}>
                         <td><span className="sh-art">{item.article}</span></td>
                         <td className="sh-name">
                           {item.title || <span className="sh-muted">—</span>}
                           {item.titleSource === 'composition' && <UnknownBadge />}
                         </td>
                         <td className="sh-td-p">
-                          {(item.priority + item.pending) > 0 ? <strong>{item.priority + item.pending}</strong> : <span className="sh-muted">—</span>}
+                          {item.pending > 0 ? <strong>{item.pending}</strong> : <span className="sh-muted">—</span>}
                         </td>
                         {hasInWork && (
                           <td className="sh-td-w">{item.in_work > 0 ? item.in_work : <span className="sh-muted">—</span>}</td>

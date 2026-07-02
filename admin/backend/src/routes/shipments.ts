@@ -8,11 +8,11 @@ const router = express.Router()
 
 router.use(requireAuth)
 
-// GET /api/shipments?from=YYYY-MM-DD&to=YYYY-MM-DD&source=telegram|tilda|max&status=priority
+// GET /api/shipments?from=YYYY-MM-DD&to=YYYY-MM-DD&source=telegram|tilda|max&priority=1
 router.get('/', async (req, res) => {
   try {
-    const { from, to, source, status, nocache } = req.query as Record<string, string>
-    const report = await buildShipmentsReport({ from, to, source, status, nocache: nocache === '1' })
+    const { from, to, source, priority, nocache } = req.query as Record<string, string>
+    const report = await buildShipmentsReport({ from, to, source, priority: priority === '1', nocache: nocache === '1' })
     res.json(report)
   } catch (e: any) {
     logger.error({ err: e?.message, stack: e?.stack }, 'shipments report error')

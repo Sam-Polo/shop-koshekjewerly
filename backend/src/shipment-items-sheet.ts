@@ -1,6 +1,8 @@
 ﻿import { google } from 'googleapis'
 import fs from 'node:fs'
 
+// 'priority' — legacy-значение (раньше приоритет был статусом); новые записи
+// используют обычные статусы + флаг priority в колонке J
 export type ShipStatus = 'pending' | 'priority' | 'in_work' | 'assembled' | 'sent' | 'returned'
 export type ShipSource = 'telegram' | 'tilda' | 'max'
 
@@ -14,10 +16,11 @@ export type ShipmentItem = {
   ship_date: string    // ISO date string, empty string if not shipped
   title: string        // product name from composition text
   lead_id: string      // amoCRM lead ID, empty for tilda-webhook orders
+  priority: string     // '1' если заказ приоритетный (этап или чекбокс в amo), иначе ''
 }
 
 const SHEET_NAME = 'shipment_items'
-const HEADERS = ['order_id', 'source', 'article', 'qty', 'order_date', 'ship_status', 'ship_date', 'title', 'lead_id']
+const HEADERS = ['order_id', 'source', 'article', 'qty', 'order_date', 'ship_status', 'ship_date', 'title', 'lead_id', 'priority']
 
 function getAuth() {
   const filePath = process.env.GOOGLE_SA_FILE
@@ -49,6 +52,7 @@ function rowToItem(row: string[]): ShipmentItem {
     ship_date:   row[6] ?? '',
     title:       row[7] ?? '',
     lead_id:     row[8] ?? '',
+    priority:    row[9] ?? '',
   }
 }
 
@@ -63,6 +67,7 @@ function itemToRow(item: ShipmentItem): string[] {
     item.ship_date,
     item.title,
     item.lead_id,
+    item.priority,
   ]
 }
 
@@ -97,7 +102,7 @@ export async function appendShipmentItems(items: ShipmentItem[]): Promise<void> 
   const sheets = google.sheets({ version: 'v4', auth })
   await sheets.spreadsheets.values.append({
     spreadsheetId: getSheetId(),
-    range: `${SHEET_NAME}!A:I`,
+    range: `${SHEET_NAME}!A:J`,
     valueInputOption: 'RAW',
     requestBody: { values: items.map(itemToRow) },
   })
@@ -126,7 +131,7 @@ export async function createOrderItemsIfNew(
 
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: `${SHEET_NAME}!A:I`,
+    range: `${SHEET_NAME}!A:J`,
     valueInputOption: 'RAW',
     requestBody: { values: items.map(itemToRow) },
   })
@@ -139,7 +144,7 @@ export async function readAllShipmentItems(): Promise<ShipmentItem[]> {
   const sheets = google.sheets({ version: 'v4', auth })
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: getSheetId(),
-    range: `${SHEET_NAME}!A:I`,
+    range: `${SHEET_NAME}!A:J`,
   })
   const rows = (res.data.values ?? []).slice(1) // skip header
   return rows.filter(r => r[0]).map(rowToItem)
@@ -162,7 +167,7 @@ export async function upsertOrderItems(
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${SHEET_NAME}!A:I`,
+    range: `${SHEET_NAME}!A:J`,
   })
   const rows = res.data.values ?? []
 
@@ -173,7 +178,7 @@ export async function upsertOrderItems(
     if (items.length === 0) return 'noop'
     await sheets.spreadsheets.values.append({
       spreadsheetId,
-      range: `${SHEET_NAME}!A:I`,
+      range: `${SHEET_NAME}!A:J`,
       valueInputOption: 'RAW',
       requestBody: { values: items.map(itemToRow) },
     })
@@ -182,15 +187,20 @@ export async function upsertOrderItems(
 
   // existing order — update all rows to new status (backward moves allowed for corrections)
   const leadId = items[0]?.lead_id ?? ''
+  const incomingPriority = items[0]?.priority ?? ''
   const updates = orderRows
-    .filter(({ r }) => r[5] !== newStatus)  // skip rows already at target status
+    // строка меняется, если статус другой ИЛИ появился флаг приоритета
+    .filter(({ r }) => r[5] !== newStatus || (incomingPriority === '1' && r[9] !== '1'))
     .map(({ r, rowNum }) => {
       const updated = [...r]
+      const wasLegacyPriority = updated[5] === 'priority'  // старая схема: приоритет был статусом
       updated[5] = newStatus
       updated[6] = (newStatus === 'sent' || newStatus === 'returned') ? shipDate : ''
-      while (updated.length < 9) updated.push('')
+      while (updated.length < 10) updated.push('')
       if (!updated[8] && leadId) updated[8] = leadId  // backfill lead_id for tilda-webhook rows
-      return { range: `${SHEET_NAME}!A${rowNum}:I${rowNum}`, values: [updated.slice(0, 9)] }
+      // флаг приоритета липкий: раз поставлен — не слетает при движении по этапам
+      if (incomingPriority === '1' || wasLegacyPriority) updated[9] = '1'
+      return { range: `${SHEET_NAME}!A${rowNum}:J${rowNum}`, values: [updated.slice(0, 10)] }
     })
 
   if (updates.length === 0) return 'noop'
@@ -220,7 +230,7 @@ export async function bulkUpsertOrders(
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${SHEET_NAME}!A:I`,
+    range: `${SHEET_NAME}!A:J`,
   })
   const rows = res.data.values ?? []
 
@@ -249,15 +259,20 @@ export async function bulkUpsertOrders(
     }
 
     const leadId = items[0]?.lead_id ?? ''
+    const incomingPriority = items[0]?.priority ?? ''
     const rowUpdates = existing
-      .filter(({ r }) => r[5] !== newStatus)
+      // строка меняется, если статус другой ИЛИ появился флаг приоритета
+      .filter(({ r }) => r[5] !== newStatus || (incomingPriority === '1' && r[9] !== '1'))
       .map(({ r, rowNum }) => {
         const u = [...r]
+        const wasLegacyPriority = u[5] === 'priority'
         u[5] = newStatus
         u[6] = (newStatus === 'sent' || newStatus === 'returned') ? shipDate : ''
-        while (u.length < 9) u.push('')
+        while (u.length < 10) u.push('')
         if (!u[8] && leadId) u[8] = leadId  // backfill lead_id for tilda-webhook rows
-        return { range: `${SHEET_NAME}!A${rowNum}:I${rowNum}`, values: [u.slice(0, 9)] }
+        // флаг приоритета липкий: раз поставлен — не слетает при движении по этапам
+        if (incomingPriority === '1' || wasLegacyPriority) u[9] = '1'
+        return { range: `${SHEET_NAME}!A${rowNum}:J${rowNum}`, values: [u.slice(0, 10)] }
       })
 
     if (rowUpdates.length === 0) stats.noop++
@@ -273,7 +288,7 @@ export async function bulkUpsertOrders(
   if (appendRows.length > 0) {
     await sheets.spreadsheets.values.append({
       spreadsheetId,
-      range: `${SHEET_NAME}!A:I`,
+      range: `${SHEET_NAME}!A:J`,
       valueInputOption: 'RAW',
       requestBody: { values: appendRows },
     })
@@ -297,7 +312,7 @@ export async function markOrderStatus(
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${SHEET_NAME}!A:I`,
+    range: `${SHEET_NAME}!A:J`,
   })
   const rows = res.data.values ?? []
   if (rows.length < 2) return 0
@@ -309,8 +324,8 @@ export async function markOrderStatus(
       const updated = [...r]
       updated[5] = status
       updated[6] = shipDate
-      while (updated.length < 9) updated.push('')
-      updates.push({ row: i + 1, values: updated.slice(0, 9) })
+      while (updated.length < 10) updated.push('')
+      updates.push({ row: i + 1, values: updated.slice(0, 10) })
     }
   }
 
@@ -321,7 +336,7 @@ export async function markOrderStatus(
     requestBody: {
       valueInputOption: 'RAW',
       data: updates.map(u => ({
-        range: `${SHEET_NAME}!A${u.row}:I${u.row}`,
+        range: `${SHEET_NAME}!A${u.row}:J${u.row}`,
         values: [u.values],
       })),
     },
@@ -347,7 +362,7 @@ export async function deleteRowsByLeadId(leadId: string): Promise<number> {
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${SHEET_NAME}!A:I`,
+    range: `${SHEET_NAME}!A:J`,
   })
   const rows = res.data.values ?? []
   const amoOrderId = `AMO-${leadId}`

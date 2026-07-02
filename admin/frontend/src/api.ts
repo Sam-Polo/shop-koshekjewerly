@@ -320,7 +320,7 @@ export const api = {
     return fetchWithAuth('/api/stats/categories')
   },
 
-  async getShipments(params: { from?: string; to?: string; source?: string; status?: string; nocache?: boolean } = {}) {
+  async getShipments(params: { from?: string; to?: string; source?: string; priority?: string; nocache?: boolean } = {}) {
     const qs = new URLSearchParams()
     const { nocache, ...rest } = params
     Object.entries(rest).forEach(([k, v]) => { if (v) qs.set(k, v as string) })

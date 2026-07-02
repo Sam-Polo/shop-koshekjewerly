@@ -23,7 +23,7 @@ export function invalidateShipmentsCache() {
   titlesCache = null
 }
 
-type ShipStatus = 'pending' | 'priority' | 'in_work' | 'assembled' | 'sent' | 'returned'
+type ShipStatus = 'pending' | 'in_work' | 'assembled' | 'sent' | 'returned'
 type ShipSource = 'telegram' | 'tilda' | 'max'
 
 type ShipmentRow = {
@@ -36,13 +36,14 @@ type ShipmentRow = {
   ship_date: string
   title: string        // from composition text (column H)
   lead_id: string      // amoCRM lead ID (column I)
+  priority: boolean    // флаг приоритетного заказа (column J; legacy: ship_status='priority')
 }
 
 export type ShipmentSummaryItem = {
   article: string
   title: string
   titleSource: 'catalog' | 'composition' | 'none'
-  priority: number
+  priority: number     // единиц из приоритетных заказов (пересекается со статусами)
   pending: number
   in_work: number
   assembled: number
@@ -52,7 +53,7 @@ export type ShipmentSummaryItem = {
 
 export type ShipmentsReport = {
   summary: ShipmentSummaryItem[]
-  bySource: Record<string, { priority: number; pending: number; in_work: number; assembled: number; sent: number }>
+  bySource: Record<string, { pending: number; in_work: number; assembled: number; sent: number }>
   totals: { priority: number; pending: number; in_work: number; assembled: number; sent: number; returned: number }
 }
 
@@ -85,22 +86,28 @@ async function readShipmentRows(nocache = false): Promise<ShipmentRow[]> {
   const sheets = google.sheets({ version: 'v4', auth })
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: getSpreadsheetId(),
-    range: `${SHEET_NAME}!A:I`,
+    range: `${SHEET_NAME}!A:J`,
   })
   const rows = (res.data.values ?? []).slice(1)
   const data = rows
     .filter(r => r[0])
-    .map(r => ({
-      order_id:    String(r[0] ?? ''),
-      source:      (r[1] ?? 'telegram') as ShipSource,
-      article:     String(r[2] ?? ''),
-      qty:         parseInt(r[3] ?? '1', 10) || 1,
-      order_date:  String(r[4] ?? ''),
-      ship_status: (r[5] ?? 'pending') as ShipStatus,
-      ship_date:   String(r[6] ?? ''),
-      title:       String(r[7] ?? ''),
-      lead_id:     String(r[8] ?? ''),
-    }))
+    .map(r => {
+      // legacy: раньше приоритет был статусом 'priority' — читаем как pending + флаг
+      const rawStatus = String(r[5] ?? 'pending')
+      const isLegacyPriority = rawStatus === 'priority'
+      return {
+        order_id:    String(r[0] ?? ''),
+        source:      (r[1] ?? 'telegram') as ShipSource,
+        article:     String(r[2] ?? ''),
+        qty:         parseInt(r[3] ?? '1', 10) || 1,
+        order_date:  String(r[4] ?? ''),
+        ship_status: (isLegacyPriority ? 'pending' : rawStatus) as ShipStatus,
+        ship_date:   String(r[6] ?? ''),
+        title:       String(r[7] ?? ''),
+        lead_id:     String(r[8] ?? ''),
+        priority:    r[9] === '1' || isLegacyPriority,
+      }
+    })
   rowsCache = { data, at: now }
   return data
 }
@@ -124,7 +131,7 @@ export async function buildShipmentsReport(opts: {
   from?: string  // YYYY-MM-DD inclusive
   to?: string    // YYYY-MM-DD inclusive
   source?: string
-  status?: string  // фильтр по статусу строки, например 'priority'
+  priority?: boolean  // только строки приоритетных заказов
   nocache?: boolean
 }): Promise<ShipmentsReport> {
   const [rows, articleMap] = await Promise.all([
@@ -134,7 +141,7 @@ export async function buildShipmentsReport(opts: {
 
   const filtered = rows.filter(r => {
     if (opts.source && r.source !== opts.source) return false
-    if (opts.status && r.ship_status !== opts.status) return false
+    if (opts.priority && !r.priority) return false
     if (opts.from && r.order_date < opts.from) return false
     if (opts.to && r.order_date > opts.to) return false
     return true
@@ -142,7 +149,7 @@ export async function buildShipmentsReport(opts: {
 
   // aggregate by article
   const byArticle = new Map<string, ShipmentSummaryItem>()
-  const bySource: Record<string, { priority: number; pending: number; in_work: number; assembled: number; sent: number }> = {}
+  const bySource: Record<string, { pending: number; in_work: number; assembled: number; sent: number }> = {}
 
   for (const row of filtered) {
     if (!row.article) continue
@@ -167,32 +174,33 @@ export async function buildShipmentsReport(opts: {
       byArticle.set(row.article, entry)
     }
 
-    if (row.ship_status === 'priority')  entry.priority  += row.qty
-    else if (row.ship_status === 'pending')   entry.pending   += row.qty
+    // статусы — полное разбиение; приоритет — отдельный флаг поверх статусов
+    if (row.priority) entry.priority += row.qty
+
+    if (row.ship_status === 'pending')        entry.pending   += row.qty
     else if (row.ship_status === 'in_work')   entry.in_work   += row.qty
     else if (row.ship_status === 'assembled') entry.assembled += row.qty
     else if (row.ship_status === 'sent')      entry.sent      += row.qty
     else if (row.ship_status === 'returned')  entry.returned  += row.qty
 
-    // by source (active orders: priority + pending + in_work + assembled + sent)
-    const activeStatuses = ['priority', 'pending', 'in_work', 'assembled', 'sent'] as const
+    // by source (active orders: pending + in_work + assembled + sent)
+    const activeStatuses = ['pending', 'in_work', 'assembled', 'sent'] as const
     if ((activeStatuses as readonly string[]).includes(row.ship_status)) {
-      if (!bySource[row.source]) bySource[row.source] = { priority: 0, pending: 0, in_work: 0, assembled: 0, sent: 0 }
+      if (!bySource[row.source]) bySource[row.source] = { pending: 0, in_work: 0, assembled: 0, sent: 0 }
       const src = bySource[row.source]
-      if (row.ship_status === 'priority')       src.priority  += row.qty
-      else if (row.ship_status === 'pending')   src.pending   += row.qty
+      if (row.ship_status === 'pending')        src.pending   += row.qty
       else if (row.ship_status === 'in_work')   src.in_work   += row.qty
       else if (row.ship_status === 'assembled') src.assembled += row.qty
       else if (row.ship_status === 'sent')      src.sent      += row.qty
     }
   }
 
-  // sort: priority items first, then by most active (pending+in_work+assembled)
+  // sort: articles from priority orders first, then by most active (pending+in_work+assembled)
   const summary = [...byArticle.values()].sort((a, b) => {
     const aPrio = a.priority > 0 ? 1 : 0
     const bPrio = b.priority > 0 ? 1 : 0
     if (bPrio !== aPrio) return bPrio - aPrio
-    return (b.priority + b.pending + b.in_work + b.assembled) - (a.priority + a.pending + a.in_work + a.assembled)
+    return (b.pending + b.in_work + b.assembled) - (a.pending + a.in_work + a.assembled)
   })
 
   const totals = summary.reduce(

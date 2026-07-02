@@ -15,7 +15,7 @@ export const PIPELINE_ID = 10993830
 
 export const STAGE_MAP: Record<number, ShipStatus | 'skip'> = {
   86423882: 'pending',   // Неразобранное
-  86486222: 'priority',  // ПРИОРИТЕТНЫЙ ЗАКАЗ
+  86486222: 'pending',   // ПРИОРИТЕТНЫЙ ЗАКАЗ — статус pending + флаг priority
   86423886: 'pending',   // НОВЫЙ, ЖДЕТ ОТПРАВКИ
   86486582: 'in_work',   // В РАБОТЕ
   86486586: 'assembled', // Собран
@@ -31,11 +31,13 @@ export const FIELD_COMPOSITION  = 774547
 export const FIELD_SOURCE       = 770993
 export const FIELD_ORDER_DATE   = 770485
 export const FIELD_DELIVERY_TYPE = 774553
+export const FIELD_PRIORITY     = 776409  // чекбокс «Приоритетный заказ» (env AMOCRM_FIELD_PRIORITY_ID)
 export const ENUM_TELEGRAM      = 998663
 export const ENUM_MAX           = 998667
 export const ENUM_TILDA         = 998665
 export const STAGE_NEW          = 86423886  // НОВЫЙ, ЖДЕТ ОТПРАВКИ — куда Тильда кидает по умолчанию
 export const STAGE_PICKUP       = 86584502  // САМОВЫВОЗ
+export const STAGE_PRIORITY     = 86486222  // ПРИОРИТЕТНЫЙ ЗАКАЗ
 
 export function getAmoBase(): string {
   return `https://${process.env.AMOCRM_SUBDOMAIN}.amocrm.ru`
@@ -57,6 +59,13 @@ export function readFieldEnum(lead: any, fieldId: number): number | null {
   const field = cf.find((f: any) => Number(f.field_id) === fieldId)
   const v = field?.values?.[0]?.enum_id
   return v !== undefined ? Number(v) : null
+}
+
+export function readFieldBool(lead: any, fieldId: number): boolean {
+  const cf: any[] = lead?.custom_fields_values ?? []
+  const field = cf.find((f: any) => Number(f.field_id) === fieldId)
+  const v = field?.values?.[0]?.value
+  return v === true || v === 'true' || v === 1 || v === '1'
 }
 
 function toMoscowDate(d: Date): string {
@@ -104,6 +113,8 @@ export function prepareLeadUpsert(fullLead: any): LeadUpsert | null {
   const shipDate       = (newStatus === 'sent' || newStatus === 'returned')
     ? toMoscowDate(new Date((Number(fullLead.updated_at) || Date.now() / 1000) * 1000))
     : ''
+  // приоритет — атрибут заказа: этап ПРИОРИТЕТНЫЙ или чекбокс «Приоритетный заказ»
+  const priority = (statusId === STAGE_PRIORITY || readFieldBool(fullLead, FIELD_PRIORITY)) ? '1' : ''
 
   let items: ShipmentItem[] = []
   if (rawComposition) {
@@ -118,6 +129,7 @@ export function prepareLeadUpsert(fullLead: any): LeadUpsert | null {
       ship_date:   shipDate,
       title:       String(p.name ?? '').trim(),
       lead_id:     String(leadId),
+      priority,
     }))
   }
 
