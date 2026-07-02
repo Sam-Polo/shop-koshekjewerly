@@ -151,7 +151,7 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
   }
 
   const load = useCallback(async (nocache = false) => {
-    const cacheKey = `${dateFrom}|${dateTo}|${[...activeSources].sort().join(',')}`
+    const cacheKey = `${dateFrom}|${dateTo}|${[...activeSources].sort().join(',')}|${priorityOnly ? 'priority' : ''}`
 
     if (!nocache) {
       const cached = responseCache.current.get(cacheKey)
@@ -175,6 +175,7 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
             from: dateFrom,
             to: dateTo,
             ...(src ? { source: src } : {}),
+            ...(priorityOnly ? { status: 'priority' } : {}),
             ...(nocache ? { nocache: true } : {}),
           })
         )
@@ -225,7 +226,7 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
     } finally {
       setLoading(false)
     }
-  }, [dateFrom, dateTo, activeSources])
+  }, [dateFrom, dateTo, activeSources, priorityOnly])
 
   useEffect(() => { void load() }, [load])
 
@@ -237,16 +238,15 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
     })
   }
 
-  // Круги всегда показывают общую картину: приоритет — статус заказа, у остальных
-  // статусов «приоритетного подмножества» не существует. Фильтр влияет только на таблицу.
+  // Фильтр «Приоритетные» применяется на бэкенде (status=priority), как фильтр
+  // источника: отчёт целиком — круги, чипы, таблица — считается по этим строкам.
   const totals = report?.totals ?? { priority: 0, pending: 0, in_work: 0, assembled: 0, sent: 0, returned: 0 }
   const bySource = report?.bySource ?? {}
   const summary  = report?.summary ?? []
-  const visibleSummary = priorityOnly ? summary.filter(s => s.priority > 0) : summary
   const totalAll = totals.priority + totals.pending + totals.in_work + totals.assembled + totals.sent + totals.returned
-  const hasInWork    = visibleSummary.some(s => s.in_work > 0)
-  const hasAssembled = visibleSummary.some(s => s.assembled > 0)
-  const hasReturned  = visibleSummary.some(s => s.returned > 0)
+  const hasInWork    = summary.some(s => s.in_work > 0)
+  const hasAssembled = summary.some(s => s.assembled > 0)
+  const hasReturned  = summary.some(s => s.returned > 0)
   const isAllMode    = !dateFrom && !dateTo
   const isRangeMode  = isAllMode || dateFrom !== dateTo
   const isTodayDay   = !isRangeMode && dateFrom === todayIso()
@@ -407,7 +407,7 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
                   </button>
                 )
               })}
-              {totals.priority > 0 && (
+              {(priorityOnly || totals.priority > 0) && (
                 <button
                   className={`sh-chip sh-chip--priority ${priorityOnly ? 'sh-chip--on' : ''}`}
                   onClick={() => setPriorityOnly(v => !v)}
@@ -418,12 +418,12 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
               )}
             </div>
 
-            {visibleSummary.length === 0 && (
+            {summary.length === 0 && (
               <div className="sh-empty">
                 {priorityOnly ? 'Нет приоритетных заказов за этот период' : 'Нет заказов за этот период'}
               </div>
             )}
-            {visibleSummary.length > 0 && (
+            {summary.length > 0 && (
               <div className="sh-card">
                 <table className="sh-table">
                   <thead>
@@ -438,7 +438,7 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
                     </tr>
                   </thead>
                   <tbody>
-                    {visibleSummary.map(item => (
+                    {summary.map(item => (
                       <tr key={item.article} className={item.priority + item.pending + item.in_work + item.assembled > 0 ? 'sh-row-hot' : ''}>
                         <td><span className="sh-art">{item.article}</span></td>
                         <td className="sh-name">
@@ -446,10 +446,7 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
                           {item.titleSource === 'composition' && <UnknownBadge />}
                         </td>
                         <td className="sh-td-p">
-                          {(() => {
-                            const toShip = priorityOnly ? item.priority : item.priority + item.pending
-                            return toShip > 0 ? <strong>{toShip}</strong> : <span className="sh-muted">—</span>
-                          })()}
+                          {(item.priority + item.pending) > 0 ? <strong>{item.priority + item.pending}</strong> : <span className="sh-muted">—</span>}
                         </td>
                         {hasInWork && (
                           <td className="sh-td-w">{item.in_work > 0 ? item.in_work : <span className="sh-muted">—</span>}</td>

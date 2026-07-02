@@ -124,6 +124,7 @@ export async function buildShipmentsReport(opts: {
   from?: string  // YYYY-MM-DD inclusive
   to?: string    // YYYY-MM-DD inclusive
   source?: string
+  status?: string  // фильтр по статусу строки, например 'priority'
   nocache?: boolean
 }): Promise<ShipmentsReport> {
   const [rows, articleMap] = await Promise.all([
@@ -133,6 +134,7 @@ export async function buildShipmentsReport(opts: {
 
   const filtered = rows.filter(r => {
     if (opts.source && r.source !== opts.source) return false
+    if (opts.status && r.ship_status !== opts.status) return false
     if (opts.from && r.order_date < opts.from) return false
     if (opts.to && r.order_date > opts.to) return false
     return true
