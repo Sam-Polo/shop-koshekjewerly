@@ -285,9 +285,12 @@ export interface PochtaBatchResult {
 /**
  * Формирует партию из заказов backlog — Почта присваивает ШПИ.
  * POST /1.0/user/shipment (массив result-id) → [{ batch-name }].
+ * use-online-balance=true обязателен: аккаунт работает на онлайн-балансе, без
+ * признака партия уходит на «классическую» схему оплаты (выключена) и печатные
+ * формы отдают 403 (указание техподдержки Почты, июль 2026).
  */
 export async function createBatch(resultIds: number[]): Promise<string> {
-  const data = await pochtaFetch('POST', '/1.0/user/shipment', resultIds) as any
+  const data = await pochtaFetch('POST', '/1.0/user/shipment?use-online-balance=true', resultIds) as any
   const batchName = Array.isArray(data)
     ? data[0]?.['batch-name']
     : data?.['batch-name'] ?? data?.batches?.[0]?.['batch-name']

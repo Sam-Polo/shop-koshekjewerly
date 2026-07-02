@@ -13,7 +13,7 @@ import { createOrder, getOrder, updateOrderStatus, listOrders, restoreOrder, typ
 import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId, listPendingOrdersFromSheet, updateCdekInfoInSheet, updatePochtaInfoInSheet } from './orders-sheet.js'
 import { sendAlert } from './alerts.js';
 import { searchCities, getPickupPoints, calculateDelivery, triggerCdekOrderAsync, getCdekUuidByTrack, downloadCdekBarcode } from './cdek.js';
-import { calculateTariff as calculatePochtaTariff, triggerPochtaOrderAsync, getCountries as getPochtaCountries, createPochtaOrder, createBatch, getShpiFromBatch, checkRequiredPochtaEnv, pochtaFetch, _batchShipmentsPath } from './pochta.js';
+import { calculateTariff as calculatePochtaTariff, triggerPochtaOrderAsync, downloadF7p, getCountries as getPochtaCountries, createPochtaOrder, createBatch, getShpiFromBatch, checkRequiredPochtaEnv, pochtaFetch, _batchShipmentsPath } from './pochta.js';
 import { uploadBufferToS3 } from './s3.js';
 import { triggerAmoCrmAsync, updateAmoCrmLeadTrack, updateAmoCrmLeadBarcode, createAmoCrmLead, syncCdekToLead } from './amocrm.js';
 import { buildPaymentForm, buildReceipt, verifyResultSignature, queryOrderState } from './robokassa.js';
@@ -2493,12 +2493,20 @@ app.post('/api/pochta/test', express.json(), async (req, res) => {
       return res.status(200).json({ ok: false, error: 'ШПИ не присвоен за 15с', steps })
     }
 
-    // скачивание ярлыка Ф7п отключено — на аккаунте Почты не активирована схема оплаты
-    // (ошибка -1021 в ЛК; API /1.0/forms/{id}/forms → 403). Раскомментировать после активации:
-    // const pdf = await downloadF7p(order.id)
-    // const labelUrl = await uploadBufferToS3(`pochta-labels/test-${order.id}.pdf`, pdf, 'application/pdf')
-    // steps.label = { ok: true, labelUrl }
-    steps.label = { ok: false, skipped: true, reason: 'disabled: payment scheme not activated on Pochta account' }
+    // скачивание ярлыка Ф7п в проде отключено (формы отдавали 403 из-за «классической»
+    // схемы оплаты). По флагу tryLabel пробуем — проверка, что use-online-balance при
+    // создании партии починил печатные формы.
+    if (b.tryLabel === true) {
+      try {
+        const pdf = await downloadF7p(order.id)
+        const labelUrl = await uploadBufferToS3(`pochta-labels/test-${order.id}.pdf`, pdf, 'application/pdf')
+        steps.label = { ok: true, labelUrl }
+      } catch (e: any) {
+        steps.label = { ok: false, error: e?.message }
+      }
+    } else {
+      steps.label = { ok: false, skipped: true, reason: 'label download disabled in prod; pass tryLabel:true to attempt' }
+    }
 
     const trackingUrl = `https://www.pochta.ru/tracking#${shpi}`
 
