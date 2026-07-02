@@ -237,24 +237,12 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
     })
   }
 
-  const baseTotals = report?.totals ?? { priority: 0, pending: 0, in_work: 0, assembled: 0, sent: 0, returned: 0 }
+  // Круги всегда показывают общую картину: приоритет — статус заказа, у остальных
+  // статусов «приоритетного подмножества» не существует. Фильтр влияет только на таблицу.
+  const totals = report?.totals ?? { priority: 0, pending: 0, in_work: 0, assembled: 0, sent: 0, returned: 0 }
   const bySource = report?.bySource ?? {}
   const summary  = report?.summary ?? []
   const visibleSummary = priorityOnly ? summary.filter(s => s.priority > 0) : summary
-  // при активном фильтре «Приоритетные» счётчики считаем по видимым строкам
-  const totals = priorityOnly
-    ? visibleSummary.reduce(
-        (acc, s) => ({
-          priority:  acc.priority  + s.priority,
-          pending:   acc.pending   + s.pending,
-          in_work:   acc.in_work   + s.in_work,
-          assembled: acc.assembled + s.assembled,
-          sent:      acc.sent      + s.sent,
-          returned:  acc.returned  + s.returned,
-        }),
-        { priority: 0, pending: 0, in_work: 0, assembled: 0, sent: 0, returned: 0 }
-      )
-    : baseTotals
   const totalAll = totals.priority + totals.pending + totals.in_work + totals.assembled + totals.sent + totals.returned
   const hasInWork    = visibleSummary.some(s => s.in_work > 0)
   const hasAssembled = visibleSummary.some(s => s.assembled > 0)
@@ -419,13 +407,13 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
                   </button>
                 )
               })}
-              {baseTotals.priority > 0 && (
+              {totals.priority > 0 && (
                 <button
                   className={`sh-chip sh-chip--priority ${priorityOnly ? 'sh-chip--on' : ''}`}
                   onClick={() => setPriorityOnly(v => !v)}
                 >
                   Приоритетные
-                  <span className="sh-chip-num">{baseTotals.priority}</span>
+                  <span className="sh-chip-num">{totals.priority}</span>
                 </button>
               )}
             </div>
