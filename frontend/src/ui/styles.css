@@ -721,6 +721,8 @@ button, input, select, textarea { font-family: inherit; }
 .checkout-form__pickup-address { font-size: 15px; color: #444; margin-top: 4px; }
 .checkout-form__pickup-note { font-size: 13px; color: #888; margin-top: 6px; }
 
+.checkout-form__ems-hint { font-size: 13px; line-height: 1.4; color: #7a6a55; background: #fdf9f0; border: 1px solid #ecdfc6; border-radius: 12px; padding: 12px 14px; margin: 0 0 4px; }
+
 /* приоритетный заказ: тогл (матча выкл / розовый вкл) */
 .checkout-form__priority-wrap {
   position: relative;

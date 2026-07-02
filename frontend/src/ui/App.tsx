@@ -990,6 +990,11 @@ type DeliveryMethod = 'pickup' | 'cdek' | 'ems'
 
 const PICKUP_ADDRESS = 'г. Москва, ул. Горбунова, 2'
 
+// Почта требует латиницу в международном адресе EMS: кириллица → отказ при создании
+// отправления (ILLEGAL_STREET_TO_INTL и т.п.). Разрешаем латиницу, цифры и адресную пунктуацию.
+const LATIN_TEXT_RE = /^[A-Za-z0-9\s.,'\-/()#&]+$/
+const isLatinText = (v: string) => LATIN_TEXT_RE.test(v.trim())
+
 // получаем slug тестового товара из переменных окружения
 const getTestProductSlug = () => {
   const slug = import.meta.env.VITE_TEST_PRODUCT_SLUG || ''
@@ -1372,7 +1377,12 @@ const CheckoutForm = ({
       if (!emsCountry) newErrors.country = 'Выберите страну'
       if (!emsIndex.trim()) newErrors.emsIndex = 'Обязательное поле'
       if (!emsCity.trim()) newErrors.emsCity = 'Обязательное поле'
+      else if (!isLatinText(emsCity)) newErrors.emsCity = 'Только латинскими буквами'
       if (!emsStreet.trim()) newErrors.emsStreet = 'Обязательное поле'
+      else if (!isLatinText(emsStreet)) newErrors.emsStreet = 'Только латинскими буквами'
+      if (emsRegion.trim() && !isLatinText(emsRegion)) newErrors.emsRegion = 'Только латинскими буквами'
+      // имя получателя уходит в загран-адрес отправления → тоже латиница
+      if (formData.fullName.trim() && !isLatinText(formData.fullName)) newErrors.fullName = 'Латиницей, как в загранпаспорте'
     }
     // для СДЭК и EMS стоимость доставки должна быть рассчитана
     if (!isPickup) {
@@ -1615,6 +1625,9 @@ const CheckoutForm = ({
         )}
 
         {isEms && (<>
+          <p className="checkout-form__ems-hint">
+            Адрес и имя получателя укажите латинскими буквами (как в загранпаспорте) — этого требует Почта России для международных отправлений.
+          </p>
           <label className="checkout-form__label">
             Страна <span className="checkout-form__required">*</span>
             <select
@@ -1645,12 +1658,13 @@ const CheckoutForm = ({
             Регион / штат
             <input
               type="text"
-              className="checkout-form__input"
+              className={`checkout-form__input ${errors.emsRegion ? 'error' : ''}`}
               value={emsRegion}
-              onChange={e => setEmsRegion(e.target.value)}
+              onChange={e => { setEmsRegion(e.target.value); if (errors.emsRegion) setErrors(prev => ({ ...prev, emsRegion: '' })) }}
               placeholder="Необязательно"
               maxLength={100}
             />
+            {errors.emsRegion && <span className="checkout-form__error">{errors.emsRegion}</span>}
           </label>
 
           <label className="checkout-form__label">
