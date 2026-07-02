@@ -4169,6 +4169,23 @@
   background: rgba(255,255,255,0.28);
   color: #fff;
 }
+.sh-chip--priority {
+  border-color: rgba(168,85,247,0.4);
+  color: #7e22ce;
+}
+.sh-chip--priority:hover {
+  background: rgba(168,85,247,0.12);
+  border-color: #a855f7;
+}
+.sh-chip--priority.sh-chip--on {
+  background: #a855f7;
+  border-color: #a855f7;
+  color: #fff;
+}
+.sh-chip--priority.sh-chip--on .sh-chip-num {
+  background: rgba(255,255,255,0.3);
+  color: #fff;
+}
 
 /* ── table card ── */
 .sh-card {

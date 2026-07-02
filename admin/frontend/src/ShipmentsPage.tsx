@@ -106,6 +106,7 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
   const [dateTo,   setDateTo]   = useState(todayIso)
   const [activePeriod, setActivePeriod] = useState<number | null>(1)   // 1 = "Сегодня"
   const [activeSources, setActiveSources] = useState<Set<string>>(new Set())
+  const [priorityOnly, setPriorityOnly] = useState(false)
   const [report,  setReport]  = useState<ShipmentsReport | null>(null)
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState('')
@@ -230,9 +231,10 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
   const totalAll = totals.priority + totals.pending + totals.in_work + totals.assembled + totals.sent + totals.returned
   const bySource = report?.bySource ?? {}
   const summary  = report?.summary ?? []
-  const hasInWork    = summary.some(s => s.in_work > 0)
-  const hasAssembled = summary.some(s => s.assembled > 0)
-  const hasReturned  = summary.some(s => s.returned > 0)
+  const visibleSummary = priorityOnly ? summary.filter(s => s.priority > 0) : summary
+  const hasInWork    = visibleSummary.some(s => s.in_work > 0)
+  const hasAssembled = visibleSummary.some(s => s.assembled > 0)
+  const hasReturned  = visibleSummary.some(s => s.returned > 0)
   const isRangeMode  = dateFrom !== dateTo
   const isTodayDay   = !isRangeMode && dateFrom === todayIso()
 
@@ -391,10 +393,23 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
                   </button>
                 )
               })}
+              {totals.priority > 0 && (
+                <button
+                  className={`sh-chip sh-chip--priority ${priorityOnly ? 'sh-chip--on' : ''}`}
+                  onClick={() => setPriorityOnly(v => !v)}
+                >
+                  Приоритетные
+                  <span className="sh-chip-num">{totals.priority}</span>
+                </button>
+              )}
             </div>
 
-            {summary.length === 0 && <div className="sh-empty">Нет заказов за этот период</div>}
-            {summary.length > 0 && (
+            {visibleSummary.length === 0 && (
+              <div className="sh-empty">
+                {priorityOnly ? 'Нет приоритетных заказов за этот период' : 'Нет заказов за этот период'}
+              </div>
+            )}
+            {visibleSummary.length > 0 && (
               <div className="sh-card">
                 <table className="sh-table">
                   <thead>
@@ -409,7 +424,7 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
                     </tr>
                   </thead>
                   <tbody>
-                    {summary.map(item => (
+                    {visibleSummary.map(item => (
                       <tr key={item.article} className={item.priority > 0 ? 'sh-row-priority' : item.pending + item.in_work + item.assembled > 0 ? 'sh-row-hot' : ''}>
                         <td><span className="sh-art">{item.article}</span></td>
                         <td className="sh-name">
