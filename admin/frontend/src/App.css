@@ -3999,7 +3999,7 @@
   display: flex;
   justify-content: center;
   gap: 1rem;
-  max-width: 780px;
+  max-width: 940px;
   margin: 0 auto 2rem;
   flex-wrap: wrap;
 }
@@ -4228,8 +4228,6 @@
 .sh-table tbody tr:last-child { border-bottom: none; }
 .sh-table tbody tr:hover { background: rgba(139,92,246,0.04); }
 .sh-row-hot { background: rgba(236,72,153,0.04); }
-.sh-row-priority { background: rgba(168,85,247,0.07); box-shadow: inset 3px 0 0 #a855f7; }
-.sh-row-priority:hover { background: rgba(168,85,247,0.12); }
 
 .sh-table td {
   padding: 0.65rem 1rem;

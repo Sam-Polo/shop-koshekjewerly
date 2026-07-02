@@ -374,7 +374,7 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
         {loading && !report && (
           <>
             <div className="sh-counters">
-              {[0,1,2,3,4].map(i => (
+              {[0,1,2,3,4,5].map(i => (
                 <div key={i} className="sh-counter">
                   <div className="sh-skeleton-ring" />
                   <div className="sh-skeleton-label" />
@@ -395,7 +395,8 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
         {report && (
           <div className={loading ? 'sh-content sh-content--loading' : 'sh-content'}>
             <div className="sh-counters">
-              <ArcCounter value={priorityOnly ? totals.priority : totals.priority + totals.pending} total={totalAll} label="К отправке" color="#db2777" track="rgba(244,114,182,0.22)" />
+              <ArcCounter value={totals.priority}  total={totalAll} label="Приоритетные" color="#a855f7" track="rgba(168,85,247,0.22)" />
+              <ArcCounter value={totals.pending}   total={totalAll} label="К отправке"  color="#db2777" track="rgba(244,114,182,0.22)" />
               <ArcCounter value={totals.in_work}   total={totalAll} label="В работе"    color="#ea580c" track="rgba(251,146,60,0.22)"  />
               <ArcCounter value={totals.assembled} total={totalAll} label="Собран"      color="#0284c7" track="rgba(56,189,248,0.22)"  />
               <ArcCounter value={totals.sent}      total={totalAll} label="Отправлено"  color="#7c3aed" track="rgba(139,92,246,0.2)"   />
@@ -450,7 +451,7 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
                   </thead>
                   <tbody>
                     {visibleSummary.map(item => (
-                      <tr key={item.article} className={item.priority > 0 ? 'sh-row-priority' : item.pending + item.in_work + item.assembled > 0 ? 'sh-row-hot' : ''}>
+                      <tr key={item.article} className={item.priority + item.pending + item.in_work + item.assembled > 0 ? 'sh-row-hot' : ''}>
                         <td><span className="sh-art">{item.article}</span></td>
                         <td className="sh-name">
                           {item.title || <span className="sh-muted">—</span>}
