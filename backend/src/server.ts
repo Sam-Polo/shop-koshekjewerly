@@ -2599,9 +2599,10 @@ app.listen(port, async () => {
   // проверка критичных для безопасности env: без них соответствующие эндпоинты открыты,
   // а подпись Робокассы не проверяется. Работает ВСЕГДА (не под FEATURE_DEBUG_ALERTS),
   // чтобы забытый секрет сразу светился в канале ошибок.
+  // BOT_API_SECRET намеренно НЕ в списке: в проде осознанно не задан (низкая критичность —
+  // см. docs/SECURITY_AUDIT.md), иначе алерт срабатывал бы на каждом холодном старте Render.
   const SECURITY_ENV_KEYS = [
     'ADMIN_IMPORT_KEY',        // /admin/import, /admin/notify-shipped, тест-эндпоинты
-    'BOT_API_SECRET',          // /internal/bot-heartbeat, /api/pending-users, /internal/sync-amo
     'CDEK_WEBHOOK_SECRET',     // /api/cdek/webhook
     'AMOCRM_WEBHOOK_SECRET',   // /api/amocrm/webhook
     'ROBOKASSA_PASSWORD_2',    // проверка подписи Result URL + OpStateExt
