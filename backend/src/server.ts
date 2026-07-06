@@ -1928,6 +1928,11 @@ app.post('/api/cdek/webhook', express.json(), (req, res) => {
       // «Номер ИМ» = UUID → CDEK сгенерил его сам (заказ создан без нашего number — старый бот-заказ
       // до фикса cdek.ts). Бот-лиды получают трек напрямую через processPaidOrder, вебхук тут лишний.
       logger.info({ orderNumber, cdekNumber }, 'CDEK webhook: автоген-UUID (бот-заказ), лида по номеру нет — пропуск без алерта')
+    } else if (!orderNumber.startsWith('ORD-') && !/^\d+$/.test(orderNumber)) {
+      // Наши номера ИМ: бот пишет ORD-…, Тильда — чисто цифровой. Всё остальное (напр. a5-…) —
+      // отправления, созданные вручную в ЛК СДЭКа: лида в amoCRM нет и не будет, алерт не нужен.
+      // Подписка на вебхуки — на весь аккаунт CDEK, поэтому такие вебхуки прилетают на каждый статус.
+      logger.info({ orderNumber, cdekNumber }, 'CDEK webhook: неизвестный формат номера ИМ (вероятно ручное отправление из ЛК) — пропуск без алерта')
     } else {
       logger.warn({ orderNumber, cdekNumber }, 'CDEK webhook: лид не найден после ретраев')
       sendAlert(
