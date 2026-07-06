@@ -218,6 +218,27 @@ describe('createPochtaOrder', () => {
     vi.stubGlobal('fetch', mockFetch([{ ok: true, body: ORDER_RESP }]))
     await expect(pochta.createPochtaOrder(badOrder as any)).rejects.toThrow('recipientCountryCode')
   })
+
+  it('sends dimension for EMS, omits for SMALL_PACKET (DIMENSION_NOT_SUPPORTED)', async () => {
+    vi.stubGlobal('fetch', mockFetch([{ ok: true, body: ORDER_RESP }]))
+    await pochta.createPochtaOrder(order) // дефолт EMS
+    let body = JSON.parse(((fetch as any).mock.calls as [string, RequestInit][])[0][1].body as string)[0]
+    expect(body.dimension).toBeDefined()
+
+    process.env.POCHTA_MAIL_TYPE = 'SMALL_PACKET'
+    process.env.POCHTA_MAIL_CATEGORY = 'ORDERED'
+    try {
+      vi.stubGlobal('fetch', mockFetch([{ ok: true, body: ORDER_RESP }]))
+      await pochta.createPochtaOrder(order)
+      body = JSON.parse(((fetch as any).mock.calls as [string, RequestInit][])[0][1].body as string)[0]
+      expect(body.dimension).toBeUndefined()
+      expect(body['mail-type']).toBe('SMALL_PACKET')
+      expect(body['mail-category']).toBe('ORDERED')
+    } finally {
+      delete process.env.POCHTA_MAIL_TYPE
+      delete process.env.POCHTA_MAIL_CATEGORY
+    }
+  })
 })
 
 describe('createBatch', () => {

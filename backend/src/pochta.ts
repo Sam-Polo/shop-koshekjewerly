@@ -20,6 +20,9 @@ const ORIGIN_COUNTRY_CODE = 643
 const DECLARATION_CURRENCY = 'RUB'
 
 const getMailType = () => process.env.POCHTA_MAIL_TYPE ?? 'EMS'
+// габариты передаём только для EMS: мелкий пакет (SMALL_PACKET) тарифицируется
+// только по весу, API отклоняет dimension с DIMENSION_NOT_SUPPORTED
+const usesDimensions = () => getMailType().toUpperCase().startsWith('EMS')
 // EMS идёт категорией ORDINARY (обыкновенное); WITH_DECLARED_VALUE для EMS не поддерживается (тариф=0)
 const getMailCategory = () => process.env.POCHTA_MAIL_CATEGORY ?? 'ORDINARY'
 // код ТН ВЭД — полный 10-значный (7117190000 = бижутерия из недрагметаллов); '7117' (группа) API отклоняет
@@ -127,7 +130,7 @@ export async function calculateTariff(countryCode: number, weight = PKG_WEIGHT_G
     'mail-type': getMailType(),
     'mail-direct': countryCode,
     mass: weight,
-    dimension: { height: PKG_HEIGHT_CM, length: PKG_LENGTH_CM, width: PKG_WIDTH_CM },
+    ...(usesDimensions() ? { dimension: { height: PKG_HEIGHT_CM, length: PKG_LENGTH_CM, width: PKG_WIDTH_CM } } : {}),
   }) as any
 
   const rate = data?.['total-rate']
@@ -244,7 +247,7 @@ export async function createPochtaOrder(order: Order): Promise<PochtaOrderResult
     'mail-type': getMailType(),
     'mail-direct': d.recipientCountryCode,
     mass: PKG_WEIGHT_G,
-    dimension: { height: PKG_HEIGHT_CM, length: PKG_LENGTH_CM, width: PKG_WIDTH_CM },
+    ...(usesDimensions() ? { dimension: { height: PKG_HEIGHT_CM, length: PKG_LENGTH_CM, width: PKG_WIDTH_CM } } : {}),
     'postoffice-code': indexFrom,
     // получатель (физлицо за рубежом)
     surname,
