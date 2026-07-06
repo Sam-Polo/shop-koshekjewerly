@@ -765,6 +765,45 @@ ${order.orderData.comments ? `Комментарии: ${escapeHtml(order.orderDa
 // адрес самовывоза (фиксированный)
 const PICKUP_ADDRESS = 'г. Москва, ул. Горбунова, 2'
 
+// H2: фоновая проверка, что клиент не занизил стоимость доставки.
+// Стоимость доставки приходит с клиента (мини-апп считает её через /api/cdek|pochta),
+// а суммы товаров/промокода/приоритета пересчитывает бэкенд. Здесь НЕ блокируем и НЕ
+// переопределяем заказ (заказы обрабатываются вручную и не моментально) — только шлём
+// critical-алерт при заниженной доставке, чтобы менеджер разобрался до отправки.
+// Расчёт делаем теми же функциями, что и клиент → при честном заказе суммы совпадают.
+// Ошибка расчёта (CDEK/Почта недоступны) не поднимает ложную тревогу — молча выходим.
+function verifyDeliveryCostAsync(order: Order, clientDeliveryCost: number): void {
+  void (async () => {
+    try {
+      const dm = order.orderData.deliveryMethod
+      if (dm === 'pickup') return // самовывоз всегда 0 — проверять нечего
+
+      let serverCost: number | null = null
+      if (dm === 'ems') {
+        const code = order.orderData.recipientCountryCode
+        if (!code) return
+        serverCost = await calculatePochtaTariff(code)
+      } else {
+        const code = order.orderData.cdekCityCode
+        if (!code) return
+        serverCost = await calculateDelivery(code)
+      }
+
+      if (typeof serverCost !== 'number' || !Number.isFinite(serverCost) || serverCost <= 0) return
+
+      // допуск 2₽ на округление/джиттер тарифа между расчётом клиента и этой проверкой
+      if (clientDeliveryCost < serverCost - 2) {
+        sendAlert(
+          `Заниженная доставка в заказе ${order.orderId}: клиент прислал ${clientDeliveryCost}₽, сервер рассчитал ${serverCost}₽ (${dm}). Заказ оплачен на меньшую сумму — проверьте перед отправкой.`,
+          { tag: 'orders', level: 'critical', hint: 'возможна подмена стоимости доставки на клиенте', code: 'DELIVERY_COST_UNDERPAID' }
+        ).catch(() => {})
+      }
+    } catch {
+      // расчёт не удался (API доставки недоступен) — это не подмена, не шумим
+    }
+  })()
+}
+
 // оформление заказа (создаем заказ и возвращаем URL для оплаты)
 app.post('/api/orders', orderLimiter, async (req, res) => {
   try {
@@ -1050,6 +1089,9 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
 
     // fire-and-forget запись в Google Sheets (orders + order_items)
     appendOrderToSheet(order).catch(() => {})
+
+    // H2: фоновая сверка стоимости доставки (не блокирует заказ, только алерт при занижении)
+    verifyDeliveryCostAsync(order, deliveryCost)
 
     // проверяем наличие обязательных переменных для Робокассы
     if (!process.env.ROBOKASSA_MERCHANT_LOGIN || !process.env.ROBOKASSA_PASSWORD_1) {
@@ -2285,7 +2327,13 @@ process.on('unhandledRejection', (reason) => {
 
 // ── amoCRM test endpoint (dev/debug only) ────────────────────────────────────
 // Body (optional): { cdekTrack: "10279069724", cdekUuid: "uuid-string" }
+// Guard: header x-admin-key == ADMIN_IMPORT_KEY (создаёт реальный лид в проде — не публичный).
 app.post('/api/amocrm/test', express.json(), async (req, res) => {
+  const key = req.header('x-admin-key')
+  if (!key || key !== process.env.ADMIN_IMPORT_KEY) {
+    return res.status(401).json({ error: 'unauthorized' })
+  }
+
   const cdekTrack: string | undefined = req.body?.cdekTrack
   const cdekUuid: string | undefined = req.body?.cdekUuid
   const steps: Record<string, unknown> = {}
@@ -2547,6 +2595,25 @@ app.use((err: any, req: express.Request, res: express.Response, _next: express.N
 const port = Number(process.env.PORT ?? 4000);
 app.listen(port, async () => {
   logger.info({ port }, 'backend started');
+
+  // проверка критичных для безопасности env: без них соответствующие эндпоинты открыты,
+  // а подпись Робокассы не проверяется. Работает ВСЕГДА (не под FEATURE_DEBUG_ALERTS),
+  // чтобы забытый секрет сразу светился в канале ошибок.
+  const SECURITY_ENV_KEYS = [
+    'ADMIN_IMPORT_KEY',        // /admin/import, /admin/notify-shipped, тест-эндпоинты
+    'BOT_API_SECRET',          // /internal/bot-heartbeat, /api/pending-users, /internal/sync-amo
+    'CDEK_WEBHOOK_SECRET',     // /api/cdek/webhook
+    'AMOCRM_WEBHOOK_SECRET',   // /api/amocrm/webhook
+    'ROBOKASSA_PASSWORD_2',    // проверка подписи Result URL + OpStateExt
+  ]
+  const missingSecurityEnv = SECURITY_ENV_KEYS.filter(k => !process.env[k])
+  if (missingSecurityEnv.length > 0) {
+    logger.error({ missing: missingSecurityEnv }, 'критичные для безопасности env не заданы')
+    sendAlert(
+      `Не заданы критичные для безопасности env: ${missingSecurityEnv.join(', ')}. Соответствующие эндпоинты открыты / подпись не проверяется — задайте их на Render.`,
+      { tag: 'startup', level: 'critical', hint: 'без этих переменных вебхуки/тест-эндпоинты не защищены, а подпись Робокассы не проверяется', code: 'SECURITY_ENV_MISSING' }
+    ).catch(() => {})
+  }
 
   // проверяем наличие TG_BOT_TOKEN
   if (!process.env.TG_BOT_TOKEN) {

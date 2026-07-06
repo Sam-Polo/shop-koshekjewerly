@@ -471,9 +471,10 @@ bot.command('track', async (ctx) => {
   const username = ctx.from?.username
 
   // в приватном чате — только менеджер
-  // в группах — только если это наша discussion group (TG_ORDERS_DISCUSSION_GROUP_ID)
+  // в группах — только если это НАША discussion group (TG_ORDERS_DISCUSSION_GROUP_ID задан и совпал).
+  // fail-closed: без заданного GROUP_ID группа НЕ считается доверенной — тогда нужен isManager.
   const isOurDiscussionGroup = ctx.chat?.type !== 'private' &&
-    (!ORDERS_DISCUSSION_GROUP_ID || String(ctx.chat?.id) === ORDERS_DISCUSSION_GROUP_ID)
+    !!ORDERS_DISCUSSION_GROUP_ID && String(ctx.chat?.id) === ORDERS_DISCUSSION_GROUP_ID
   if (!isOurDiscussionGroup && !isManager(chatId, username)) {
     await ctx.reply('❌ У вас нет доступа к этой команде.')
     return
@@ -1006,11 +1007,11 @@ bot.on('message', async (ctx) => {
   }
 
   // ── CDEK-трек из комментария под постом заказа ──────────────────────────
-  // в нашей discussion group (TG_ORDERS_DISCUSSION_GROUP_ID) — без проверки isManager
-  // если переменная не задана — разрешаем в любой группе (обратная совместимость)
-  // GroupAnonymousBot = admin канала, постящий анонимно — тоже пропускаем
+  // в НАШЕЙ discussion group (TG_ORDERS_DISCUSSION_GROUP_ID задан и совпал) — без проверки isManager
+  // (в т.ч. GroupAnonymousBot = admin канала, постящий анонимно).
+  // fail-closed: без заданного GROUP_ID группа НЕ доверенная — тогда нужен isManager.
   const isOurDiscussionGroupForCdek = ctx.chat?.type !== 'private' &&
-    (!ORDERS_DISCUSSION_GROUP_ID || String(ctx.chat?.id) === ORDERS_DISCUSSION_GROUP_ID)
+    !!ORDERS_DISCUSSION_GROUP_ID && String(ctx.chat?.id) === ORDERS_DISCUSSION_GROUP_ID
   const isAuthorizedForTrack = isOurDiscussionGroupForCdek || isManager(chatId, username)
   if (isAuthorizedForTrack) {
     const trackMsgText = ctx.message.text || ''
