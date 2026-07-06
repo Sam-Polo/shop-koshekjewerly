@@ -158,11 +158,17 @@ export async function processAmoCrmLead(
  * leads to the dedicated САМОВЫВОЗ stage (Tilda can't do this itself).
  * Anything failing one condition is left untouched — least blast radius.
  * Idempotent by construction: once moved, status != Новый → predicate is false.
+ *
+ * Source check excludes our own bot (Telegram/MAX) rather than requiring an
+ * exact Tilda match: Tilda's native integration intermittently fails to fill
+ * the «Источник» field (known mapping issue), which used to leave genuine
+ * Tilda pickup leads stuck in «Новый» forever (e.g. lead 28304475).
  */
 export function isTildaPickupInNew(fullLead: any): boolean {
   if (Number(fullLead.pipeline_id) !== PIPELINE_ID) return false
   if (Number(fullLead.status_id) !== STAGE_NEW) return false
-  if (readFieldEnum(fullLead, FIELD_SOURCE) !== ENUM_TILDA) return false
+  const sourceEnum = readFieldEnum(fullLead, FIELD_SOURCE)
+  if (sourceEnum === ENUM_TELEGRAM || sourceEnum === ENUM_MAX) return false
   const delivery = (readField(fullLead, FIELD_DELIVERY_TYPE) ?? '').trim().toLowerCase()
   return delivery.startsWith('самовывоз')
 }
