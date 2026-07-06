@@ -57,4 +57,4 @@ jobs:
       - name: Restart PM2
         run: |
           ssh -i ~/.ssh/id_ed25519 root@${{ secrets.SSH_HOST }} \
-            "pm2 restart max-bot --update-env && pm2 save"
+            "cd /opt/bot/max-bot && (pm2 restart max-bot --update-env || pm2 start dist/bot.js --name max-bot) && pm2 save"

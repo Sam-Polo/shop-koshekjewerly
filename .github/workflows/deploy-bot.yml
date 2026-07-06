@@ -63,4 +63,4 @@ jobs:
       - name: Restart PM2
         run: |
           ssh -i ~/.ssh/id_ed25519 root@${{ secrets.SSH_HOST_BOT }} \
-            "pm2 restart telegram-bot --update-env && pm2 save"
+            "cd /opt/bot/bot && (pm2 restart telegram-bot --update-env || pm2 start dist/bot.js --name telegram-bot) && pm2 save"

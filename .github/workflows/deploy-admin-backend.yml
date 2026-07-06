@@ -57,4 +57,4 @@ jobs:
       - name: Restart PM2
         run: |
           ssh -i ~/.ssh/id_ed25519 root@${{ secrets.SSH_HOST }} \
-            "pm2 restart admin-backend --update-env && pm2 save"
+            "cd /opt/bot/admin/backend && (pm2 restart admin-backend --update-env || pm2 start dist/server.js --name admin-backend) && pm2 save"
