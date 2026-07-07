@@ -27,8 +27,10 @@ const usesDimensions = () => getMailType().toUpperCase().startsWith('EMS')
 const getMailCategory = () => process.env.POCHTA_MAIL_CATEGORY ?? 'ORDINARY'
 // код ТН ВЭД — полный 10-значный (7117190000 = бижутерия из недрагметаллов); '7117' (группа) API отклоняет
 const getTnvedCode = () => process.env.POCHTA_TNVED_CODE ?? '7117190000'
-// наименование товара в таможенной декларации CN23 — только латиница, и достаточной длины (API отклоняет короткое)
-const getCustomsDescription = () => process.env.POCHTA_CUSTOMS_DESCRIPTION ?? 'Jewellery (fashion accessories)'
+// наименование товара в таможенной декларации CN23 — только латиница, и достаточной длины (API отклоняет короткое).
+// «Clay jewerly» — как заполняет заказчик при ручном оформлении (проверено живым тестом 2026-07).
+// Прежний вариант, если захотим вернуться: 'Jewellery (fashion accessories)'
+const getCustomsDescription = () => process.env.POCHTA_CUSTOMS_DESCRIPTION ?? 'Clay jewerly'
 const getIndexFrom = () => process.env.POCHTA_INDEX_FROM ?? ''
 
 // ── Env validation — отсутствие любой обязательной переменной = критичный алерт ─
