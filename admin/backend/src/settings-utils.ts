@@ -260,3 +260,77 @@ export async function saveBannerSettingsToSheet(sheetId: string, banner: BannerS
     throw error
   }
 }
+
+// ── FAQ («Ответы на ваши вопросы» в мини-аппе) ────────────────────────────────
+// Лист `faq`: колонки question | answer, порядок строк = порядок отображения.
+
+export type FaqItem = {
+  question: string
+  answer: string
+}
+
+async function ensureFaqSheet(sheets: ReturnType<typeof google.sheets>, sheetId: string): Promise<void> {
+  const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId })
+  const sheetExists = spreadsheet.data.sheets?.some(s => s.properties?.title === 'faq')
+  if (!sheetExists) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: sheetId,
+      requestBody: { requests: [{ addSheet: { properties: { title: 'faq' } } }] }
+    })
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: sheetId,
+      range: 'faq!A1:B1',
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: [['question', 'answer']] }
+    })
+  }
+}
+
+export async function fetchFaqFromSheet(sheetId: string): Promise<FaqItem[]> {
+  const auth = getAuthFromEnv()
+  const sheets = google.sheets({ version: 'v4', auth })
+  try {
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId })
+    const sheetExists = spreadsheet.data.sheets?.some(s => s.properties?.title === 'faq')
+    if (!sheetExists) return []
+
+    const res = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: 'faq!A1:B100' })
+    const rows = res.data.values ?? []
+    const items: FaqItem[] = []
+    for (let i = 1; i < rows.length; i++) {
+      const question = String(rows[i]?.[0] ?? '').trim()
+      const answer = String(rows[i]?.[1] ?? '').trim()
+      if (!question || !answer) continue
+      items.push({ question, answer })
+    }
+    return items
+  } catch (error: any) {
+    logger.error({ error: error?.message }, 'ошибка чтения FAQ')
+    return []
+  }
+}
+
+// полная перезапись листа: очищаем данные и пишем актуальный список
+export async function saveFaqToSheet(sheetId: string, items: FaqItem[]): Promise<void> {
+  const auth = getAuthFromEnv()
+  const sheets = google.sheets({ version: 'v4', auth })
+  try {
+    await ensureFaqSheet(sheets, sheetId)
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId: sheetId,
+      range: 'faq!A2:B1000'
+    })
+    if (items.length > 0) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: sheetId,
+        range: `faq!A2:B${items.length + 1}`,
+        valueInputOption: 'RAW',
+        requestBody: { values: items.map(it => [it.question, it.answer]) }
+      })
+    }
+    logger.info({ count: items.length }, 'FAQ сохранён')
+  } catch (error: any) {
+    logger.error({ error: error?.message }, 'ошибка сохранения FAQ')
+    throw error
+  }
+}

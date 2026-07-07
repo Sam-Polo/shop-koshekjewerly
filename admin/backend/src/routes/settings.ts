@@ -4,7 +4,9 @@ import {
   fetchOrdersSettingsFromSheet,
   saveOrdersSettingsToSheet,
   fetchBannerSettingsFromSheet,
-  saveBannerSettingsToSheet
+  saveBannerSettingsToSheet,
+  fetchFaqFromSheet,
+  saveFaqToSheet
 } from '../settings-utils.js'
 import pino from 'pino'
 import axios from 'axios'
@@ -186,6 +188,63 @@ router.put('/banner', async (req, res) => {
   } catch (error: any) {
     logger.error({ error: error?.message }, 'ошибка сохранения настроек баннера')
     return res.status(500).json({ error: error?.message || 'Ошибка сохранения настроек баннера' })
+  }
+})
+
+// получение FAQ
+router.get('/faq', async (_req, res) => {
+  try {
+    const sheetId = process.env.GOOGLE_SHEET_ID
+    if (!sheetId) {
+      return res.status(500).json({ error: 'GOOGLE_SHEET_ID not configured' })
+    }
+    const items = await fetchFaqFromSheet(sheetId)
+    return res.json({ items })
+  } catch (error: any) {
+    logger.error({ error: error?.message }, 'ошибка загрузки FAQ')
+    return res.status(500).json({ error: error?.message || 'Ошибка загрузки FAQ' })
+  }
+})
+
+// сохранение FAQ (полная перезапись списка)
+router.put('/faq', async (req, res) => {
+  try {
+    const sheetId = process.env.GOOGLE_SHEET_ID
+    if (!sheetId) {
+      return res.status(500).json({ error: 'GOOGLE_SHEET_ID not configured' })
+    }
+
+    const { items } = req.body
+    if (!Array.isArray(items)) {
+      return res.status(400).json({ error: 'items must be an array' })
+    }
+    if (items.length > 50) {
+      return res.status(400).json({ error: 'too many items (max 50)' })
+    }
+    for (const it of items) {
+      if (!it || typeof it.question !== 'string' || typeof it.answer !== 'string') {
+        return res.status(400).json({ error: 'each item must have question and answer strings' })
+      }
+      if (!it.question.trim() || !it.answer.trim()) {
+        return res.status(400).json({ error: 'question and answer must not be empty' })
+      }
+      if (it.question.length > 300 || it.answer.length > 3000) {
+        return res.status(400).json({ error: 'question max 300 chars, answer max 3000 chars' })
+      }
+    }
+
+    logger.info({ count: items.length }, 'сохранение FAQ')
+    await saveFaqToSheet(sheetId, items.map((it: any) => ({
+      question: it.question.trim(),
+      answer: it.answer.trim()
+    })))
+
+    await triggerBackendImport()
+
+    return res.json({ success: true })
+  } catch (error: any) {
+    logger.error({ error: error?.message }, 'ошибка сохранения FAQ')
+    return res.status(500).json({ error: error?.message || 'Ошибка сохранения FAQ' })
   }
 })
 

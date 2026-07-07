@@ -19,6 +19,7 @@ import { triggerAmoCrmAsync, updateAmoCrmLeadTrack, updateAmoCrmLeadBarcode, cre
 import { buildPaymentForm, buildReceipt, verifyResultSignature, queryOrderState } from './robokassa.js';
 import { fetchPromocodesFromSheet, loadPromocodes, findPromocode, validatePromocode, listPromocodes, saveCertificatePromocode, deactivateCertificatePromocode } from './promocodes.js';
 import { getCachedOrdersSettings } from './settings.js';
+import { getCachedFaq, invalidateFaqCache } from './faq.js';
 import { getCachedCategories } from './categories.js';
 import { loadPendingNotifications, addPendingNotification, claimPendingNotifications } from './pending-notifications.js';
 import { handleTildaOrder } from './tilda-webhook.js';
@@ -403,6 +404,19 @@ app.get('/api/settings/orders-status', async (req, res) => {
     logger.error({ error: error?.message }, 'ошибка получения статуса заказов')
     // при ошибке возвращаем, что заказы открыты
     res.json({ ordersClosed: false })
+  }
+});
+
+// FAQ («Ответы на ваши вопросы» в модалке «О нас»); пустой список = фронт покажет фоллбэк
+app.get('/api/faq', async (_req, res) => {
+  try {
+    const sheetId = process.env.IMPORT_SHEET_ID
+    if (!sheetId) return res.json({ items: [] })
+    const items = await getCachedFaq(sheetId)
+    res.json({ items })
+  } catch (e: any) {
+    logger.warn({ error: e?.message }, 'ошибка получения FAQ')
+    res.json({ items: [] })
   }
 });
 
@@ -2149,6 +2163,7 @@ app.post('/admin/import/sheets', async (req, res) => {
     await importPromocodes();
     await importConstructor();
     await importOrdersSettings();
+    invalidateFaqCache(); // FAQ перечитается из Sheets при следующем запросе
     const count = listProducts().length;
     const promocodesCount = listPromocodes().length;
     clearTimeout(timeout);

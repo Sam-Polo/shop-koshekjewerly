@@ -26,6 +26,11 @@ type OrdersSettings = {
 
 type MessageTab = 'order_confirmed' | 'track_assigned' | 'shipped' | 'assembled'
 
+type FaqItem = {
+  question: string
+  answer: string
+}
+
 const STYLE_LABELS: Record<BannerStyle, string> = {
   pink: 'Розовый',
   gold: 'Золотой',
@@ -78,6 +83,11 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
   const [ordersLoading, setOrdersLoading] = useState(true)
   const [ordersSaving, setOrdersSaving] = useState(false)
 
+  // --- FAQ ---
+  const [faqItems, setFaqItems] = useState<FaqItem[]>([])
+  const [faqLoading, setFaqLoading] = useState(true)
+  const [faqSaving, setFaqSaving] = useState(false)
+
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
 
   const showToast = (message: string, type: 'success' | 'error') => {
@@ -88,6 +98,7 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
   useEffect(() => {
     loadBanner()
     loadOrders()
+    loadFaq()
   }, [])
 
   const loadBanner = async () => {
@@ -127,6 +138,46 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
     } finally {
       setOrdersLoading(false)
     }
+  }
+
+  const loadFaq = async () => {
+    try {
+      setFaqLoading(true)
+      const data = await api.getFaq()
+      setFaqItems(Array.isArray(data.items) ? data.items : [])
+    } catch (err: any) {
+      showToast(err.message || 'Ошибка загрузки FAQ', 'error')
+    } finally {
+      setFaqLoading(false)
+    }
+  }
+
+  const handleSaveFaq = async () => {
+    for (const it of faqItems) {
+      if (!it.question.trim() || !it.answer.trim()) {
+        showToast('У каждого вопроса должны быть заполнены и вопрос, и ответ', 'error')
+        return
+      }
+    }
+    try {
+      setFaqSaving(true)
+      await api.updateFaq(faqItems.map(it => ({ question: it.question.trim(), answer: it.answer.trim() })))
+      showToast('FAQ сохранён', 'success')
+    } catch (err: any) {
+      showToast(err.message || 'Ошибка сохранения FAQ', 'error')
+    } finally {
+      setFaqSaving(false)
+    }
+  }
+
+  const moveFaqItem = (index: number, dir: -1 | 1) => {
+    setFaqItems(prev => {
+      const next = [...prev]
+      const target = index + dir
+      if (target < 0 || target >= next.length) return prev
+      ;[next[index], next[target]] = [next[target], next[index]]
+      return next
+    })
   }
 
   const handleSaveBanner = async () => {
@@ -514,6 +565,73 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
                 disabled={bannerSaving}
               >
                 {bannerSaving ? 'Сохранение...' : 'Сохранить баннер'}
+              </button>
+            </div>
+          )}
+        </section>
+
+        {/* ── FAQ («Ответы на ваши вопросы») ─────────────── */}
+        <section className="settings-section">
+          <h2 className="settings-section__title">FAQ — «Ответы на ваши вопросы»</h2>
+          {faqLoading ? (
+            <div className="settings-loading">Загрузка...</div>
+          ) : (
+            <div className="settings-card">
+              <p className="settings-hint">
+                Вопросы-аккордеоны в окне «О нас» мини-приложения. Порядок в списке = порядок на витрине.
+                Каждая строка ответа показывается отдельным абзацем. Если список пуст — мини-апп показывает стандартные вопросы.
+              </p>
+
+              {faqItems.map((item, i) => (
+                <div key={i} className="settings-field" style={{ border: '1px solid rgba(0,0,0,0.12)', borderRadius: 8, padding: '0.75rem', marginBottom: '0.75rem' }}>
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.5rem' }}>
+                    <span style={{ fontWeight: 600, color: '#777' }}>#{i + 1}</span>
+                    <button type="button" className="nav-btn" onClick={() => moveFaqItem(i, -1)} disabled={i === 0} title="Выше">↑</button>
+                    <button type="button" className="nav-btn" onClick={() => moveFaqItem(i, 1)} disabled={i === faqItems.length - 1} title="Ниже">↓</button>
+                    <button
+                      type="button"
+                      className="nav-btn"
+                      style={{ marginLeft: 'auto', color: '#c0392b' }}
+                      onClick={() => setFaqItems(prev => prev.filter((_, idx) => idx !== i))}
+                    >
+                      Удалить
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    className="settings-input"
+                    placeholder="Вопрос (например: Как происходит доставка?)"
+                    value={item.question}
+                    maxLength={300}
+                    onChange={e => setFaqItems(prev => prev.map((it, idx) => idx === i ? { ...it, question: e.target.value } : it))}
+                    style={{ marginBottom: '0.5rem' }}
+                  />
+                  <textarea
+                    className="settings-textarea"
+                    rows={4}
+                    placeholder={'Текст ответа. Каждая строка — отдельный абзац.'}
+                    value={item.answer}
+                    maxLength={3000}
+                    onChange={e => setFaqItems(prev => prev.map((it, idx) => idx === i ? { ...it, answer: e.target.value } : it))}
+                  />
+                </div>
+              ))}
+
+              <button
+                type="button"
+                className="nav-btn"
+                onClick={() => setFaqItems(prev => [...prev, { question: '', answer: '' }])}
+                style={{ marginBottom: '1rem' }}
+              >
+                + Добавить вопрос
+              </button>
+
+              <button
+                className="settings-save-btn"
+                onClick={handleSaveFaq}
+                disabled={faqSaving}
+              >
+                {faqSaving ? 'Сохранение...' : 'Сохранить FAQ'}
               </button>
             </div>
           )}

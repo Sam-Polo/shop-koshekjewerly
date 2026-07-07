@@ -233,6 +233,19 @@ export const api = {
     })
   },
 
+  // FAQ («Ответы на ваши вопросы» в мини-аппе)
+  async getFaq() {
+    return fetchWithAuth('/api/settings/faq')
+  },
+
+  async updateFaq(items: Array<{ question: string; answer: string }>) {
+    return fetchWithAuth('/api/settings/faq', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items })
+    })
+  },
+
   // категории
   async getCategories() {
     return fetchWithAuth('/api/categories')
