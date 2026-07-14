@@ -452,14 +452,25 @@ export async function reorderProductsInSheet(
   if (originalDataRows !== newDataRows) {
     throw new Error(`Безопасность: количество строк изменилось (было: ${originalDataRows}, стало: ${newDataRows}). Операция отменена.`)
   }
-  
+
+  // values.get обрезает пустые ячейки в конце строки, а values.update НЕ очищает ячейки,
+  // не покрытые массивом значений. Без выравнивания ширины строк значения хвостовых колонок
+  // (coming_drop, article и т.п.) оставались бы от прежних «жильцов» строки и переползали
+  // на чужие товары при каждой сортировке. '' в values.update очищает ячейку явно.
+  const width = Math.max(header.length, ...allRows.map(r => r?.length ?? 0))
+  const paddedRows = reorderedRows.map(r => {
+    const padded = [...r]
+    while (padded.length < width) padded.push('')
+    return padded
+  })
+
   // перезаписываем весь диапазон с новым порядком
   await sheets.spreadsheets.values.update({
     spreadsheetId: sheetId,
     range: `${normalizedSheetName}!A1:Z${reorderedRows.length}`,
     valueInputOption: 'USER_ENTERED',
     requestBody: {
-      values: reorderedRows
+      values: paddedRows
     }
   })
   
