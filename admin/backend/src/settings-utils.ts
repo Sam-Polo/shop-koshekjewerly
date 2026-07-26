@@ -13,6 +13,7 @@ export type OrdersSettings = {
   assembledMessage?: string
   priorityOrderEnabled?: boolean
   priorityOrderFee?: number
+  pickupEnabled?: boolean
 }
 
 export type BannerSettings = {
@@ -48,7 +49,8 @@ async function readSettingsRows(sheets: ReturnType<typeof google.sheets>, sheetI
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: sheetId,
-      range: 'settings!A1:B25'
+      // запас по строкам: ключ вне диапазона не нашёлся бы в upsert и продублировался бы append'ом
+      range: 'settings!A1:B40'
     })
     return res.data.values ?? []
   } catch {
@@ -132,6 +134,9 @@ export async function fetchOrdersSettingsFromSheet(sheetId: string): Promise<Ord
       } else if (key === 'priority_order_fee') {
         const fee = parseInt(originalValue, 10)
         if (!isNaN(fee) && fee >= 1 && fee <= 100) settings.priorityOrderFee = fee
+      } else if (key === 'pickup_enabled') {
+        // отсутствие ключа = включён (обратная совместимость)
+        settings.pickupEnabled = !(value === 'false' || value === '0' || value === 'no')
       }
     }
 
@@ -220,6 +225,7 @@ export async function saveOrdersSettingsToSheet(sheetId: string, settings: Order
     await upsertSettingRow(sheets, sheetId, rows, 'assembled_message', settings.assembledMessage || '')
     await upsertSettingRow(sheets, sheetId, rows, 'priority_order_enabled', settings.priorityOrderEnabled === false ? 'false' : 'true')
     await upsertSettingRow(sheets, sheetId, rows, 'priority_order_fee', String(settings.priorityOrderFee ?? 30))
+    await upsertSettingRow(sheets, sheetId, rows, 'pickup_enabled', settings.pickupEnabled === false ? 'false' : 'true')
 
     logger.info({ ordersClosed: settings.ordersClosed, closeDate: settings.closeDate }, 'настройки заказов сохранены')
   } catch (error: any) {

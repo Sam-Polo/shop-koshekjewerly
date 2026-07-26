@@ -22,6 +22,7 @@ type OrdersSettings = {
   assembledMessage: string
   priorityOrderEnabled: boolean
   priorityOrderFee: number
+  pickupEnabled: boolean
 }
 
 type MessageTab = 'order_confirmed' | 'track_assigned' | 'shipped' | 'assembled'
@@ -78,6 +79,7 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
     assembledMessage: '',
     priorityOrderEnabled: true,
     priorityOrderFee: 30,
+    pickupEnabled: true,
   })
   const [messageTab, setMessageTab] = useState<MessageTab>('order_confirmed')
   const [ordersLoading, setOrdersLoading] = useState(true)
@@ -132,6 +134,7 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
         assembledMessage: data.assembledMessage || '',
         priorityOrderEnabled: data.priorityOrderEnabled !== false,
         priorityOrderFee: data.priorityOrderFee ?? 30,
+        pickupEnabled: data.pickupEnabled !== false,
       })
     } catch (err: any) {
       showToast(err.message || 'Ошибка загрузки статуса заказов', 'error')
@@ -210,6 +213,7 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
         assembledMessage: orders.assembledMessage || undefined,
         priorityOrderEnabled: orders.priorityOrderEnabled,
         priorityOrderFee: orders.priorityOrderFee,
+        pickupEnabled: orders.pickupEnabled,
       })
       showToast(orders.ordersClosed ? 'Заказы закрыты' : 'Заказы открыты', 'success')
     } catch (err: any) {
@@ -278,6 +282,47 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
                 />
                 <p className="settings-hint">Отображается в мини-приложении как «до&nbsp;[дата]»</p>
               </div>
+
+              <button
+                className="settings-save-btn"
+                onClick={handleSaveOrders}
+                disabled={ordersSaving}
+              >
+                {ordersSaving ? 'Сохранение...' : 'Сохранить'}
+              </button>
+            </div>
+          )}
+        </section>
+
+        {/* ── САМОВЫВОЗ ──────────────────────────────────── */}
+        <section className="settings-section">
+          <h2 className="settings-section__title">Самовывоз</h2>
+          {ordersLoading ? (
+            <div className="settings-loading">Загрузка...</div>
+          ) : (
+            <div className="settings-card">
+              <label className="settings-toggle-row">
+                <span className="settings-toggle-label">
+                  Самовывоз доступен
+                  <span className={`settings-status-badge ${orders.pickupEnabled ? 'badge-open' : 'badge-closed'}`}>
+                    {orders.pickupEnabled ? 'Включён' : 'Выключен'}
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  className="settings-toggle-input"
+                  checked={orders.pickupEnabled}
+                  onChange={e => setOrders(prev => ({ ...prev, pickupEnabled: e.target.checked }))}
+                />
+                <span className="settings-toggle-slider" />
+              </label>
+              <p className="settings-hint" style={{ marginTop: '-0.75rem' }}>
+                При выключении в мини-приложении на экране «Куда доставить заказ?» пропадает вариант
+                «Самовывоз»: для России и СНГ сразу открывается оформление доставки СДЭК.
+                Международные заказы (EMS) не затрагиваются. Бэкенд дополнительно отклоняет заказы
+                с самовывозом, даже если у покупателя открыт старый экран.
+                Уже оформленные заказы с самовывозом продолжают обрабатываться как раньше.
+              </p>
 
               <button
                 className="settings-save-btn"

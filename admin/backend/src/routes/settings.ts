@@ -64,7 +64,7 @@ router.put('/orders-status', async (req, res) => {
       return res.status(500).json({ error: 'GOOGLE_SHEET_ID not configured' })
     }
 
-    const { ordersClosed, closeDate, assemblyMessage, trackMessage, shippedMessage, assembledMessage, priorityOrderEnabled, priorityOrderFee } = req.body
+    const { ordersClosed, closeDate, assemblyMessage, trackMessage, shippedMessage, assembledMessage, priorityOrderEnabled, priorityOrderFee, pickupEnabled } = req.body
 
     if (typeof ordersClosed !== 'boolean') {
       return res.status(400).json({ error: 'ordersClosed must be a boolean' })
@@ -100,7 +100,7 @@ router.put('/orders-status', async (req, res) => {
       }
     }
 
-    logger.info({ ordersClosed, closeDate }, 'сохранение настроек заказов')
+    logger.info({ ordersClosed, closeDate, pickupEnabled }, 'сохранение настроек заказов')
     await saveOrdersSettingsToSheet(sheetId, {
       ordersClosed,
       closeDate: closeDate || undefined,
@@ -109,7 +109,8 @@ router.put('/orders-status', async (req, res) => {
       shippedMessage: shippedMessage || undefined,
       assembledMessage: assembledMessage || undefined,
       priorityOrderEnabled: priorityOrderEnabled !== false,
-      priorityOrderFee: priorityOrderFee !== undefined ? Number(priorityOrderFee) : undefined
+      priorityOrderFee: priorityOrderFee !== undefined ? Number(priorityOrderFee) : undefined,
+      pickupEnabled: pickupEnabled !== false
     })
     logger.info('настройки заказов сохранены')
 

@@ -18,6 +18,8 @@ export type OrdersSettings = {
   assembledMessage?: string
   priorityOrderEnabled?: boolean
   priorityOrderFee?: number
+  // самовывоз как способ получения (отключается в админке); отсутствие ключа = включён
+  pickupEnabled?: boolean
   banner?: BannerSettings
 }
 
@@ -79,8 +81,8 @@ export async function fetchOrdersSettingsFromSheet(sheetId: string): Promise<Ord
       return { ordersClosed: false }
     }
 
-    // читаем настройки (расширен диапазон для баннера)
-    const range = 'settings!A1:B25'
+    // читаем настройки (диапазон с запасом: новые ключи не должны выпадать из чтения)
+    const range = 'settings!A1:B40'
     const res = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range })
     const rows = res.data.values ?? []
 
@@ -135,6 +137,9 @@ export async function fetchOrdersSettingsFromSheet(sheetId: string): Promise<Ord
       } else if (key === 'priority_order_fee') {
         const fee = parseInt(originalValue, 10)
         if (!isNaN(fee) && fee >= 1 && fee <= 100) settings.priorityOrderFee = fee
+      } else if (key === 'pickup_enabled') {
+        // отсутствие ключа = включён (обратная совместимость)
+        settings.pickupEnabled = !(value === 'false' || value === '0' || value === 'no')
       } else if (key === 'banner_enabled') {
         hasBannerData = true
         banner.bannerEnabled = value === 'true' || value === '1' || value === 'yes'

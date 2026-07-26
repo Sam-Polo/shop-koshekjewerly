@@ -1099,10 +1099,13 @@ const DeliveryRegionModal = ({
   onSelect,
   onBack,
   onClose,
+  pickupEnabled = true,
 }: {
   onSelect: (method: DeliveryMethod) => void
   onBack: () => void
   onClose: () => void
+  // самовывоз отключён в админке → вариант не показываем, для РФ/СНГ остаётся только СДЭК
+  pickupEnabled?: boolean
 }) => {
   const [step, setStep] = useState<'region' | 'ru-method'>('region')
 
@@ -1114,9 +1117,12 @@ const DeliveryRegionModal = ({
           <>
             <h3 className="delivery-region__title">Куда доставить заказ?</h3>
             <div className="delivery-region__options">
-              <button type="button" className="delivery-region__option" onClick={() => setStep('ru-method')}>
+              {/* без самовывоза второй шаг вырождается в один вариант — сразу выбираем СДЭК */}
+              <button type="button" className="delivery-region__option" onClick={() => pickupEnabled ? setStep('ru-method') : onSelect('cdek')}>
                 <span className="delivery-region__option-label">Россия и СНГ</span>
-                <span className="delivery-region__option-desc">Самовывоз или доставка СДЭК</span>
+                <span className="delivery-region__option-desc">
+                  {pickupEnabled ? 'Самовывоз или доставка СДЭК' : 'Доставка СДЭК в пункт выдачи'}
+                </span>
               </button>
               <button type="button" className="delivery-region__option" onClick={() => onSelect('ems')}>
                 <span className="delivery-region__option-label">Международные перевозки</span>
@@ -1133,10 +1139,12 @@ const DeliveryRegionModal = ({
                 <span className="delivery-region__option-label">СДЭК</span>
                 <span className="delivery-region__option-desc">Доставка в пункт выдачи</span>
               </button>
-              <button type="button" className="delivery-region__option" onClick={() => onSelect('pickup')}>
-                <span className="delivery-region__option-label">Самовывоз</span>
-                <span className="delivery-region__option-desc">{PICKUP_ADDRESS} · бесплатно</span>
-              </button>
+              {pickupEnabled && (
+                <button type="button" className="delivery-region__option" onClick={() => onSelect('pickup')}>
+                  <span className="delivery-region__option-label">Самовывоз</span>
+                  <span className="delivery-region__option-desc">{PICKUP_ADDRESS} · бесплатно</span>
+                </button>
+              )}
             </div>
             <button type="button" className="delivery-region__back" onClick={() => setStep('region')}>← Назад</button>
           </>
@@ -2288,6 +2296,7 @@ export default function App() {
   const [bannerDateTo, setBannerDateTo] = useState<string | undefined>(undefined)
   const [priorityOrderEnabled, setPriorityOrderEnabled] = useState(true)
   const [priorityOrderFee, setPriorityOrderFee] = useState(30)
+  const [pickupEnabled, setPickupEnabled] = useState(true)
   const mainContentRef = useRef<HTMLElement>(null)
   const productsTitleRef = useRef<HTMLHeadingElement>(null)
   
@@ -2367,6 +2376,7 @@ export default function App() {
           // отсутствие ключа = включено (обратная совместимость)
           setPriorityOrderEnabled(data.priorityOrderEnabled !== false)
           if (typeof data.priorityOrderFee === 'number') setPriorityOrderFee(data.priorityOrderFee)
+          setPickupEnabled(data.pickupEnabled !== false)
         }
       } catch (error) {
         console.error('[mini-app] ошибка загрузки настроек:', error)
@@ -2669,6 +2679,16 @@ export default function App() {
       })
 
       if (!response.ok) {
+        // самовывоз могли отключить в админке, пока покупатель заполнял форму —
+        // возвращаем его на выбор способа получения уже без этого варианта
+        const errBody = await response.json().catch(() => null)
+        if (errBody?.error === 'pickup_disabled') {
+          setPickupEnabled(false)
+          setCheckoutOpen(false)
+          setDeliveryRegionOpen(true)
+          alert('Самовывоз временно недоступен. Пожалуйста, выберите доставку СДЭК.')
+          return
+        }
         throw new Error('Ошибка оформления заказа')
       }
 
@@ -2952,6 +2972,7 @@ export default function App() {
           onSelect={handleDeliveryMethodSelect}
           onBack={() => { setDeliveryRegionOpen(false); setCartOpen(true) }}
           onClose={() => setDeliveryRegionOpen(false)}
+          pickupEnabled={pickupEnabled}
         />
       )}
 

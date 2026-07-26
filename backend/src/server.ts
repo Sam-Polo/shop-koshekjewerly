@@ -832,6 +832,8 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
     // проверка статуса заказов
     const sheetId = process.env.IMPORT_SHEET_ID
     let priorityFeePct = 30
+    // самовывоз может быть отключён в админке; при ошибке чтения настроек остаёмся разрешающими
+    let pickupEnabled = true
     if (sheetId) {
       try {
         const settings = await getCachedOrdersSettings(sheetId)
@@ -844,6 +846,7 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
           logger.info({ chatId: initDataUser.id }, 'admin bypass: заказы закрыты, но пользователь в ADMIN_CHAT_IDS')
         }
         if (settings.priorityOrderFee !== undefined) priorityFeePct = settings.priorityOrderFee
+        if (settings.pickupEnabled === false) pickupEnabled = false
       } catch (error: any) {
         logger.error({ error: error?.message }, 'ошибка проверки статуса заказов, продолжаем')
         // при ошибке продолжаем обработку заказа
@@ -982,6 +985,13 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
       orderData.deliveryMethod === 'pickup' || orderData.deliveryMethod === 'ems'
         ? orderData.deliveryMethod
         : 'cdek'
+
+    // самовывоз выключен в админке: отклоняем, а не подменяем на СДЭК —
+    // иначе получился бы курьерский заказ с нулевой доставкой и без ПВЗ
+    if (deliveryMethod === 'pickup' && !pickupEnabled) {
+      logger.warn('заказ отклонён: самовывоз отключён в настройках')
+      return res.status(403).json({ error: 'pickup_disabled' })
+    }
 
     // валидация стоимости доставки; самовывоз — всегда бесплатно
     const deliveryCost = deliveryMethod === 'pickup'
