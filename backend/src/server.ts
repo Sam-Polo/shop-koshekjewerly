@@ -652,11 +652,19 @@ async function sendOrderNotifications(order: any) {
       ? `\nПриоритетный заказ (+${notifPriorityFeePct}%): ${order.orderData.priorityFee} ₽`
       : ''
 
-  // блок доставки зависит от способа: самовывоз / СДЭК ПВЗ / EMS Почта России
+  // блок доставки зависит от способа: самовывоз / СДЭК ПВЗ / EMS Почта России / электронный
   const dm = order.orderData.deliveryMethod
-  const deliveryLabel = dm === 'pickup' ? '📦 Самовывоз' : dm === 'ems' ? '✈️ EMS Почта России' : '📍 Пункт СДЭК'
-  const customerDeliveryBlock = `${deliveryLabel}:\n${escapeHtml(order.orderData.address)}`
-  const managerDeliveryBlock = dm === 'pickup'
+  const deliveryLabel = dm === 'pickup' ? '📦 Самовывоз'
+    : dm === 'ems' ? '✈️ EMS Почта России'
+    : dm === 'digital' ? '💌 Электронный сертификат'
+    : '📍 Пункт СДЭК'
+  // электронный сертификат: адреса нет, промокод покупателю отправляет менеджер вручную
+  const customerDeliveryBlock = dm === 'digital'
+    ? `${deliveryLabel}\nПромокод придёт от менеджера в личные сообщения.`
+    : `${deliveryLabel}:\n${escapeHtml(order.orderData.address)}`
+  const managerDeliveryBlock = dm === 'digital'
+    ? `${deliveryLabel}\nОтправлять нечего — передайте покупателю промокод.`
+    : dm === 'pickup'
     ? `${deliveryLabel}:\n${escapeHtml(order.orderData.address)}`
     : `${deliveryLabel}:\n${escapeHtml(order.orderData.country)}, ${escapeHtml(order.orderData.city)}\n${escapeHtml(order.orderData.address)}`
 
@@ -779,6 +787,13 @@ ${order.orderData.comments ? `Комментарии: ${escapeHtml(order.orderDa
 // адрес самовывоза (фиксированный)
 const PICKUP_ADDRESS = 'г. Москва, ул. Горбунова, 2'
 
+// категория сертификатов — имя листа в Google Sheets, из него берётся category товара.
+// По ней определяем, что за товар выдаёт промокод и что можно продать электронно.
+const CERTIFICATE_CATEGORY = 'сертификаты'
+
+// подпись в CRM/уведомлениях для заказа без физической отправки
+const DIGITAL_DELIVERY_LABEL = 'Электронный сертификат'
+
 // H2: фоновая проверка, что клиент не занизил стоимость доставки.
 // Стоимость доставки приходит с клиента (мини-апп считает её через /api/cdek|pochta),
 // а суммы товаров/промокода/приоритета пересчитывает бэкенд. Здесь НЕ блокируем и НЕ
@@ -790,7 +805,7 @@ function verifyDeliveryCostAsync(order: Order, clientDeliveryCost: number): void
   void (async () => {
     try {
       const dm = order.orderData.deliveryMethod
-      if (dm === 'pickup') return // самовывоз всегда 0 — проверять нечего
+      if (dm === 'pickup' || dm === 'digital') return // всегда 0 — проверять нечего
 
       let serverCost: number | null = null
       if (dm === 'ems') {
@@ -982,7 +997,7 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
     
     // способ доставки (главный дискриминатор маршрутизации отправления)
     const deliveryMethod: DeliveryMethod =
-      orderData.deliveryMethod === 'pickup' || orderData.deliveryMethod === 'ems'
+      orderData.deliveryMethod === 'pickup' || orderData.deliveryMethod === 'ems' || orderData.deliveryMethod === 'digital'
         ? orderData.deliveryMethod
         : 'cdek'
 
@@ -993,8 +1008,24 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
       return res.status(403).json({ error: 'pickup_disabled' })
     }
 
-    // валидация стоимости доставки; самовывоз — всегда бесплатно
-    const deliveryCost = deliveryMethod === 'pickup'
+    // 'digital' = электронный сертификат: отправлять нечего. Требуем, чтобы ВСЕ позиции
+    // были из категории сертификатов — иначе физический товар уехал бы без доставки.
+    // Клиент запрещает смешивание, но доверять ему нельзя (цены и состав считает бэкенд).
+    if (deliveryMethod === 'digital') {
+      const nonCert = validatedItems.filter((item: { slug: string }) =>
+        products.find(p => p.slug === item.slug)?.category !== CERTIFICATE_CATEGORY
+      )
+      if (nonCert.length > 0) {
+        logger.warn(
+          { slugs: nonCert.map((i: { slug: string }) => i.slug) },
+          'заказ отклонён: digital-доставка с несертификатными товарами'
+        )
+        return res.status(400).json({ error: 'digital_requires_certificates_only' })
+      }
+    }
+
+    // валидация стоимости доставки; самовывоз и электронный сертификат — всегда бесплатно
+    const deliveryCost = deliveryMethod === 'pickup' || deliveryMethod === 'digital'
       ? 0
       : (typeof orderData.deliveryCost === 'number' && orderData.deliveryCost >= 0 ? orderData.deliveryCost : 0)
     
@@ -1065,6 +1096,11 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
       displayCountry = 'Россия'
       displayCity = 'Москва'
       displayAddress = PICKUP_ADDRESS
+    } else if (deliveryMethod === 'digital') {
+      // физического адреса нет — в CRM и уведомлениях вместо него подпись о формате
+      displayCountry = ''
+      displayCity = ''
+      displayAddress = DIGITAL_DELIVERY_LABEL
     } else if (deliveryMethod === 'ems') {
       displayCountry = orderData.recipientCountry || displayCountry
       displayCity = orderData.recipientCity || displayCity
@@ -1261,7 +1297,7 @@ export async function processPaidOrder(
   // если в заказе есть сертификаты — генерируем промокод для получателя
   let certPromocode: string | undefined
   const certItems = order.orderData.items.filter(item =>
-    listProducts().find(p => p.slug === item.slug)?.category === 'сертификаты'
+    listProducts().find(p => p.slug === item.slug)?.category === CERTIFICATE_CATEGORY
   )
   if (certItems.length > 0) {
     const certValue = certItems.reduce((sum, item) => sum + item.price * item.quantity, 0)
@@ -1290,6 +1326,9 @@ export async function processPaidOrder(
   if (order.orderData.deliveryMethod === 'pickup') {
     // самовывоз — отправление/трек не создаём; лид и запись в Sheets уже готовы
     logger.info({ orderId }, 'самовывоз: отправление не создаётся')
+  } else if (order.orderData.deliveryMethod === 'digital') {
+    // электронный сертификат — физической отправки нет, промокод уже в лиде
+    logger.info({ orderId, certPromocode }, 'электронный сертификат: отправление не создаётся')
   } else if (order.orderData.deliveryMethod === 'ems') {
     // fire-and-forget: создаём международное EMS-отправление и отправляем трек покупателю
     triggerPochtaOrderAsync(order, async (shpi, batchName, pochtaOrderId) => {
@@ -2422,7 +2461,9 @@ app.post('/api/amocrm/test', express.json(), async (req, res) => {
 // ── Pochta (EMS) test endpoint — прогон пайплайна без оплаты Robokassa ─────────
 // Тест генерации промокода сертификата.
 // Создаёт промокод CERT-* в Google Sheets без реального заказа.
-// Body (optional): { certValue: 3000, createLead: true }
+// Body (optional): { certValue: 3000, createLead: true, digital: true }
+//   digital: true — лид уходит как электронный сертификат (тип доставки
+//   «Электронный сертификат», без адреса), иначе как физическая карточка.
 // Guard: header x-admin-key == ADMIN_IMPORT_KEY.
 app.post('/api/admin/test-cert-promo', express.json(), async (req, res) => {
   const key = req.header('x-admin-key')
@@ -2432,9 +2473,12 @@ app.post('/api/admin/test-cert-promo', express.json(), async (req, res) => {
 
   const steps: Record<string, unknown> = {}
   const certValue = Number(req.body?.certValue) || 3000
+  // digital: true — эмулируем заказ электронного сертификата (без доставки)
+  const digital = req.body?.digital === true
+  steps.mode = digital ? 'digital (электронный сертификат)' : 'physical (карточка с доставкой)'
 
   // ищем сертификатный товар в каталоге для отображения в шагах
-  const certProduct = listProducts().find(p => p.category === 'сертификаты')
+  const certProduct = listProducts().find(p => p.category === CERTIFICATE_CATEGORY)
   steps.certProduct = certProduct
     ? { found: true, slug: certProduct.slug, title: certProduct.title, price: certProduct.price_rub }
     : { found: false, note: 'каталог не содержит товаров категории сертификаты — промокод всё равно будет создан с переданным certValue' }
@@ -2462,11 +2506,13 @@ app.post('/api/admin/test-cert-promo', express.json(), async (req, res) => {
         orderData: {
           fullName: 'Test User',
           phone: '+70000000000',
-          country: '', city: 'Москва', address: '',
+          country: '',
+          city: digital ? '' : 'Москва',
+          address: digital ? DIGITAL_DELIVERY_LABEL : '',
           deliveryRegion: '',
           deliveryCost: 0,
           total: certValue,
-          deliveryMethod: 'pickup' as const,
+          deliveryMethod: (digital ? 'digital' : 'pickup') as DeliveryMethod,
           items: certProduct
             ? [{ slug: certProduct.slug, title: certProduct.title, price: certValue, quantity: 1, article: certProduct.article }]
             : [{ slug: 'cert-test', title: `Сертификат ${certValue}₽`, price: certValue, quantity: 1 }],

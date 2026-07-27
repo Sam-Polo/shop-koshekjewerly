@@ -92,6 +92,12 @@ type RegularCartItem = {
   kind: 'regular'
   slug: string
   quantity: number
+  /**
+   * электронный сертификат: покупатель получает только промокод, доставки нет.
+   * Ставится лишь для товаров категории CERTIFICATE_CATEGORY. Смешивать с
+   * физическими позициями нельзя — иначе заказ пришлось бы и отправлять, и не отправлять.
+   */
+  digital?: boolean
 }
 
 type ConstructorComponentRef = {
@@ -162,6 +168,13 @@ async function fetchWithRetry(url: string, options?: RequestInit): Promise<Respo
 }
 
 // fallback категории (если API не отдаёт)
+// категория сертификатов — товары из неё можно купить электронно (только промокод)
+const CERTIFICATE_CATEGORY = 'сертификаты'
+
+// корзина целиком электронная? тогда доставка не нужна вовсе
+const isDigitalCart = (cart: CartItem[]) =>
+  cart.length > 0 && cart.every(i => i.kind === 'regular' && i.digital === true)
+
 const defaultCategories: Category[] = [
   { key: 'ягоды', title: 'Ягоды (special)', description: 'Эксклюзивная коллекция KOSHEK, украшения в виде реалистичных ягод из полимерной глины', image: berriesImage },
   { key: 'выпечка', title: 'Выпечка', description: 'Эксклюзивная коллекция КОШЕК, украшения в виде реалистичной выпечки из полимерной глины', image: bakeryImage },
@@ -599,7 +612,7 @@ const ProductModal = ({
 }: { 
   product: Product
   cart: CartItem[]
-  onAddToCart: (slug: string, quantity: number) => void
+  onAddToCart: (slug: string, quantity: number, digital?: boolean) => void
   onClose: () => void
   onAddedToCart: () => void
   ordersClosed: boolean
@@ -607,6 +620,9 @@ const ProductModal = ({
 }) => {
   const [selectedImageIndex, setSelectedImageIndex] = useState(0)
   const [quantity, setQuantity] = useState(1)
+  // формат сертификата: физическая карточка (по умолчанию) или электронный промокод
+  const isCertificate = product.category === CERTIFICATE_CATEGORY
+  const [digital, setDigital] = useState(false)
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null)
   const [isAdding, setIsAdding] = useState(false)
   const [addedState, setAddedState] = useState(false)
@@ -622,10 +638,11 @@ const ProductModal = ({
   const canIncrease = quantity < availableQuantity
   const canAddToCart = quantity > 0 && quantity <= availableQuantity
 
-  // сбрасываем quantity и изображение при открытии модалки
+  // сбрасываем quantity, изображение и формат при открытии модалки
   useEffect(() => {
     setQuantity(1)
     setSelectedImageIndex(0)
+    setDigital(false)
   }, [product.slug])
 
   // синхронизация свайпера с выбранной миниатюрой
@@ -667,7 +684,7 @@ const ProductModal = ({
     if (canAddToCart && !isAdding) {
       setIsAdding(true)
       setTimeout(() => {
-        onAddToCart(product.slug, quantity)
+        onAddToCart(product.slug, quantity, isCertificate ? digital : undefined)
         setAddedState(true)
         setIsAdding(false)
         setTimeout(() => {
@@ -787,6 +804,35 @@ const ProductModal = ({
               </button>
             ) : (
               <>
+                {isCertificate && (
+                  <div className="cert-format">
+                    <span className="cert-format__label">Формат сертификата</span>
+                    <div className="cert-format__options">
+                      <button
+                        type="button"
+                        className={`cert-format__option ${!digital ? 'is-active' : ''}`}
+                        onClick={() => setDigital(false)}
+                      >
+                        <span className="cert-format__option-title">Физическая карточка</span>
+                        <span className="cert-format__option-desc">С доставкой</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`cert-format__option ${digital ? 'is-active' : ''}`}
+                        onClick={() => setDigital(true)}
+                      >
+                        <span className="cert-format__option-title">Электронный</span>
+                        <span className="cert-format__option-desc">Только промокод</span>
+                      </button>
+                    </div>
+                    {digital && (
+                      <p className="cert-format__hint">
+                        Доставка не нужна. Промокод пришлём вам в личные сообщения — его можно
+                        передать получателю.
+                      </p>
+                    )}
+                  </div>
+                )}
                 <div className="cart-controls__quantity">
                   <button
                     className="quantity-btn"
@@ -1018,7 +1064,8 @@ type CdekCity = { code: number; city: string; region?: string; country_code?: st
 type CdekPvz = { code: string; name: string; address: string; work_time?: string }
 
 // способ доставки: самовывоз / СДЭК ПВЗ / EMS Почта России (международная)
-type DeliveryMethod = 'pickup' | 'cdek' | 'ems'
+// digital — электронный сертификат: только промокод, доставки и адреса нет
+type DeliveryMethod = 'pickup' | 'cdek' | 'ems' | 'digital'
 
 const PICKUP_ADDRESS = 'г. Москва, ул. Горбунова, 2'
 
@@ -1176,6 +1223,8 @@ const CheckoutForm = ({
   const isPickup = deliveryMethod === 'pickup'
   const isEms = deliveryMethod === 'ems'
   const isCdek = deliveryMethod === 'cdek'
+  // электронный сертификат: адрес и расчёт доставки не нужны, доставка всегда 0
+  const isDigital = deliveryMethod === 'digital'
 
   const [formData, setFormData] = useState({
     fullName: '',
@@ -1382,7 +1431,7 @@ const CheckoutForm = ({
 
   // если в корзине только тестовые товары - доставка бесплатная
   const isOnlyTestProducts = isCartOnlyTestProducts(cart, products)
-  const effectiveDeliveryCost = (isOnlyTestProducts || isPickup) ? 0 : (deliveryCost ?? 0)
+  const effectiveDeliveryCost = (isOnlyTestProducts || isPickup || isDigital) ? 0 : (deliveryCost ?? 0)
   const subtotal = cartTotal + effectiveDeliveryCost
   const subtotalAfterDiscount = Math.max(0, subtotal - promocodeDiscount)
   const priorityFee =
@@ -1425,7 +1474,7 @@ const CheckoutForm = ({
       if (formData.fullName.trim() && !isLatinText(formData.fullName)) newErrors.fullName = 'Латиницей, как в загранпаспорте'
     }
     // для СДЭК и EMS стоимость доставки должна быть рассчитана
-    if (!isPickup) {
+    if (!isPickup && !isDigital) {
       if (!isOnlyTestProducts && deliveryCost === null && !costError) newErrors.delivery = 'Стоимость доставки не рассчитана'
       if (!isOnlyTestProducts && costError) newErrors.delivery = costError
     }
@@ -1664,6 +1713,16 @@ const CheckoutForm = ({
           </div>
         )}
 
+        {isDigital && (
+          <div className="checkout-form__pickup-info">
+            <div className="checkout-form__pickup-title">Электронный сертификат</div>
+            <div className="checkout-form__pickup-note">
+              Адрес не нужен — доставки нет. После оплаты мы пришлём вам промокод,
+              его можно передать получателю.
+            </div>
+          </div>
+        )}
+
         {isEms && (<>
           <p className="checkout-form__ems-hint">
             Адрес и имя получателя укажите латинскими буквами.
@@ -1852,9 +1911,9 @@ const CheckoutForm = ({
           <span>{cartTotal} ₽</span>
         </div>
         <div className="checkout-form__summary-row">
-          <span>{isPickup ? 'Самовывоз:' : isEms ? 'Доставка EMS:' : 'Доставка СДЭК:'}</span>
+          <span>{isDigital ? 'Доставка:' : isPickup ? 'Самовывоз:' : isEms ? 'Доставка EMS:' : 'Доставка СДЭК:'}</span>
           <span>
-            {(isOnlyTestProducts || isPickup) ? 'Бесплатно' : costLoading ? '...' : costError ? <span style={{ color: '#d32f2f', fontSize: 13 }}>Ошибка расчёта</span> : deliveryCost !== null ? `${deliveryCost} ₽` : '—'}
+            {(isOnlyTestProducts || isPickup || isDigital) ? 'Бесплатно' : costLoading ? '...' : costError ? <span style={{ color: '#d32f2f', fontSize: 13 }}>Ошибка расчёта</span> : deliveryCost !== null ? `${deliveryCost} ₽` : '—'}
           </span>
         </div>
         {errors.delivery && (
@@ -2100,7 +2159,10 @@ const CartModal = ({
                       />
                     )}
                     <div className="cart-item__info">
-                      <h3 className="cart-item__title">{product.title}</h3>
+                      <h3 className="cart-item__title">
+                        {product.title}
+                        {it.cartItem.digital && <span className="cart-item__badge">электронный</span>}
+                      </h3>
                       <p className="cart-item__price">{it.unitPrice} ₽ × {it.quantity}</p>
                       <div className="cart-item__controls">
                         <button
@@ -2289,6 +2351,8 @@ export default function App() {
   const [ordersClosedBanner, setOrdersClosedBanner] = useState(false)
   const [ordersCloseDate, setOrdersCloseDate] = useState<string | undefined>(undefined)
   const [ordersClosedModalOpen, setOrdersClosedModalOpen] = useState(false)
+  // попытка смешать электронный сертификат с товарами, которые нужно отправлять
+  const [mixBlockedModalOpen, setMixBlockedModalOpen] = useState(false)
   const [bannerEnabled, setBannerEnabled] = useState(false)
   const [bannerText, setBannerText] = useState('')
   const [bannerStyle, setBannerStyle] = useState<'pink' | 'gold' | 'neutral'>('neutral')
@@ -2387,12 +2451,24 @@ export default function App() {
 
   // управление корзиной с проверкой stock и статуса заказов.
   // key — slug для regular items или canonical id для композитов.
-  const updateCart = (key: string, delta: number) => {
-    console.log('[mini-app] updateCart вызван:', { key, delta, ordersClosed })
+  const updateCart = (key: string, delta: number, digital?: boolean) => {
+    console.log('[mini-app] updateCart вызван:', { key, delta, digital, ordersClosed })
     if (delta > 0 && ordersClosed) {
       console.log('[mini-app] заказы закрыты, показываем модальное окно')
       setOrdersClosedModalOpen(true)
       return
+    }
+
+    // электронный сертификат идёт без доставки, физический товар — с доставкой.
+    // Один заказ не может быть одновременно и тем, и другим, поэтому смешивание
+    // блокируем на добавлении и объясняем причину.
+    if (delta > 0) {
+      const cartHasDigital = cart.some(i => i.kind === 'regular' && i.digital)
+      const cartHasPhysical = cart.some(i => i.kind !== 'regular' || !i.digital)
+      if ((digital && cartHasPhysical) || (!digital && cartHasDigital)) {
+        setMixBlockedModalOpen(true)
+        return
+      }
     }
 
     setCart(prev => {
@@ -2408,7 +2484,7 @@ export default function App() {
         if (!product) return prev
         const maxQuantity = product.stock !== undefined ? product.stock : 999
         const qty = Math.min(maxQuantity, Math.max(1, delta))
-        return [...prev, { kind: 'regular', slug: key, quantity: qty }]
+        return [...prev, { kind: 'regular', slug: key, quantity: qty, ...(digital ? { digital: true } : {}) }]
       }
 
       // лимит для regular из stock; для композита — без ограничения
@@ -2437,6 +2513,11 @@ export default function App() {
   const addComposite = (composite: ConstructorComposite) => {
     if (ordersClosed) {
       setOrdersClosedModalOpen(true)
+      return
+    }
+    // композит нужно отправлять — в корзине с электронным сертификатом ему не место
+    if (cart.some(i => i.kind === 'regular' && i.digital)) {
+      setMixBlockedModalOpen(true)
       return
     }
     setCart(prev => {
@@ -2602,8 +2683,16 @@ export default function App() {
       return
     }
 
-    // открываем промежуточный экран выбора региона/способа доставки
     setCartOpen(false)
+
+    // электронный сертификат доставлять некуда — регион и способ не спрашиваем
+    if (isDigitalCart(cart)) {
+      setDeliveryMethod('digital')
+      setCheckoutOpen(true)
+      return
+    }
+
+    // открываем промежуточный экран выбора региона/способа доставки
     setDeliveryRegionOpen(true)
   }
 
@@ -3029,6 +3118,26 @@ export default function App() {
               closeDate={ordersCloseDate}
               onClose={() => setOrdersClosedModalOpen(false)}
             />
+          )}
+
+          {mixBlockedModalOpen && (
+            <div className="modal-overlay" onClick={() => setMixBlockedModalOpen(false)}>
+              <div className="modal-content modal-content--success" onClick={e => e.stopPropagation()}>
+                <button className="modal-close" onClick={() => setMixBlockedModalOpen(false)}>&times;</button>
+                <div className="order-success">
+                  <div className="order-success__icon" style={{ background: '#ff9800' }}>💌</div>
+                  <h2 className="order-success__title">Нужен отдельный заказ</h2>
+                  <p className="order-success__text">
+                    Электронный сертификат оформляется без доставки, поэтому его нельзя
+                    положить в одну корзину с товарами, которые нужно отправлять.
+                    Оформите его отдельным заказом.
+                  </p>
+                  <button className="btn btn--primary order-success__button" onClick={() => setMixBlockedModalOpen(false)}>
+                    Понятно
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
         </>
       )

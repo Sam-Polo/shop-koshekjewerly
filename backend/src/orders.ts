@@ -5,8 +5,13 @@ export type OrderStatus = 'pending' | 'paid' | 'cancelled' | 'failed'
 
 export type Platform = 'telegram' | 'max'
 
-/** способ доставки: самовывоз / СДЭК ПВЗ / EMS Почта России (международная) */
-export type DeliveryMethod = 'pickup' | 'cdek' | 'ems'
+/**
+ * способ доставки: самовывоз / СДЭК ПВЗ / EMS Почта России (международная) /
+ * digital — электронный сертификат: физической отправки нет, покупатель получает
+ * только промокод. Смешивание с физическими товарами запрещено, поэтому
+ * deliveryMethod === 'digital' означает, что ВЕСЬ заказ электронный.
+ */
+export type DeliveryMethod = 'pickup' | 'cdek' | 'ems' | 'digital'
 
 export type Order = {
   orderId: string

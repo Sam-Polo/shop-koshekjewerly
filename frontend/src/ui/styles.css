@@ -566,6 +566,8 @@ button, input, select, textarea { font-family: inherit; }
 .cart-item__image { width: 80px; height: 80px; flex-shrink: 0; background-size: cover; background-position: center; background-repeat: no-repeat; background-color: #f0f0f0; border-radius: 4px; }
 .cart-item__info { flex: 1; }
 .cart-item__title { margin: 0 0 8px; font-size: 16px; font-weight: 400; }
+/* плашка «электронный» у сертификата без доставки */
+.cart-item__badge { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 10px; background: #f3e6f7; color: #9b59b6; font-size: 11px; font-weight: 600; text-transform: lowercase; vertical-align: middle; }
 .cart-item__price { margin: 0 0 12px; font-size: 14px; color: #666; }
 .cart-item__controls { display: flex; align-items: center; gap: 12px; flex-wrap: nowrap; }
 .cart-item__remove { 
@@ -722,6 +724,17 @@ button, input, select, textarea { font-family: inherit; }
 .checkout-form__pickup-note { font-size: 13px; color: #888; margin-top: 6px; }
 
 .checkout-form__ems-hint { font-size: 13px; line-height: 1.4; color: #7a6a55; background: #fdf9f0; border: 1px solid #ecdfc6; border-radius: 12px; padding: 12px 14px; margin: 0 0 4px; }
+
+/* выбор формата сертификата: физическая карточка / электронный промокод */
+.cert-format { width: 100%; margin-bottom: 14px; }
+.cert-format__label { display: block; font-size: 13px; color: #888; margin-bottom: 8px; }
+.cert-format__options { display: flex; gap: 8px; }
+.cert-format__option { flex: 1; display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; background: #fff; border: 1px solid #e7d8ec; border-radius: 12px; font-family: inherit; text-align: left; cursor: pointer; transition: border-color .2s, background .2s; }
+.cert-format__option:hover { border-color: #d480e0; }
+.cert-format__option.is-active { border-color: #d480e0; background: #fdf6ff; }
+.cert-format__option-title { font-size: 14px; font-weight: 600; color: #222; }
+.cert-format__option-desc { font-size: 12px; color: #888; }
+.cert-format__hint { font-size: 13px; line-height: 1.4; color: #7a6a55; background: #fdf9f0; border: 1px solid #ecdfc6; border-radius: 12px; padding: 10px 12px; margin: 8px 0 0; }
 
 /* приоритетный заказ: тогл (матча выкл / розовый вкл) */
 .checkout-form__priority-wrap {

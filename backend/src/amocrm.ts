@@ -193,13 +193,17 @@ function buildLeadFields(order: Order, certPromocode?: string): FieldValue[] {
       return `${art}${i.title}${i.quantity > 1 ? ` × ${i.quantity}` : ''} — ${i.price * i.quantity}₽`
     })
     .join('\n')
+  // электронный сертификат — отдельная формулировка, чтобы менеджер не искал что отгружать
+  const isDigital = order.orderData.deliveryMethod === 'digital'
   const itemsWithPromo = certPromocode
-    ? `${items}\nПромокод сертификата: ${certPromocode}`
+    ? `${items}\nПромокод ${isDigital ? 'электронного сертификата' : 'сертификата'}: ${certPromocode}`
     : items
   push(fieldVal('AMOCRM_FIELD_ITEMS_ID', itemsWithPromo))
 
-  // Адрес доставки
-  if (order.orderData.deliveryMethod === 'ems') {
+  // Адрес доставки (для электронного сертификата физического адреса нет — поля не пишем)
+  if (isDigital) {
+    // ничего не пишем: тип доставки ниже сам объясняет отсутствие адреса
+  } else if (order.orderData.deliveryMethod === 'ems') {
     const d = order.orderData
     const emsCity = [d.recipientCountry, d.recipientCity].filter(Boolean).join(', ')
     const emsAddress = [d.recipientIndex, d.recipientRegion, d.recipientStreet].filter(Boolean).join(', ')
@@ -215,10 +219,12 @@ function buildLeadFields(order: Order, certPromocode?: string): FieldValue[] {
   push(fieldVal('AMOCRM_FIELD_ORDER_NAME_ID', order.orderData.fullName))
   push(fieldVal('AMOCRM_FIELD_CONTACT_NAME_ID', order.orderData.fullName))
 
-  // Тип доставки — по способу доставки заказа.
+  // Тип доставки — по способу доставки заказа. Поле текстовое, поэтому
+  // «Электронный сертификат» не требует новых enum'ов в amoCRM.
   const deliveryTypeLabel =
     order.orderData.deliveryMethod === 'pickup' ? 'Самовывоз'
     : order.orderData.deliveryMethod === 'ems' ? 'EMS Почта России'
+    : isDigital ? 'Электронный сертификат'
     : 'СДЭК ПВЗ' // 'cdek' и старые заказы без deliveryMethod
   push(fieldVal('AMOCRM_FIELD_DELIVERY_TYPE_ID', deliveryTypeLabel))
 
