@@ -1386,7 +1386,9 @@ const CheckoutForm = ({
     setCostLoading(true); setCostError(null); setDeliveryCost(null)
     const apiUrl = import.meta.env.VITE_API_URL || ''
     try {
-      const resp = await fetch(`${apiUrl}/api/cdek/calculate?city_code=${selectedCity!.code}`)
+      // read-only GET → ретраим: расчёт блокирует оформление, а СДЭК и спящий Render
+      // регулярно дают одиночный сбой, из-за которого покупатель упирался в «не рассчитана»
+      const resp = await fetchWithRetry(`${apiUrl}/api/cdek/calculate?city_code=${selectedCity!.code}`)
       if (!resp.ok) throw new Error('cdek_unavailable')
       const data = await resp.json()
       setDeliveryCost(data.delivery_sum)
@@ -1404,7 +1406,8 @@ const CheckoutForm = ({
     setCostLoading(true); setCostError(null); setDeliveryCost(null)
     const apiUrl = import.meta.env.VITE_API_URL || ''
     try {
-      const resp = await fetch(`${apiUrl}/api/pochta/calculate?country=${country.code}`)
+      // 422 delivery_unavailable вернётся с первой попытки (4xx не ретраятся) — ветка ниже цела
+      const resp = await fetchWithRetry(`${apiUrl}/api/pochta/calculate?country=${country.code}`)
       const data = await resp.json().catch(() => ({}))
       if (resp.status === 422 && data?.error === 'delivery_unavailable') {
         // нулевой тариф = доставка Почтой в эту страну недоступна
@@ -1428,6 +1431,14 @@ const CheckoutForm = ({
     if (errors.country) setErrors(prev => ({ ...prev, country: '' }))
     if (c) calcEmsCost(c)
   }
+
+  // Стоимость приехала (СДЭК или EMS) — снимаем ошибку доставки, если она успела
+  // показаться, пока расчёт был в полёте. Иначе сообщение висит рядом с посчитанной
+  // суммой до следующего submit'а и выглядит как сломанная форма.
+  useEffect(() => {
+    if (deliveryCost === null) return
+    setErrors(prev => (prev.delivery ? { ...prev, delivery: '' } : prev))
+  }, [deliveryCost])
 
   // если в корзине только тестовые товары - доставка бесплатная
   const isOnlyTestProducts = isCartOnlyTestProducts(cart, products)
@@ -1474,9 +1485,17 @@ const CheckoutForm = ({
       if (formData.fullName.trim() && !isLatinText(formData.fullName)) newErrors.fullName = 'Латиницей, как в загранпаспорте'
     }
     // для СДЭК и EMS стоимость доставки должна быть рассчитана
-    if (!isPickup && !isDigital) {
-      if (!isOnlyTestProducts && deliveryCost === null && !costError) newErrors.delivery = 'Стоимость доставки не рассчитана'
-      if (!isOnlyTestProducts && costError) newErrors.delivery = costError
+    if (!isPickup && !isDigital && !isOnlyTestProducts) {
+      if (costError) {
+        newErrors.delivery = costError
+      } else if (costLoading) {
+        // расчёт ещё идёт (СДЭК/Почта отвечают не мгновенно, плюс cold start Render).
+        // Без этой ветки покупатель видел «не рассчитана», а через секунду рядом
+        // появлялась посчитанная сумма — сообщение выглядело как ошибка на пустом месте.
+        newErrors.delivery = 'Считаем стоимость доставки, подождите пару секунд'
+      } else if (deliveryCost === null) {
+        newErrors.delivery = 'Стоимость доставки не рассчитана'
+      }
     }
 
     if (formData.comments && formData.comments.length > 500) newErrors.comments = 'Максимум 500 символов'
