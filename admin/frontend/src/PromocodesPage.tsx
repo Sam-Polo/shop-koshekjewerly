@@ -10,6 +10,8 @@ type Promocode = {
   active: boolean
   productSlugs?: string[]
   source?: string
+  maxUses?: number
+  usedCount?: number
 }
 
 type Product = {
@@ -208,6 +210,7 @@ function PromocodesPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void
                   <th>Значение</th>
                   {activeTab === 'all' && <th>Товары</th>}
                   {activeTab === 'all' && <th>Окончание</th>}
+                  <th>Использований</th>
                   <th>Статус</th>
                   <th>Действия</th>
                 </tr>
@@ -215,11 +218,17 @@ function PromocodesPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void
               <tbody>
                 {filtered.map((promocode) => {
                   const expired = isExpired(promocode.expiresAt)
-                  const status = !promocode.active ? 'Неактивен' : expired ? 'Истек' : 'Активен'
                   const isCert = promocode.source === 'certificate'
+                  // легаси-сертификаты без max_uses всё равно одноразовые
+                  const limit = promocode.maxUses ?? (isCert ? 1 : undefined)
+                  const exhausted = limit !== undefined && (promocode.usedCount ?? 0) >= limit
+                  const status = exhausted ? 'Исчерпан'
+                    : !promocode.active ? 'Неактивен'
+                    : expired ? 'Истек'
+                    : 'Активен'
 
                   return (
-                    <tr key={promocode.code} className={!promocode.active || expired ? 'inactive' : ''}>
+                    <tr key={promocode.code} className={!promocode.active || expired || exhausted ? 'inactive' : ''}>
                       <td data-label="Код"><strong>{promocode.code}</strong></td>
                       <td data-label="Тип">{promocode.type === 'amount' ? 'Сумма' : 'Процент'}</td>
                       <td data-label="Значение">
@@ -237,6 +246,12 @@ function PromocodesPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void
                       {activeTab === 'all' && (
                         <td data-label="Окончание">{formatDate(promocode.expiresAt)}</td>
                       )}
+                      <td data-label="Использований">
+                        {promocode.usedCount ?? 0}
+                        {limit !== undefined
+                          ? ` / ${limit}`
+                          : <span style={{ color: '#666' }}> / ∞</span>}
+                      </td>
                       <td data-label="Статус">{status}</td>
                       <td>
                         {isCert ? (
@@ -337,7 +352,8 @@ function PromocodeFormModal({
     expiresAt: promocode?.expiresAt 
       ? new Date(promocode.expiresAt).toISOString().slice(0, 16)
       : '',
-    productSlugs: promocode?.productSlugs as string[] | undefined
+    productSlugs: promocode?.productSlugs as string[] | undefined,
+    maxUses: promocode?.maxUses ? String(promocode.maxUses) : ''
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -372,6 +388,20 @@ function PromocodeFormModal({
       return
     }
 
+    const maxUsesTrimmed = formData.maxUses.trim()
+    const maxUses = maxUsesTrimmed ? Number(maxUsesTrimmed) : undefined
+    if (maxUses !== undefined && (!Number.isInteger(maxUses) || maxUses < 1)) {
+      setError('Лимит использований — целое число от 1 (или пусто, если без ограничения)')
+      return
+    }
+    // уже использованный промокод нельзя ограничить ниже фактического расхода:
+    // иначе он мгновенно погаснет, а менеджер решит, что настройка не сработала
+    const alreadyUsed = promocode?.usedCount ?? 0
+    if (maxUses !== undefined && alreadyUsed > 0 && maxUses < alreadyUsed) {
+      setError(`Промокод уже использован ${alreadyUsed} раз — лимит не может быть меньше`)
+      return
+    }
+
     try {
       setSaving(true)
       const promocodeData = {
@@ -380,7 +410,8 @@ function PromocodeFormModal({
         value,
         expiresAt: formData.expiresAt || undefined,
         active: promocode?.active !== undefined ? promocode.active : true,
-        productSlugs: formData.productSlugs && formData.productSlugs.length > 0 ? formData.productSlugs : undefined
+        productSlugs: formData.productSlugs && formData.productSlugs.length > 0 ? formData.productSlugs : undefined,
+        maxUses
       }
       
       if (isEditMode && promocode) {
@@ -507,6 +538,25 @@ function PromocodeFormModal({
               min={getMinDateTime()}
             />
             <small>Оставьте пустым, если промокод без срока действия. Промокод будет активен до указанной даты.</small>
+          </div>
+
+          <div className="form-group">
+            <label>Лимит использований</label>
+            <input
+              type="number"
+              step="1"
+              min="1"
+              value={formData.maxUses}
+              onChange={(e) => setFormData({ ...formData, maxUses: e.target.value })}
+              placeholder="без ограничения"
+            />
+            <small>
+              Оставьте пустым для неограниченного применения. Использование засчитывается
+              только после оплаты заказа — применение промокода в форме не расходует лимит.
+              {isEditMode && (promocode?.usedCount ?? 0) > 0 && (
+                <> Уже использован: <strong>{promocode?.usedCount}</strong> раз.</>
+              )}
+            </small>
           </div>
 
           <div className="form-group">

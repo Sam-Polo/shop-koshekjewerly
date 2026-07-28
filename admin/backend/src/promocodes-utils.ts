@@ -12,6 +12,8 @@ export type Promocode = {
   active: boolean // активен ли промокод
   productSlugs?: string[] // массив slug'ов товаров, для которых действует промокод (если пусто или null - действует на все товары)
   source?: string // источник: 'certificate' для сертификатных промокодов
+  maxUses?: number // лимит использований (не задан — без ограничения)
+  usedCount?: number // сколько раз применён в оплаченных заказах (считает бэкенд)
 }
 
 // получение структуры заголовков листа промокодов
@@ -20,11 +22,11 @@ export async function getPromocodesHeaders(
   sheetId: string
 ): Promise<{ headers: string[], headerIndex: Record<string, number> }> {
   const sheets = google.sheets({ version: 'v4', auth })
-  const range = 'promocodes!A1:G1'
+  const range = 'promocodes!A1:K1'
   const res = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range })
   const rows = res.data.values ?? []
   
-  const defaultHeaders = ['code', 'type', 'value', 'expires_at', 'active', 'product_slugs', 'source']
+  const defaultHeaders = ['code', 'type', 'value', 'expires_at', 'active', 'product_slugs', 'source', 'max_uses', 'used_count']
   let headers: string[] = []
   const headerIndex: Record<string, number> = {}
 
@@ -35,7 +37,7 @@ export async function getPromocodesHeaders(
     headers = defaultHeaders
     await sheets.spreadsheets.values.update({
       spreadsheetId: sheetId,
-      range: 'promocodes!A1:H1',
+      range: 'promocodes!A1:K1',
       valueInputOption: 'USER_ENTERED',
       requestBody: {
         values: [defaultHeaders]
@@ -59,7 +61,7 @@ export async function fetchPromocodesFromSheet(sheetId: string): Promise<Promoco
   const sheets = google.sheets({ version: 'v4', auth })
   
   try {
-    const range = 'promocodes!A2:H1000'
+    const range = 'promocodes!A2:K1000'
     const res = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range })
     const rows = res.data.values ?? []
     
@@ -80,7 +82,9 @@ export async function fetchPromocodesFromSheet(sheetId: string): Promise<Promoco
       const activeVal = String(get('active') || '').toLowerCase()
       const productSlugsRaw = String(get('product_slugs') || '').trim()
       const sourceRaw = String(get('source') || '').trim()
-      
+      const maxUsesRaw = String(get('max_uses') || '').trim()
+      const usedCountRaw = String(get('used_count') || '').trim()
+
       if (!code) continue
       
       if (type !== 'amount' && type !== 'percent') continue
@@ -116,6 +120,16 @@ export async function fetchPromocodesFromSheet(sheetId: string): Promise<Promoco
         }
       }
       
+      const maxUsesParsed = maxUsesRaw ? Number(maxUsesRaw.replace(',', '.')) : NaN
+      const maxUses = Number.isFinite(maxUsesParsed) && maxUsesParsed > 0
+        ? Math.floor(maxUsesParsed)
+        : undefined
+
+      const usedCountParsed = usedCountRaw ? Number(usedCountRaw.replace(',', '.')) : NaN
+      const usedCount = Number.isFinite(usedCountParsed) && usedCountParsed > 0
+        ? Math.floor(usedCountParsed)
+        : 0
+
       out.push({
         code,
         type: type as 'amount' | 'percent',
@@ -123,7 +137,9 @@ export async function fetchPromocodesFromSheet(sheetId: string): Promise<Promoco
         expiresAt,
         active,
         productSlugs,
-        ...(sourceRaw ? { source: sourceRaw } : {})
+        ...(sourceRaw ? { source: sourceRaw } : {}),
+        ...(maxUses !== undefined ? { maxUses } : {}),
+        usedCount
       })
     }
     
@@ -160,6 +176,8 @@ export async function appendPromocodeToSheet(
       : ''
   }
   if (headerIndex.source !== undefined) row[headerIndex.source] = promocode.source ?? ''
+  if (headerIndex.max_uses !== undefined) row[headerIndex.max_uses] = promocode.maxUses ?? ''
+  if (headerIndex.used_count !== undefined) row[headerIndex.used_count] = promocode.usedCount ?? 0
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: sheetId,
@@ -180,7 +198,7 @@ export async function deletePromocodeFromSheet(
   code: string
 ): Promise<void> {
   const sheets = google.sheets({ version: 'v4', auth })
-  const range = 'promocodes!A2:H1000'
+  const range = 'promocodes!A2:K1000'
   const res = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range })
   const rows = res.data.values ?? []
   
@@ -238,7 +256,7 @@ export async function updatePromocodeInSheet(
   promocode: Promocode
 ): Promise<void> {
   const sheets = google.sheets({ version: 'v4', auth })
-  const range = 'promocodes!A2:H1000'
+  const range = 'promocodes!A2:K1000'
   const res = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range })
   const rows = res.data.values ?? []
 
@@ -284,12 +302,22 @@ export async function updatePromocodeInSheet(
       ? promocode.productSlugs.join(', ')
       : ''
   }
-  if (headerIndex.source !== undefined) row[headerIndex.source] = promocode.source ?? ''
+  // source и used_count принадлежат бэкенду, а не форме редактирования: переносим
+  // их из существующей строки, иначе правка промокода стёрла бы признак сертификата
+  // и обнулила бы счётчик использований.
+  const existingRow = rows[rowIndex - 2] ?? []
+  if (headerIndex.source !== undefined) {
+    row[headerIndex.source] = promocode.source ?? String(existingRow[headerIndex.source] ?? '')
+  }
+  if (headerIndex.max_uses !== undefined) row[headerIndex.max_uses] = promocode.maxUses ?? ''
+  if (headerIndex.used_count !== undefined) {
+    row[headerIndex.used_count] = String(existingRow[headerIndex.used_count] ?? '') || 0
+  }
 
   // обновляем строку
   await sheets.spreadsheets.values.update({
     spreadsheetId: sheetId,
-    range: `promocodes!A${rowIndex}:H${rowIndex}`,
+    range: `promocodes!A${rowIndex}:K${rowIndex}`,
     valueInputOption: 'USER_ENTERED',
     requestBody: {
       values: [row]

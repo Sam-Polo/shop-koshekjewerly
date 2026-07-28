@@ -10,6 +10,35 @@ export type Promocode = {
   createdAt?: string // дата создания
   productSlugs?: string[] // массив slug'ов товаров, для которых действует промокод (если пусто или null - действует на все товары)
   source?: string // источник промокода: 'certificate' для сертификатных
+  maxUses?: number // лимит использований (не задан — без ограничения)
+  usedCount?: number // сколько раз промокод уже применён в ОПЛАЧЕННЫХ заказах
+}
+
+/**
+ * Лимит использований с учётом легаси: у сертификатных промокодов, выписанных
+ * до появления max_uses, столбец пустой, но они всё равно одноразовые.
+ */
+function effectiveMaxUses(promocode: Promocode): number | undefined {
+  if (promocode.maxUses !== undefined) return promocode.maxUses
+  return promocode.source === 'certificate' ? 1 : undefined
+}
+
+/** Лимит исчерпан? Считаются только оплаченные заказы (см. registerPromocodeUse). */
+export function isPromocodeExhausted(promocode: Promocode): boolean {
+  const limit = effectiveMaxUses(promocode)
+  if (limit === undefined) return false
+  return (promocode.usedCount ?? 0) >= limit
+}
+
+/** Имя колонки Google Sheets по индексу (0 → A, 26 → AA). */
+function colLetter(index: number): string {
+  let n = index
+  let out = ''
+  do {
+    out = String.fromCharCode(65 + (n % 26)) + out
+    n = Math.floor(n / 26) - 1
+  } while (n >= 0)
+  return out
 }
 
 function getCredsFromEnv() {
@@ -36,7 +65,7 @@ export async function fetchPromocodesFromSheet(sheetId: string): Promise<Promoco
   const sheets = google.sheets({ version: 'v4', auth })
   
   try {
-    const range = 'promocodes!A1:H1000'
+    const range = 'promocodes!A1:K1000'
     const res = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range })
     const rows = res.data.values ?? []
     
@@ -58,6 +87,8 @@ export async function fetchPromocodesFromSheet(sheetId: string): Promise<Promoco
       const activeVal = String(get('active') || '').toLowerCase()
       const productSlugsRaw = String(get('product_slugs') || get('productslugs') || '').trim()
       const sourceRaw = String(get('source') || '').trim()
+      const maxUsesRaw = String(get('max_uses') || get('maxuses') || '').trim()
+      const usedCountRaw = String(get('used_count') || get('usedcount') || '').trim()
       
       if (!code) continue // пропускаем строки без кода
       
@@ -96,6 +127,17 @@ export async function fetchPromocodesFromSheet(sheetId: string): Promise<Promoco
         }
       }
       
+      // пустой лимит = без ограничения; мусор в ячейке не должен молча запрещать промокод
+      const maxUsesParsed = maxUsesRaw ? Number(maxUsesRaw.replace(',', '.')) : NaN
+      const maxUses = Number.isFinite(maxUsesParsed) && maxUsesParsed > 0
+        ? Math.floor(maxUsesParsed)
+        : undefined
+
+      const usedCountParsed = usedCountRaw ? Number(usedCountRaw.replace(',', '.')) : NaN
+      const usedCount = Number.isFinite(usedCountParsed) && usedCountParsed > 0
+        ? Math.floor(usedCountParsed)
+        : 0
+
       out.push({
         code,
         type: type as 'amount' | 'percent',
@@ -103,7 +145,9 @@ export async function fetchPromocodesFromSheet(sheetId: string): Promise<Promoco
         expiresAt,
         active,
         productSlugs,
-        ...(sourceRaw ? { source: sourceRaw } : {})
+        ...(sourceRaw ? { source: sourceRaw } : {}),
+        ...(maxUses !== undefined ? { maxUses } : {}),
+        usedCount
       })
     }
     
@@ -160,7 +204,7 @@ export async function saveCertificatePromocode(sheetId: string, certValue: numbe
   // читаем заголовки, чтобы выставить значения по позиции
   const headersRes = await sheets.spreadsheets.values.get({
     spreadsheetId: sheetId,
-    range: 'promocodes!A1:H1',
+    range: 'promocodes!A1:K1',
   })
   const headers = (headersRes.data.values?.[0] ?? []).map((h: string) => h.trim().toLowerCase())
   const numCols = Math.max(headers.length, 7)
@@ -178,10 +222,12 @@ export async function saveCertificatePromocode(sheetId: string, certValue: numbe
   set('active', '1')
   set('product_slugs', '')
   set('source', 'certificate')
+  set('max_uses', '1') // сертификат одноразовый
+  set('used_count', '0')
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: sheetId,
-    range: 'promocodes!A:H',
+    range: 'promocodes!A:K',
     valueInputOption: 'USER_ENTERED',
     requestBody: { values: [row] },
   })
@@ -193,48 +239,80 @@ export async function saveCertificatePromocode(sheetId: string, certValue: numbe
     value: certValue,
     active: true,
     source: 'certificate',
+    maxUses: 1,
+    usedCount: 0,
   })
 
   return code
 }
 
-// Деактивирует промокод сертификата (одноразовый): в памяти и в Google Sheets.
-export async function deactivateCertificatePromocode(sheetId: string, code: string): Promise<void> {
+// ── Учёт использований ───────────────────────────────────────────────────────
+
+/**
+ * Отмечает ФАКТИЧЕСКОЕ использование промокода — вызывается только после
+ * подтверждённой оплаты. Применение промокода в форме заказа ничего не тратит:
+ * покупатель может переоформить заказ, и код не должен сгореть.
+ *
+ * Инкремент делается read-modify-write по листу (источник истины), чтобы не
+ * потерять использования, сделанные до перезапуска Render. При достижении лимита
+ * промокод гасится (active=0) — и в памяти, и в Sheets.
+ */
+export async function registerPromocodeUse(sheetId: string, code: string): Promise<void> {
   const normalizedCode = code.trim().toUpperCase()
 
-  // сразу обновляем память
-  const promo = state.promocodes.find(p => p.code === normalizedCode)
-  if (promo) promo.active = false
-
-  // находим и обновляем строку в листе
   const auth = getWriteAuth()
   const sheets = google.sheets({ version: 'v4', auth })
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: sheetId,
-    range: 'promocodes!A1:H1000',
+    range: 'promocodes!A1:K1000',
   })
   const rows = res.data.values ?? []
   if (rows.length === 0) return
 
   const headers = rows[0].map((h: string) => h.trim().toLowerCase())
   const codeIdx = headers.indexOf('code')
+  if (codeIdx < 0) return
   const activeIdx = headers.indexOf('active')
-  if (codeIdx < 0 || activeIdx < 0) return
+  const usedCountIdx = headers.indexOf('used_count')
+  const maxUsesIdx = headers.indexOf('max_uses')
 
-  for (let i = 1; i < rows.length; i++) {
-    if (String(rows[i]?.[codeIdx] ?? '').trim().toUpperCase() === normalizedCode) {
-      const rowNum = i + 1 // 1-indexed
-      const activeCol = String.fromCharCode(65 + activeIdx)
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: sheetId,
-        range: `promocodes!${activeCol}${rowNum}`,
-        valueInputOption: 'USER_ENTERED',
-        requestBody: { values: [['0']] },
-      })
-      break
-    }
+  const rowNum = rows.findIndex((r, i) =>
+    i > 0 && String(r?.[codeIdx] ?? '').trim().toUpperCase() === normalizedCode
+  )
+  if (rowNum < 1) return // строки нет — считать нечего
+
+  const row = rows[rowNum]
+  const memoryPromo = state.promocodes.find(p => p.code === normalizedCode)
+
+  // счётчик берём из листа: он переживает засыпание Render, память — нет
+  const sheetUsed = Number(String(row?.[usedCountIdx] ?? '').trim().replace(',', '.'))
+  const usedCount = (Number.isFinite(sheetUsed) && sheetUsed > 0 ? Math.floor(sheetUsed) : 0) + 1
+
+  const sheetMax = Number(String(row?.[maxUsesIdx] ?? '').trim().replace(',', '.'))
+  const maxUses = Number.isFinite(sheetMax) && sheetMax > 0
+    ? Math.floor(sheetMax)
+    : (memoryPromo?.source === 'certificate' ? 1 : undefined) // легаси-сертификаты одноразовые
+  const exhausted = maxUses !== undefined && usedCount >= maxUses
+
+  if (memoryPromo) {
+    memoryPromo.usedCount = usedCount
+    if (exhausted) memoryPromo.active = false
   }
+
+  const data: { range: string; values: string[][] }[] = []
+  if (usedCountIdx >= 0) {
+    data.push({ range: `promocodes!${colLetter(usedCountIdx)}${rowNum + 1}`, values: [[String(usedCount)]] })
+  }
+  if (exhausted && activeIdx >= 0) {
+    data.push({ range: `promocodes!${colLetter(activeIdx)}${rowNum + 1}`, values: [['0']] })
+  }
+  if (data.length === 0) return
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: sheetId,
+    requestBody: { valueInputOption: 'USER_ENTERED', data },
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -250,7 +328,12 @@ export function validatePromocode(
   if (!promocode.active) {
     return null
   }
-  
+
+  // лимит использований исчерпан (считаются только оплаченные заказы)
+  if (isPromocodeExhausted(promocode)) {
+    return null
+  }
+
   // проверяем срок действия
   if (promocode.expiresAt) {
     const now = new Date()

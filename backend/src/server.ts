@@ -17,7 +17,7 @@ import { calculateTariff as calculatePochtaTariff, triggerPochtaOrderAsync, down
 import { uploadBufferToS3 } from './s3.js';
 import { triggerAmoCrmAsync, updateAmoCrmLeadTrack, updateAmoCrmLeadBarcode, createAmoCrmLead, syncCdekToLead } from './amocrm.js';
 import { buildPaymentForm, buildReceipt, verifyResultSignature, queryOrderState } from './robokassa.js';
-import { fetchPromocodesFromSheet, loadPromocodes, findPromocode, validatePromocode, listPromocodes, saveCertificatePromocode, deactivateCertificatePromocode } from './promocodes.js';
+import { fetchPromocodesFromSheet, loadPromocodes, findPromocode, validatePromocode, listPromocodes, saveCertificatePromocode, registerPromocodeUse } from './promocodes.js';
 import { getCachedOrdersSettings } from './settings.js';
 import { getCachedFaq, invalidateFaqCache } from './faq.js';
 import { getCachedCategories } from './categories.js';
@@ -1277,20 +1277,19 @@ export async function processPaidOrder(
     ).catch(() => {})
   }
 
-  // деактивируем одноразовый промокод сертификата если он был использован в этом заказе
+  // Промокод считается использованным ТОЛЬКО здесь — после подтверждённой оплаты.
+  // Применение в форме заказа ничего не тратит: покупатель мог переоформить заказ.
+  // Сюда мы попадаем один раз на заказ (выше стоит guard по status === 'paid').
   const usedPromoCode = order.orderData.promocode?.code
   if (usedPromoCode) {
-    const usedPromo = findPromocode(usedPromoCode)
-    if (usedPromo?.source === 'certificate') {
-      const importSheetId = process.env.IMPORT_SHEET_ID
-      if (importSheetId) {
-        deactivateCertificatePromocode(importSheetId, usedPromoCode).catch((e: any) => {
-          sendAlert(
-            `Не удалось деактивировать промокод сертификата ${usedPromoCode} (заказ ${orderId}): ${e?.message}`,
-            { tag: 'promo', level: 'low', code: 'CERT_PROMO_DEACTIVATE_FAILED' }
-          ).catch(() => {})
-        })
-      }
+    const importSheetId = process.env.IMPORT_SHEET_ID
+    if (importSheetId) {
+      registerPromocodeUse(importSheetId, usedPromoCode).catch((e: any) => {
+        sendAlert(
+          `Не удалось учесть использование промокода ${usedPromoCode} (заказ ${orderId}): ${e?.message}`,
+          { tag: 'promo', level: 'low', hint: 'счётчик использований разошёлся с реальностью — поправьте в админке', code: 'PROMO_USE_REGISTER_FAILED' }
+        ).catch(() => {})
+      })
     }
   }
 

@@ -16,6 +16,17 @@ const router = express.Router()
 // все роуты требуют авторизации
 router.use(requireAuth)
 
+/**
+ * Лимит использований: пусто/null → без ограничения, целое ≥1 → лимит.
+ * Возвращает 'invalid' для мусора, чтобы роут ответил 400, а не молча снял лимит.
+ */
+function parseMaxUses(raw: unknown): number | undefined | 'invalid' {
+  if (raw === undefined || raw === null || raw === '') return undefined
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n < 1 || !Number.isInteger(n)) return 'invalid'
+  return n
+}
+
 // функция для вызова импорта в основном бэкенде
 async function triggerBackendImport() {
   try {
@@ -127,13 +138,20 @@ router.post('/', async (req, res) => {
       }
     }
     
+    const maxUses = parseMaxUses(promocodeData.maxUses)
+    if (maxUses === 'invalid') {
+      return res.status(400).json({ error: 'invalid_max_uses' })
+    }
+
     const promocode = {
       code,
       type: promocodeData.type as 'amount' | 'percent',
       value,
       expiresAt,
       active: true, // промокод всегда активен при создании
-      productSlugs
+      productSlugs,
+      maxUses,
+      usedCount: 0
     }
 
     await appendPromocodeToSheet(auth, sheetId, promocode)
@@ -225,13 +243,19 @@ router.put('/:code', async (req, res) => {
       }
     }
     
+    const maxUses = parseMaxUses(promocodeData.maxUses)
+    if (maxUses === 'invalid') {
+      return res.status(400).json({ error: 'invalid_max_uses' })
+    }
+
     const promocode = {
       code,
       type: promocodeData.type as 'amount' | 'percent',
       value,
       expiresAt,
       active: promocodeData.active !== undefined ? Boolean(promocodeData.active) : true,
-      productSlugs
+      productSlugs,
+      maxUses
     }
 
     await updatePromocodeInSheet(auth, sheetId, oldCode, promocode)
