@@ -1159,9 +1159,19 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
       return res.status(500).json({ error: 'payment_config_error' })
     }
 
-    // Оплата идёт через промежуточную страницу бэкенда (/api/robokassa/pay), которая
-    // авто-POST'ит форму в Робокассу с номенклатурой (Receipt). POST — потому что чек с
-    // кириллицей раздувается в URL и упирается в лимит длины (рекомендация Робокассы).
+    // Оплата уходит POST-формой (а не GET-ссылкой): чек с кириллицей раздувает URL сверх
+    // лимита Робокассы. Поля формы отдаём сразу мини-аппу — он POST'ит их из статической
+    // pay.html на GitHub Pages. Бэкенда в браузерном пути оплаты быть не должно: покупателю
+    // нужен российский IP для Робокассы, а Render за Cloudflare из РФ недоступен.
+    let payment: { actionUrl: string; fields: Record<string, string> } | null = null
+    try {
+      payment = buildOrderPaymentForm(orderId, order)
+    } catch (e: any) {
+      // не смогли собрать форму — остаётся paymentUrl-фолбэк через страницу бэкенда
+      logger.error({ orderId, error: e?.message }, 'не удалось собрать форму оплаты для мини-аппа')
+    }
+
+    // легаси-фолбэк для закешированных сборок мини-аппа, не знающих про payment
     const backendUrl = (process.env.BACKEND_URL || 'https://shop-koshekjewerly.onrender.com').replace(/\/$/, '')
     const paymentUrl = `${backendUrl}/api/robokassa/pay?orderId=${encodeURIComponent(orderId)}`
 
@@ -1170,13 +1180,15 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
       invoiceId,
       amount: total,
       merchantLogin: process.env.ROBOKASSA_MERCHANT_LOGIN,
-      isTest: process.env.ROBOKASSA_TEST
-    }, 'заказ создан, ссылка на страницу оплаты сформирована')
+      isTest: process.env.ROBOKASSA_TEST,
+      hasPaymentForm: !!payment
+    }, 'заказ создан, форма оплаты сформирована')
 
     res.json({
       ok: true,
       orderId,
-      paymentUrl // URL страницы бэкенда, которая POST'ит форму в Робокассу
+      payment,   // { actionUrl, fields } — мини-апп POST'ит их сам через pay.html
+      paymentUrl // легаси: страница бэкенда, которая POST'ит форму в Робокассу
     })
   } catch (e: any) {
     logger.error({ error: e?.message }, 'ошибка создания заказа')
@@ -1573,6 +1585,42 @@ function buildSuccessFailUrls(platform: Platform): { successUrl: string; failUrl
   return { successUrl: `${base}/?payment=success`, failUrl: `${base}/?payment=fail` }
 }
 
+// сборка POST-формы Робокассы по заказу: чек (Receipt) + подпись.
+// используется и ответом POST /api/orders (мини-апп открывает статическую pay.html),
+// и промежуточной страницей бэкенда /api/robokassa/pay (легаси-фолбэк).
+function buildOrderPaymentForm(orderId: string, order: Order): { actionUrl: string; fields: Record<string, string> } {
+  const platform: Platform = order.platform === 'max' ? 'max' : 'telegram'
+  const invoiceId = orderId.replace(/^ORD-/, '')
+  const { total, deliveryCost, priorityFee, promocode, items } = order.orderData
+
+  const receipt = buildReceipt({
+    items: items.map(i => ({ title: i.title, price: i.price, quantity: i.quantity })),
+    deliveryCost,
+    priorityFee: priorityFee ?? 0,
+    discount: promocode?.discount ?? 0,
+    total,
+  })
+  if (!receipt) {
+    // не удалось свести чек к OutSum — платим без номенклатуры: карта работает, BNPL будет скрыт
+    sendAlert(
+      `Не удалось собрать Receipt для ${orderId} — оплата без номенклатуры (Сплит/рассрочка будут скрыты)`,
+      { tag: 'robokassa', level: 'moderate', hint: 'проверьте суммы позиций/скидку — итог не сошёлся с total', code: 'RECEIPT_BUILD_FAILED' }
+    ).catch(() => {})
+  }
+
+  const { successUrl, failUrl } = buildSuccessFailUrls(platform)
+  return buildPaymentForm({
+    orderId,
+    invoiceId,
+    amount: total,
+    receipt,
+    description: `Заказ ${orderId}`,
+    successUrl,
+    failUrl,
+    platform,
+  })
+}
+
 // экранирование значений для HTML-атрибутов (значения полей формы)
 function escapeHtmlAttr(s: string): string {
   return String(s)
@@ -1625,36 +1673,7 @@ const handlePayRedirect = async (req: express.Request, res: express.Response) =>
       return res.status(404).send('<!DOCTYPE html><meta charset="utf-8"><h1>Заказ не найден</h1><p>Вернитесь в приложение и оформите заказ заново.</p>')
     }
 
-    const platform: Platform = order.platform === 'max' ? 'max' : 'telegram'
-    const invoiceId = orderId.replace(/^ORD-/, '')
-    const { total, deliveryCost, priorityFee, promocode, items } = order.orderData
-
-    const receipt = buildReceipt({
-      items: items.map(i => ({ title: i.title, price: i.price, quantity: i.quantity })),
-      deliveryCost,
-      priorityFee: priorityFee ?? 0,
-      discount: promocode?.discount ?? 0,
-      total,
-    })
-    if (!receipt) {
-      // не удалось свести чек к OutSum — платим без номенклатуры: карта работает, BNPL будет скрыт
-      sendAlert(
-        `Не удалось собрать Receipt для ${orderId} — оплата без номенклатуры (Сплит/рассрочка будут скрыты)`,
-        { tag: 'robokassa', level: 'moderate', hint: 'проверьте суммы позиций/скидку — итог не сошёлся с total', code: 'RECEIPT_BUILD_FAILED' }
-      ).catch(() => {})
-    }
-
-    const { successUrl, failUrl } = buildSuccessFailUrls(platform)
-    const { actionUrl, fields } = buildPaymentForm({
-      orderId,
-      invoiceId,
-      amount: total,
-      receipt,
-      description: `Заказ ${orderId}`,
-      successUrl,
-      failUrl,
-      platform,
-    })
+    const { actionUrl, fields } = buildOrderPaymentForm(orderId, order)
 
     res.set('Content-Type', 'text/html; charset=utf-8')
     // страница персональная и одноразовая — не кэшируем

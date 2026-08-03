@@ -175,6 +175,17 @@ const CERTIFICATE_CATEGORY = 'сертификаты'
 const isDigitalCart = (cart: CartItem[]) =>
   cart.length > 0 && cart.every(i => i.kind === 'regular' && i.digital === true)
 
+// ссылка на статическую pay.html, которая POST'ит форму прямо в Робокассу.
+// бэкенд в браузерном пути оплаты не участвует намеренно: для Робокассы покупателю нужен
+// российский IP, а Render (за Cloudflare) из РФ недоступен — в одном переходе не совместить.
+function buildPayPageUrl(payment: { actionUrl?: string; fields?: Record<string, string> } | null | undefined): string | null {
+  if (!payment?.fields || Object.keys(payment.fields).length === 0) return null
+  const url = new URL(`${baseUrl}pay.html`, window.location.origin)
+  if (payment.actionUrl) url.searchParams.set('__action', payment.actionUrl)
+  for (const [key, value] of Object.entries(payment.fields)) url.searchParams.set(key, value)
+  return url.toString()
+}
+
 const defaultCategories: Category[] = [
   { key: 'ягоды', title: 'Ягоды (special)', description: 'Эксклюзивная коллекция KOSHEK, украшения в виде реалистичных ягод из полимерной глины', image: berriesImage },
   { key: 'выпечка', title: 'Выпечка', description: 'Эксклюзивная коллекция КОШЕК, украшения в виде реалистичной выпечки из полимерной глины', image: bakeryImage },
@@ -2801,10 +2812,14 @@ export default function App() {
       }
 
       const result = await response.json()
-      
+
+      // предпочитаем pay.html на Pages; ссылка на страницу бэкенда — фолбэк на случай,
+      // если форму собрать не удалось
+      const paymentUrl = buildPayPageUrl(result.payment) || result.paymentUrl
+
       // если есть URL оплаты, показываем информационное окно перед редиректом
-      if (result.paymentUrl) {
-        setPendingPaymentUrl(result.paymentUrl)
+      if (paymentUrl) {
+        setPendingPaymentUrl(paymentUrl)
         setCheckoutOpen(false)
         setPaymentRedirectOpen(true)
       } else {

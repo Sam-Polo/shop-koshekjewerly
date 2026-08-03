@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Переход к оплате…</title>
+<style>
+  body{font-family:-apple-system,system-ui,'Segoe UI',Roboto,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;background:#faf7f2;color:#333}
+  .box{text-align:center;padding:24px;max-width:420px}
+  p{margin:0 0 8px;font-size:16px}
+  .hint{font-size:13px;color:#8a8279;line-height:1.45}
+  button{margin-top:16px;padding:12px 22px;border:0;border-radius:10px;background:#caa46a;color:#fff;font-size:15px;cursor:pointer}
+</style>
+</head>
+<body>
+  <!--
+    Страница оплаты живёт на GitHub Pages, а не на бэкенде, намеренно: покупателю из РФ
+    для Робокассы нужен российский IP, а Render (за Cloudflare) оттуда недоступен — держать
+    оба хоста в одном браузерном переходе невозможно. Поля формы и подпись считает бэкенд
+    и отдаёт их в ответе POST /api/orders, здесь только сборка и отправка формы.
+  -->
+  <form id="rk" method="POST" accept-charset="utf-8"></form>
+  <div class="box">
+    <p id="status">Перенаправляем на оплату…</p>
+    <p class="hint">Если страница оплаты не открылась, вернитесь сюда и нажмите кнопку ещё раз.</p>
+    <button type="button" id="go">Перейти к оплате</button>
+  </div>
+  <script>
+  (function () {
+    var DEFAULT_ACTION = 'https://auth.robokassa.ru/Merchant/Index.aspx'
+    var params = new URLSearchParams(window.location.search)
+
+    // action берём из параметра, но только если это домен Робокассы — иначе страница
+    // превратилась бы в открытый редирект на произвольный хост
+    var action = DEFAULT_ACTION
+    var wanted = params.get('__action')
+    if (wanted) {
+      try {
+        var host = new URL(wanted).hostname
+        if (/(^|\.)robokassa\.(ru|kz)$/.test(host)) action = wanted
+      } catch (e) { /* кривой URL — остаёмся на дефолтном */ }
+    }
+
+    var form = document.getElementById('rk')
+    form.action = action
+
+    var count = 0
+    params.forEach(function (value, key) {
+      if (key === '__action') return
+      var input = document.createElement('input')
+      input.type = 'hidden'
+      input.name = key
+      input.value = value
+      form.appendChild(input)
+      count++
+    })
+
+    if (!count) {
+      document.getElementById('status').textContent = 'Данные оплаты не переданы'
+      document.getElementById('go').style.display = 'none'
+      return
+    }
+
+    document.getElementById('go').addEventListener('click', function () { form.submit() })
+    form.submit()
+  })()
+  </script>
+</body>
+</html>
