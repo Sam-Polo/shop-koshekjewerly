@@ -73,6 +73,12 @@ type Category = {
   disabled?: boolean // если true, категория некликабельна
 }
 
+/** опция товара: одна группа выбора (размер / длина / цвет…), название задаёт менеджер */
+type ProductOption = {
+  name: string
+  values: string[]
+}
+
 type Product = {
   slug: string
   title: string
@@ -86,6 +92,7 @@ type Product = {
   stock?: number
   article?: string // артикул товара
   coming_drop?: boolean
+  options?: ProductOption // если задана — выбор обязателен перед добавлением в корзину
 }
 
 type RegularCartItem = {
@@ -98,6 +105,17 @@ type RegularCartItem = {
    * физическими позициями нельзя — иначе заказ пришлось бы и отправлять, и не отправлять.
    */
   digital?: boolean
+  /**
+   * выбранное значение опции (без названия группы — оно берётся из товара).
+   * Один товар с разными опциями = разные строки корзины, поэтому позиция
+   * идентифицируется парой (slug, option), а не одним slug.
+   */
+  option?: string
+}
+
+/** совпадение позиции корзины: обычный товар опознаётся парой (slug, option) */
+function sameRegular(item: RegularCartItem, slug: string, option?: string): boolean {
+  return item.slug === slug && (item.option ?? '') === (option ?? '')
 }
 
 type ConstructorComponentRef = {
@@ -623,7 +641,7 @@ const ProductModal = ({
 }: { 
   product: Product
   cart: CartItem[]
-  onAddToCart: (slug: string, quantity: number, digital?: boolean) => void
+  onAddToCart: (slug: string, quantity: number, digital?: boolean, option?: string) => void
   onClose: () => void
   onAddedToCart: () => void
   ordersClosed: boolean
@@ -634,6 +652,9 @@ const ProductModal = ({
   // формат сертификата: физическая карточка (по умолчанию) или электронный промокод
   const isCertificate = product.category === CERTIFICATE_CATEGORY
   const [digital, setDigital] = useState(false)
+  // выбор опции (размер и т.п.): ничего не предвыбрано — покупатель должен выбрать сам,
+  // иначе менеджер получит случайный дефолт вместо осознанного выбора
+  const [selectedOption, setSelectedOption] = useState<string | null>(null)
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null)
   const [isAdding, setIsAdding] = useState(false)
   const [addedState, setAddedState] = useState(false)
@@ -642,18 +663,25 @@ const ProductModal = ({
   const currentMedia = product.images?.[selectedImageIndex] || ''
   // image-loader только для фото; для видео отдаём '' (Image() не грузит видео)
   const { loading: mainImageLoading } = useImageLoader(isVideo(currentMedia) ? '' : currentMedia)
-  const cartItem = cart.find(item => item.kind === 'regular' && item.slug === product.slug)
-  const currentQuantity = cartItem?.quantity || 0
+  // остаток общий на все опции, поэтому считаем уже занятое количество по всем
+  // строкам корзины с этим товаром, независимо от выбранного размера
+  const currentQuantity = cart.reduce(
+    (sum, item) => item.kind === 'regular' && item.slug === product.slug ? sum + item.quantity : sum,
+    0
+  )
   const maxQuantity = product.stock !== undefined ? product.stock : 999
   const availableQuantity = Math.max(0, maxQuantity - currentQuantity)
   const canIncrease = quantity < availableQuantity
-  const canAddToCart = quantity > 0 && quantity <= availableQuantity
+  const optionRequired = !!product.options
+  const optionChosen = !optionRequired || selectedOption !== null
+  const canAddToCart = quantity > 0 && quantity <= availableQuantity && optionChosen
 
-  // сбрасываем quantity, изображение и формат при открытии модалки
+  // сбрасываем quantity, изображение, формат и опцию при открытии модалки
   useEffect(() => {
     setQuantity(1)
     setSelectedImageIndex(0)
     setDigital(false)
+    setSelectedOption(null)
   }, [product.slug])
 
   // синхронизация свайпера с выбранной миниатюрой
@@ -695,7 +723,7 @@ const ProductModal = ({
     if (canAddToCart && !isAdding) {
       setIsAdding(true)
       setTimeout(() => {
-        onAddToCart(product.slug, quantity, isCertificate ? digital : undefined)
+        onAddToCart(product.slug, quantity, isCertificate ? digital : undefined, selectedOption ?? undefined)
         setAddedState(true)
         setIsAdding(false)
         setTimeout(() => {
@@ -844,6 +872,24 @@ const ProductModal = ({
                     )}
                   </div>
                 )}
+                {product.options && (
+                  <div className="product-options">
+                    <span className="product-options__label">{product.options.name}</span>
+                    <div className="product-options__list">
+                      {product.options.values.map(value => (
+                        <button
+                          key={value}
+                          type="button"
+                          className={`product-options__value ${selectedOption === value ? 'is-active' : ''}`}
+                          onClick={() => setSelectedOption(value)}
+                          aria-pressed={selectedOption === value}
+                        >
+                          {value}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="cart-controls__quantity">
                   <button
                     className="quantity-btn"
@@ -861,7 +907,7 @@ const ProductModal = ({
                     +
                   </button>
                 </div>
-                {!canAddToCart && quantity > availableQuantity && availableQuantity > 0 && (
+                {quantity > availableQuantity && availableQuantity > 0 && (
                   <p className="cart-controls__error">Доступно только {availableQuantity} шт.</p>
                 )}
                 <button
@@ -869,7 +915,13 @@ const ProductModal = ({
                   onClick={handleAddToCart}
                   disabled={!canAddToCart || isAdding || addedState}
                 >
-                  {isAdding ? 'Добавляем...' : addedState ? 'Добавлено ✓' : 'Добавить в корзину'}
+                  {isAdding
+                    ? 'Добавляем...'
+                    : addedState
+                    ? 'Добавлено ✓'
+                    : !optionChosen
+                    ? `Выберите: ${product.options!.name.toLowerCase()}`
+                    : 'Добавить в корзину'}
                 </button>
               </>
             )}
@@ -2015,7 +2067,8 @@ const CartModal = ({
 }: {
   cart: CartItem[]
   products: Product[]
-  onUpdateCart: (key: string, delta: number) => void
+  // option — для обычных товаров: строка корзины опознаётся парой (slug, option)
+  onUpdateCart: (key: string, delta: number, option?: string) => void
   onPreviewComponent: (kind: 'base' | 'pendant', ref: ConstructorComponentRef) => void
   onClose: () => void
   onCheckout: () => void
@@ -2178,10 +2231,16 @@ const CartModal = ({
                 }
 
                 const product = it.product
+                const option = it.cartItem.option
+                // остаток общий на все опции: считаем занятое всеми строками этого товара
+                const usedForSlug = cartItems.reduce(
+                  (sum, x) => x.kind === 'regular' && x.product.slug === product.slug ? sum + x.quantity : sum,
+                  0
+                )
                 const maxQuantity = product.stock !== undefined ? product.stock : 999
-                const canAddMore = it.quantity < maxQuantity
+                const canAddMore = usedForSlug < maxQuantity
                 return (
-                  <div key={product.slug} className="cart-item">
+                  <div key={`${product.slug}|${option ?? ''}`} className="cart-item">
                     {product.images && product.images.length > 0 && (
                       <div
                         className="cart-item__image"
@@ -2193,11 +2252,16 @@ const CartModal = ({
                         {product.title}
                         {it.cartItem.digital && <span className="cart-item__badge">электронный</span>}
                       </h3>
+                      {option && (
+                        <p className="cart-item__option">
+                          {product.options?.name ?? 'Опция'}: {option}
+                        </p>
+                      )}
                       <p className="cart-item__price">{it.unitPrice} ₽ × {it.quantity}</p>
                       <div className="cart-item__controls">
                         <button
                           className="quantity-btn"
-                          onClick={() => onUpdateCart(product.slug, -1)}
+                          onClick={() => onUpdateCart(product.slug, -1, option)}
                           disabled={it.quantity === 0}
                         >
                           −
@@ -2205,14 +2269,14 @@ const CartModal = ({
                         <span className="quantity-value">{it.quantity}</span>
                         <button
                           className="quantity-btn"
-                          onClick={() => onUpdateCart(product.slug, 1)}
+                          onClick={() => onUpdateCart(product.slug, 1, option)}
                           disabled={!canAddMore}
                         >
                           +
                         </button>
                         <button
                           className="cart-item__remove"
-                          onClick={() => onUpdateCart(product.slug, -999)}
+                          onClick={() => onUpdateCart(product.slug, -999, option)}
                           aria-label="Удалить товар"
                         >
                           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -2481,8 +2545,8 @@ export default function App() {
 
   // управление корзиной с проверкой stock и статуса заказов.
   // key — slug для regular items или canonical id для композитов.
-  const updateCart = (key: string, delta: number, digital?: boolean) => {
-    console.log('[mini-app] updateCart вызван:', { key, delta, digital, ordersClosed })
+  const updateCart = (key: string, delta: number, digital?: boolean, option?: string) => {
+    console.log('[mini-app] updateCart вызван:', { key, delta, digital, option, ordersClosed })
     if (delta > 0 && ordersClosed) {
       console.log('[mini-app] заказы закрыты, показываем модальное окно')
       setOrdersClosedModalOpen(true)
@@ -2502,19 +2566,36 @@ export default function App() {
     }
 
     setCart(prev => {
+      // обычный товар опознаётся парой (slug, option): один товар с разными
+      // размерами лежит в корзине отдельными строками
       const matches = (item: CartItem) =>
-        item.kind === 'regular' ? item.slug === key : item.id === key
+        item.kind === 'regular' ? sameRegular(item, key, option) : item.id === key
 
       const existing = prev.find(matches)
+
+      // остаток общий на все опции товара, поэтому лимит считаем с учётом
+      // количества в остальных строках того же slug
+      const otherLinesQty = prev.reduce(
+        (sum, item) => item.kind === 'regular' && item.slug === key && !matches(item) ? sum + item.quantity : sum,
+        0
+      )
 
       // нет такого item в корзине → если delta>0, добавляем как обычный товар (композиты добавляются через addComposite)
       if (!existing) {
         if (delta < 0) return prev
         const product = products.find(p => p.slug === key)
         if (!product) return prev
-        const maxQuantity = product.stock !== undefined ? product.stock : 999
-        const qty = Math.min(maxQuantity, Math.max(1, delta))
-        return [...prev, { kind: 'regular', slug: key, quantity: qty, ...(digital ? { digital: true } : {}) }]
+        const stockLimit = product.stock !== undefined ? product.stock : 999
+        const available = Math.max(0, stockLimit - otherLinesQty)
+        if (available === 0) return prev
+        const qty = Math.min(available, Math.max(1, delta))
+        return [...prev, {
+          kind: 'regular',
+          slug: key,
+          quantity: qty,
+          ...(digital ? { digital: true } : {}),
+          ...(option ? { option } : {})
+        }]
       }
 
       // лимит для regular из stock; для композита — без ограничения
@@ -2522,7 +2603,8 @@ export default function App() {
       if (existing.kind === 'regular') {
         const product = products.find(p => p.slug === existing.slug)
         if (!product) return prev
-        maxQuantity = product.stock !== undefined ? product.stock : 999
+        const stockLimit = product.stock !== undefined ? product.stock : 999
+        maxQuantity = Math.max(0, stockLimit - otherLinesQty)
       }
 
       if (delta < 0) {
@@ -2773,7 +2855,9 @@ export default function App() {
           slug: product.slug,
           title: product.title,
           price: getProductPrice(product),
-          quantity: item.quantity
+          quantity: item.quantity,
+          // бэкенд сверит значение со справочником опций товара и сам соберёт «Размер: 17»
+          ...(item.option ? { option: item.option } : {})
         } : null
       }).filter(Boolean)
 
@@ -3065,7 +3149,8 @@ export default function App() {
         <CartModal
           cart={cart}
           products={products}
-          onUpdateCart={updateCart}
+          // в корзине digital уже зафиксирован при добавлении — прокидываем только опцию
+          onUpdateCart={(key, delta, option) => updateCart(key, delta, undefined, option)}
           onPreviewComponent={(kind, ref) => {
             const data = {
               id: ref.id,

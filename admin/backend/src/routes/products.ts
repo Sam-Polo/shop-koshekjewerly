@@ -25,6 +25,41 @@ function normalizeArticle(article: string | undefined): string | undefined {
   return String(n).padStart(4, '0')
 }
 
+/**
+ * Нормализует опцию товара из формы: `{ name, values[] }` → та же структура, но
+ * очищенная, либо undefined (товар без выбора). Второй элемент кортежа — код ошибки:
+ * заданное имя без вариантов (и наоборот) — почти всегда недозаполненная форма,
+ * молча ронять такое в «без опций» нельзя, менеджер не заметит.
+ */
+function normalizeOptionsInput(raw: any): [{ name: string; values: string[] } | undefined, string | null] {
+  if (raw === undefined || raw === null) return [undefined, null]
+  if (typeof raw !== 'object' || Array.isArray(raw)) return [undefined, 'invalid_options']
+
+  const name = typeof raw.name === 'string' ? raw.name.trim() : ''
+  const valuesRaw = Array.isArray(raw.values) ? raw.values : []
+  const seen = new Set<string>()
+  const values: string[] = []
+  for (const v of valuesRaw) {
+    if (typeof v !== 'string') return [undefined, 'invalid_options']
+    const val = v.trim()
+    if (!val || seen.has(val)) continue
+    if (val.length > 40) return [undefined, 'option_value_too_long']
+    seen.add(val)
+    values.push(val)
+  }
+
+  if (!name && values.length === 0) return [undefined, null] // опций нет — норма
+  if (!name) return [undefined, 'option_name_required']
+  if (name.length > 40) return [undefined, 'option_name_too_long']
+  if (values.length === 0) return [undefined, 'option_values_required']
+  if (values.length > 24) return [undefined, 'too_many_option_values']
+  // запятая и двоеточие — разделители формата ячейки, иначе значение развалится при чтении
+  if (name.includes(':') || name.includes(',')) return [undefined, 'option_name_invalid_chars']
+  if (values.some(v => v.includes(','))) return [undefined, 'option_value_invalid_chars']
+
+  return [{ name, values }, null]
+}
+
 // функция для вызова импорта в основном бэкенде
 async function triggerBackendImport() {
   try {
@@ -148,6 +183,11 @@ router.post('/', async (req, res) => {
       }
     }
 
+    const [createOptions, createOptionsError] = normalizeOptionsInput(productData.options)
+    if (createOptionsError) {
+      return res.status(400).json({ error: createOptionsError })
+    }
+
     // проверка уникальности артикула (сравниваем в нормализованном виде: 100 и 0100 — один артикул)
     const allProducts = await fetchProductsFromSheet(sheetId)
     const newArticleNorm = normalizeArticle(productData.article)
@@ -198,6 +238,7 @@ router.post('/', async (req, res) => {
       stock: productData.stock !== undefined ? Number(productData.stock) : undefined,
       article: newArticleNorm || productData.article?.trim() || undefined,
       coming_drop: productData.coming_drop === true,
+      options: createOptions,
     }
 
     for (const cat of normalizedCategories) {
@@ -295,6 +336,11 @@ router.put('/:slug', async (req, res) => {
       }
     }
 
+    const [editOptions, editOptionsError] = normalizeOptionsInput(productData.options)
+    if (editOptionsError) {
+      return res.status(400).json({ error: editOptionsError })
+    }
+
     // находим старый товар
     const allProducts = await fetchProductsFromSheet(sheetId)
     const oldProduct = allProducts.find(p => p.slug === oldSlug)
@@ -341,6 +387,7 @@ router.put('/:slug', async (req, res) => {
       stock: productData.stock !== undefined ? Number(productData.stock) : undefined,
       article: oldProduct.article,
       coming_drop: productData.coming_drop === true,
+      options: editOptions,
     }
 
     const oldCategories = oldProduct.categories || [oldProduct.category]

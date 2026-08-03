@@ -19,6 +19,17 @@ export type SheetProduct = {
   stock?: number
   article?: string
   coming_drop?: boolean
+  /** опция товара; в ячейку пишется строкой «Название: вариант1, вариант2» */
+  options?: { name: string; values: string[] }
+}
+
+/** Сериализует опцию в ячейку `options`. Пустая опция → пустая ячейка (товар без выбора). */
+export function serializeProductOptions(options?: { name: string; values: string[] }): string {
+  if (!options) return ''
+  const name = String(options.name ?? '').trim()
+  const values = (options.values ?? []).map(v => String(v).trim()).filter(Boolean)
+  if (!name || values.length === 0) return ''
+  return `${name}: ${values.join(', ')}`
 }
 
 // получение авторизации для Google Sheets (с правами на чтение и запись)
@@ -50,7 +61,7 @@ export function normalizeSheetName(category: string): string {
 }
 
 // колонки листа товаров категории
-const PRODUCT_SHEET_HEADERS = ['slug', 'title', 'description', 'price_rub', 'discount_price_rub', 'badge_text', 'images', 'active', 'stock', 'article', 'coming_drop']
+const PRODUCT_SHEET_HEADERS = ['slug', 'title', 'description', 'price_rub', 'discount_price_rub', 'badge_text', 'images', 'active', 'stock', 'article', 'coming_drop', 'options']
 
 // проверка/создание листа товаров для категории (с заголовками)
 export async function ensureProductSheet(
@@ -76,7 +87,7 @@ export async function ensureProductSheet(
     })
     await sheets.spreadsheets.values.update({
       spreadsheetId: sheetId,
-      range: `${sheetName}!A1:K1`,
+      range: `${sheetName}!A1:L1`,
       valueInputOption: 'USER_ENTERED',
       requestBody: {
         values: [PRODUCT_SHEET_HEADERS]
@@ -186,7 +197,7 @@ export async function appendProductToSheet(
   
   // получаем заголовки и при необходимости добавляем отсутствующие колонки
   const rawH = await getSheetHeaders(auth, sheetId, normalizedSheetName)
-  const { headers, headerIndex } = await patchMissingColumns(auth, sheetId, normalizedSheetName, rawH.headers, rawH.headerIndex, ['coming_drop'])
+  const { headers, headerIndex } = await patchMissingColumns(auth, sheetId, normalizedSheetName, rawH.headers, rawH.headerIndex, ['coming_drop', 'options'])
 
   // формируем строку данных
   const row: any[] = new Array(headers.length).fill('')
@@ -204,6 +215,7 @@ export async function appendProductToSheet(
   if (headerIndex.stock !== undefined) row[headerIndex.stock] = product.stock !== undefined ? product.stock : ''
   if (headerIndex.article !== undefined) row[headerIndex.article] = product.article || ''
   if (headerIndex.coming_drop !== undefined) row[headerIndex.coming_drop] = product.coming_drop ? 1 : ''
+  if (headerIndex.options !== undefined) row[headerIndex.options] = serializeProductOptions(product.options)
 
   // добавляем строку в конец листа
   await sheets.spreadsheets.values.append({
@@ -239,7 +251,7 @@ export async function updateProductInSheet(
   
   // получаем заголовки и при необходимости добавляем отсутствующие колонки
   const rawH2 = await getSheetHeaders(auth, sheetId, normalizedSheetName)
-  const { headers, headerIndex } = await patchMissingColumns(auth, sheetId, normalizedSheetName, rawH2.headers, rawH2.headerIndex, ['coming_drop'])
+  const { headers, headerIndex } = await patchMissingColumns(auth, sheetId, normalizedSheetName, rawH2.headers, rawH2.headerIndex, ['coming_drop', 'options'])
 
   // формируем строку данных
   const row: any[] = new Array(headers.length).fill('')
@@ -257,6 +269,7 @@ export async function updateProductInSheet(
   if (headerIndex.stock !== undefined) row[headerIndex.stock] = product.stock !== undefined ? product.stock : ''
   if (headerIndex.article !== undefined) row[headerIndex.article] = product.article || ''
   if (headerIndex.coming_drop !== undefined) row[headerIndex.coming_drop] = product.coming_drop ? 1 : ''
+  if (headerIndex.options !== undefined) row[headerIndex.options] = serializeProductOptions(product.options)
 
   // обновляем строку
   await sheets.spreadsheets.values.update({

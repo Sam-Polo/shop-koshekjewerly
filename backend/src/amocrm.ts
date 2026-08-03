@@ -186,11 +186,16 @@ function buildLeadFields(order: Order, certPromocode?: string): FieldValue[] {
   // Дата — Unix timestamp в секундах
   push(fieldVal('AMOCRM_FIELD_DATE_ID', Math.floor(order.createdAt / 1000)))
 
-  // Состав заказа — артикул в формате [0123] перед названием
+  // Состав заказа — артикул в формате [0123] перед названием.
+  // Выбранная опция клеится прямо к названию товара: в заказе может быть несколько
+  // позиций (с опциями и без), и менеджер должен видеть, к какой из них относится выбор.
+  // Символы-разделители формата (× и —) в значении опции ломали бы обратный разбор
+  // строки в учёте отгрузок (shipment-items-parser), поэтому вырезаем их.
   const items = order.orderData.items
     .map(i => {
       const art = i.article ? `[${i.article}] ` : ''
-      return `${art}${i.title}${i.quantity > 1 ? ` × ${i.quantity}` : ''} — ${i.price * i.quantity}₽`
+      const opt = i.option ? ` (${i.option.replace(/[×—]/g, '-')})` : ''
+      return `${art}${i.title}${opt}${i.quantity > 1 ? ` × ${i.quantity}` : ''} — ${i.price * i.quantity}₽`
     })
     .join('\n')
   // электронный сертификат — отдельная формулировка, чтобы менеджер не искал что отгружать

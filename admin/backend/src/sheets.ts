@@ -4,6 +4,38 @@ import pino from 'pino'
 
 const logger = pino()
 
+/** опция товара: одна группа выбора (размер / длина / цвет), название задаёт менеджер */
+export type ProductOption = {
+  name: string
+  values: string[]
+}
+
+/**
+ * Разбирает ячейку `options` формата `Название: вариант1, вариант2`.
+ * Логика повторяет backend/src/sheets.ts (пакеты не делят код) — правки синхронно.
+ */
+export function parseProductOptions(raw: string): ProductOption | undefined {
+  const text = String(raw ?? '').trim()
+  if (!text) return undefined
+
+  const sep = text.indexOf(':')
+  const name = sep >= 0 ? text.slice(0, sep).trim() : 'Опция'
+  const valuesRaw = sep >= 0 ? text.slice(sep + 1) : text
+
+  const seen = new Set<string>()
+  const values: string[] = []
+  for (const part of valuesRaw.split(',')) {
+    const v = part.trim().slice(0, 40)
+    if (!v || seen.has(v)) continue
+    seen.add(v)
+    values.push(v)
+    if (values.length >= 24) break
+  }
+
+  if (!name || values.length === 0) return undefined
+  return { name: name.slice(0, 40), values }
+}
+
 export type SheetProduct = {
   id?: string
   slug: string
@@ -19,6 +51,7 @@ export type SheetProduct = {
   stock?: number
   article?: string
   coming_drop?: boolean
+  options?: ProductOption
   /** порядок товара в каждом листе (ключ — имя категории, значение — индекс строки) */
   orderInCategory?: Record<string, number>
 }
@@ -109,6 +142,7 @@ async function fetchSheetRange(
       stock: Number.isFinite(stock) ? stock : undefined,
       article: article || undefined,
       coming_drop,
+      options: idx('options') !== -1 ? parseProductOptions(String(get('options'))) : undefined,
     }
 
     if (!item.title || !item.slug) continue
@@ -158,6 +192,7 @@ export async function fetchProductsFromSheet(sheetId: string): Promise<SheetProd
             existing.stock = p.stock
             existing.article = p.article
             existing.coming_drop = p.coming_drop
+            existing.options = p.options
             existing.id = p.id
           }
         } else {

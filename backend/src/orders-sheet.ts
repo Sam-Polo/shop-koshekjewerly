@@ -20,7 +20,7 @@ const ORDERS_HEADERS = [
 ]
 
 const ORDER_ITEMS_HEADERS = [
-  'order_id', 'slug', 'title', 'price', 'quantity', 'article', 'category'
+  'order_id', 'slug', 'title', 'price', 'quantity', 'article', 'category', 'option'
 ]
 
 function getAuth() {
@@ -157,7 +157,8 @@ function buildItemsRows(order: Order): (string | number)[][] {
     it.price,
     it.quantity,
     it.article || '',
-    resolveItemCategory(it.slug)
+    resolveItemCategory(it.slug),
+    it.option || ''
   ])
 }
 
@@ -179,7 +180,7 @@ export async function appendOrderToSheet(order: Order): Promise<void> {
     if (itemsRows.length > 0) {
       await api.spreadsheets.values.append({
         spreadsheetId,
-        range: `${ORDER_ITEMS_SHEET}!A:G`,
+        range: `${ORDER_ITEMS_SHEET}!A:H`,
         valueInputOption: 'RAW',
         insertDataOption: 'INSERT_ROWS',
         requestBody: { values: itemsRows }
@@ -270,10 +271,10 @@ export async function getOrderFromSheet(orderId: string): Promise<(Order & { she
     const sheetStatus = col(3)
 
     // индексы ORDER_ITEMS_HEADERS (0-based):
-    // 0=order_id, 1=slug, 2=title, 3=price, 4=quantity, 5=article, 6=category
+    // 0=order_id, 1=slug, 2=title, 3=price, 4=quantity, 5=article, 6=category, 7=option
     const itemsRes = await api.spreadsheets.values.get({
       spreadsheetId,
-      range: `${ORDER_ITEMS_SHEET}!A:G`
+      range: `${ORDER_ITEMS_SHEET}!A:H`
     })
     const itemRows = itemsRes.data.values || []
     const items: Order['orderData']['items'] = []
@@ -286,6 +287,9 @@ export async function getOrderFromSheet(orderId: string): Promise<(Order & { she
         price: parseFloat(row[3]) || 0,
         quantity: parseInt(row[4], 10) || 1,
         article: row[5] || undefined,
+        // опция обязана пережить рестарт Render: уведомления и лид amoCRM создаются
+        // в processPaidOrder, который может работать на восстановленном заказе
+        option: row[7] || undefined,
       })
     }
 
@@ -516,7 +520,7 @@ export async function listPendingOrdersFromSheet(
 
     const itemsRes = await api.spreadsheets.values.get({
       spreadsheetId,
-      range: `${ORDER_ITEMS_SHEET}!A:G`
+      range: `${ORDER_ITEMS_SHEET}!A:H`
     })
     const itemRows = itemsRes.data.values || []
 
@@ -531,6 +535,7 @@ export async function listPendingOrdersFromSheet(
         price: parseFloat(row[3]) || 0,
         quantity: parseInt(row[4], 10) || 1,
         article: row[5] || undefined,
+        option: row[7] || undefined,
       })
       itemsByOrderId.set(row[0], bucket)
     }

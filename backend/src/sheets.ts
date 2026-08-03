@@ -1,6 +1,16 @@
 import { google } from 'googleapis'
 import fs from 'node:fs'
 
+/**
+ * Опция товара — одна группа выбора (размер / длина цепочки / цвет…).
+ * Название группы задаёт менеджер, поэтому опция универсальна, а не «размер».
+ * На цену и остаток не влияет: это информация для менеджера, что отгружать.
+ */
+export type ProductOption = {
+  name: string
+  values: string[]
+}
+
 export type SheetProduct = {
   id?: string
   slug: string
@@ -15,6 +25,40 @@ export type SheetProduct = {
   stock?: number
   article?: string // артикул товара (4-значный, уникальный)
   coming_drop?: boolean
+  options?: ProductOption // выбор покупателя в карточке (обязателен, если задан)
+}
+
+// ограничители, чтобы мусор в ячейке не ломал карточку товара
+const OPTION_NAME_MAX = 40
+const OPTION_VALUE_MAX = 40
+const OPTION_VALUES_MAX = 24
+
+/**
+ * Разбирает ячейку `options` формата `Название: вариант1, вариант2, вариант3`.
+ * Без двоеточия вся строка считается списком вариантов с именем по умолчанию —
+ * менеджер, вписавший «16, 17, 18», получит рабочий выбор, а не пустоту.
+ * Пустая/мусорная ячейка → undefined (товар без опций, как было до фичи).
+ */
+export function parseProductOptions(raw: string): ProductOption | undefined {
+  const text = String(raw ?? '').trim()
+  if (!text) return undefined
+
+  const sep = text.indexOf(':')
+  const name = sep >= 0 ? text.slice(0, sep).trim() : 'Опция'
+  const valuesRaw = sep >= 0 ? text.slice(sep + 1) : text
+
+  const seen = new Set<string>()
+  const values: string[] = []
+  for (const part of valuesRaw.split(',')) {
+    const v = part.trim().slice(0, OPTION_VALUE_MAX)
+    if (!v || seen.has(v)) continue
+    seen.add(v)
+    values.push(v)
+    if (values.length >= OPTION_VALUES_MAX) break
+  }
+
+  if (!name || values.length === 0) return undefined
+  return { name: name.slice(0, OPTION_NAME_MAX), values }
 }
 
 function getCredsFromEnv(): any {
@@ -86,6 +130,7 @@ async function fetchSheetRange(auth: any, sheetId: string, range: string, catego
     const article = String(get('article') || '').trim() || undefined
     const comingDropRaw = String(get('coming_drop') || '').trim().toLowerCase()
     const coming_drop = comingDropRaw === 'true' || comingDropRaw === '1' || comingDropRaw === 'yes' ? true : undefined
+    const options = idx('options') !== -1 ? parseProductOptions(String(get('options'))) : undefined
     const item: SheetProduct = {
       id: String(get('id') || '').trim() || undefined,
       slug: String(get('slug')).trim(),
@@ -100,6 +145,7 @@ async function fetchSheetRange(auth: any, sheetId: string, range: string, catego
       stock: Number.isFinite(stock) ? stock : undefined,
       article: article || undefined,
       coming_drop,
+      options,
     }
     // простая валидация
     if (!item.title || !item.slug) continue
@@ -138,8 +184,9 @@ export async function fetchProductsFromSheet(sheetId: string): Promise<SheetProd
 
   for (const sheetName of sheetNames) {
     try {
-      // читаем диапазон A1:K1000 из каждого листа (добавлена колонка coming_drop в конце)
-      const range = `${sheetName.trim()}!A1:K1000`
+      // читаем диапазон A1:L1000 из каждого листа (последняя колонка — options).
+      // Новая колонка обязана попадать в диапазон, иначе бэкенд её просто не увидит.
+      const range = `${sheetName.trim()}!A1:L1000`
       const products = await fetchSheetRange(auth, sheetId, range, sheetName.trim())
       allProducts.push(...products)
     } catch (e: any) {
@@ -168,7 +215,7 @@ export async function decreaseStockInSheet(
   const auth = getWriteAuthFromEnv()
   const sheets = google.sheets({ version: 'v4', auth })
 
-  const range = `${category}!A1:K1000`
+  const range = `${category}!A1:L1000`
   const res = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range })
   const rows = res.data.values ?? []
   if (rows.length === 0) return null

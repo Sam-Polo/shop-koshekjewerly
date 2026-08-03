@@ -122,6 +122,8 @@ type Product = {
   stock?: number
   article?: string
   coming_drop?: boolean
+  /** опция товара: одна группа выбора (размер/длина/цвет), выбор обязателен в мини-аппе */
+  options?: { name: string; values: string[] }
   /** порядок в каждой категории (ключ — категория, значение — индекс строки в листе) */
   orderInCategory?: Record<string, number>
 }
@@ -1671,9 +1673,15 @@ function ProductFormModal({
       stock: isEdit ? (product!.stock ?? undefined) : 1000,
       article: initialArticle,
       images: product?.images || [],
-      coming_drop: product?.coming_drop ?? false
+      coming_drop: product?.coming_drop ?? false,
+      options: product?.options ?? undefined
     }
   })
+
+  // опция редактируется двумя полями; варианты держим строкой, чтобы менеджер мог
+  // спокойно печатать «16, 17, » и не терять запятую на полпути
+  const [optionName, setOptionName] = useState(product?.options?.name ?? '')
+  const [optionValuesText, setOptionValuesText] = useState((product?.options?.values ?? []).join(', '))
 
   // подгружаем актуальный артикул при создании (max+1 среди ВСЕХ товаров, основ и подвесок)
   useEffect(() => {
@@ -1736,11 +1744,47 @@ function ProductFormModal({
           .map((key) => ({ label: key, value: key }))
 
   // валидация формы
+  // варианты опции из текстового поля: «16, 17, 18» → ['16','17','18']
+  const parseOptionValues = (): string[] => {
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (const part of optionValuesText.split(',')) {
+      const v = part.trim()
+      if (!v || seen.has(v)) continue
+      seen.add(v)
+      out.push(v)
+    }
+    return out
+  }
+
+  // опция для отправки на бэкенд: заполнена частично → undefined не отправляем,
+  // такую форму отсекает validate()
+  const buildOptions = (): { name: string; values: string[] } | undefined => {
+    const name = optionName.trim()
+    const values = parseOptionValues()
+    if (!name || values.length === 0) return undefined
+    return { name, values }
+  }
+
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {}
 
     if (!formData.title || formData.title.trim().length === 0) {
       newErrors.title = 'Название обязательно'
+    }
+
+    // опция задаётся парой «название + варианты»: половина заполненной пары —
+    // почти наверняка недозаполненная форма, а не намерение убрать опцию
+    const optName = optionName.trim()
+    const optValues = parseOptionValues()
+    if (optName && optValues.length === 0) {
+      newErrors.options = 'Укажите варианты через запятую или очистите название опции'
+    } else if (!optName && optValues.length > 0) {
+      newErrors.options = 'Укажите название опции (например «Размер»)'
+    } else if (optName.includes(':') || optName.includes(',')) {
+      newErrors.options = 'В названии опции нельзя использовать «:» и «,»'
+    } else if (optValues.length > 24) {
+      newErrors.options = 'Не больше 24 вариантов'
     }
 
     if (!formData.categories?.length) {
@@ -1795,7 +1839,8 @@ function ProductFormModal({
       // очищаем пробелы в начале и конце badge_text перед сохранением
       const cleanedData = {
         ...formData,
-        badge_text: formData.badge_text?.trim() || undefined
+        badge_text: formData.badge_text?.trim() || undefined,
+        options: buildOptions()
       }
       await onSave(cleanedData)
     } catch (err: any) {
@@ -2021,6 +2066,40 @@ function ProductFormModal({
                 onChange={(e) => handleChange('stock', e.target.value ? parseInt(e.target.value) : undefined)}
                 placeholder="Количество товара в наличии"
               />
+            </div>
+          </div>
+
+          <div className="form-row">
+            <div className="form-group">
+              <label>Название опции</label>
+              <input
+                type="text"
+                value={optionName}
+                onChange={(e) => setOptionName(e.target.value)}
+                placeholder="Например: Размер"
+                maxLength={40}
+              />
+              {errors.options && <small style={{ color: '#dc3545' }}>{errors.options}</small>}
+            </div>
+
+            <div className="form-group">
+              <label>Варианты (через запятую)</label>
+              <input
+                type="text"
+                value={optionValuesText}
+                onChange={(e) => setOptionValuesText(e.target.value)}
+                placeholder="Например: 16, 17, 18"
+              />
+            </div>
+          </div>
+
+          <div className="form-row">
+            <div className="form-group">
+              <small style={{ color: '#666' }}>
+                {optionName.trim() || optionValuesText.trim()
+                  ? 'В карточке товара покупатель обязан выбрать вариант — без выбора товар не добавится в корзину. Выбранный вариант уйдёт менеджеру и в amoCRM. На цену и остаток не влияет: остаток общий на все варианты.'
+                  : 'Оставь пустым, если у товара нет выбора (размера, длины, цвета и т.п.).'}
+              </small>
             </div>
           </div>
 

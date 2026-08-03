@@ -33,6 +33,23 @@ describe('parseAmoCrmComposition — bot format', () => {
     const { items } = parseAmoCrmComposition('[0006] Браслет Малинки — 5990₽')
     expect(items).toEqual([{ article: '0006', qty: 1, name: 'Браслет Малинки' }])
   })
+
+  // опция товара («Размер: 17») клеится к названию в составе заказа — учёт отгрузок
+  // сопоставляет позиции по артикулу, и разбор не должен от этого разъезжаться
+  it('parses item with selected option appended to the name', () => {
+    const { format, items } = parseAmoCrmComposition('[0095] Колье ежевика (Размер: 17) × 2 — 11980₽')
+    expect(format).toBe('bot')
+    expect(items).toEqual([{ article: '0095', qty: 2, name: 'Колье ежевика (Размер: 17)' }])
+  })
+
+  it('parses mixed order: item with option and item without', () => {
+    const text = '[0095] Колье ежевика (Размер: 17) — 5990₽\n[0008] Подвеска Малинка × 3 — 11970₽'
+    const { items } = parseAmoCrmComposition(text)
+    expect(items).toEqual([
+      { article: '0095', qty: 1, name: 'Колье ежевика (Размер: 17)' },
+      { article: '0008', qty: 3, name: 'Подвеска Малинка' },
+    ])
+  })
 })
 
 describe('parseAmoCrmComposition — tilda format', () => {

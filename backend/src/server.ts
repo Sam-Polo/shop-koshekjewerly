@@ -635,17 +635,18 @@ async function sendOrderNotifications(order: any) {
   }
 
   // экранируем HTML для защиты от XSS
-  // для покупателя: товар (арт: 0000) × 1 = 1 р.
-  const itemsTextForCustomer = order.orderData.items.map((item: any) => {
+  // для покупателя: товар (арт: 0000) (Размер: 17) × 1 = 1 р.
+  // опция идёт сразу за названием — в заказе может быть несколько товаров, и должно быть
+  // однозначно видно, к какой позиции она относится
+  const itemLine = (item: any) => {
     const articleText = item.article ? ` (арт: ${escapeHtml(item.article)})` : ''
-    return `• ${escapeHtml(item.title)}${articleText} × ${item.quantity} — ${item.price * item.quantity} ₽`
-  }).join('\n')
+    const optionText = item.option ? ` (${escapeHtml(item.option)})` : ''
+    return `• ${escapeHtml(item.title)}${articleText}${optionText} × ${item.quantity} — ${item.price * item.quantity} ₽`
+  }
+  const itemsTextForCustomer = order.orderData.items.map(itemLine).join('\n')
 
-  // для менеджера: товар [0001] × 1 — 1 ₽
-  const itemsTextForManager = order.orderData.items.map((item: any) => {
-    const articleText = item.article ? ` (арт: ${escapeHtml(item.article)})` : ''
-    return `• ${escapeHtml(item.title)}${articleText} × ${item.quantity} — ${item.price * item.quantity} ₽`
-  }).join('\n')
+  // для менеджера: тот же формат
+  const itemsTextForManager = order.orderData.items.map(itemLine).join('\n')
   
   const priorityCustomerLine =
     order.orderData.priorityOrder && order.orderData.priorityFee
@@ -987,12 +988,27 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
         ? product.discount_price_rub
         : product.price_rub
 
+      // опция: у товара с настроенными опциями выбор обязателен, значение сверяем со
+      // справочником из каталога (клиент мог прислать что угодно). У товара без опций
+      // присланное значение игнорируем — иначе в CRM попадёт неизвестно что.
+      let option: string | undefined
+      if (product.options) {
+        const picked = typeof item.option === 'string' ? item.option.trim() : ''
+        const known = product.options.values.find(v => v === picked)
+        if (!known) {
+          logger.warn({ slug: item.slug, picked, allowed: product.options.values }, 'опция товара не выбрана или неизвестна')
+          throw new Error(`Для товара «${product.title}» нужно выбрать «${product.options.name}»`)
+        }
+        option = `${product.options.name}: ${known}`
+      }
+
       return {
         slug: product.slug,
         title: product.title,
         price: actualPrice, // актуальная цена с бэкенда (со скидкой если есть)
         quantity, // валидация количества
-        article: product.article // артикул товара
+        article: product.article, // артикул товара
+        option
       }
     })
     
