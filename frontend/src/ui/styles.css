@@ -741,18 +741,32 @@ button, input, select, textarea { font-family: inherit; }
 .product-options { width: 100%; margin-bottom: 14px; }
 .product-options__label { display: block; font-size: 13px; color: #888; margin-bottom: 8px; letter-spacing: .01em; }
 .product-options__list { display: flex; flex-wrap: wrap; gap: 8px; }
+/* Высота фиксирована, а не выведена из паддингов: только так короткий вариант можно
+   сделать ровным кругом (ширина = высоте), а длинный — капсулой той же высоты,
+   и в смешанном ряду («17» и «40 см») они стоят на одной линии. */
 .product-options__value {
-  min-width: 46px;
-  padding: 9px 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto; /* не сжимать: иначе в переполненной строке круг сплющится в овал */
+  height: 42px;
+  min-width: 42px;
+  padding: 0 16px;
   background: #fff;
   border: 1px solid #e7d8ec;
   border-radius: 999px;
   font-family: inherit;
   font-size: 14px;
-  line-height: 1.2;
+  line-height: 1;
   color: #4a4a4a;
   cursor: pointer;
   transition: border-color .2s, background .2s, color .2s;
+}
+/* 1–2 символа (размеры 6, 17…) — ровный круг: ширина равна высоте, боковые поля убраны,
+   иначе они растянули бы круг в овал */
+.product-options__value--circle {
+  width: 42px;
+  padding: 0;
 }
 .product-options__value:hover { border-color: #d480e0; }
 .product-options__value.is-active { border-color: #d480e0; background: #fdf6ff; color: #222; font-weight: 600; }

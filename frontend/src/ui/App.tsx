@@ -880,7 +880,13 @@ const ProductModal = ({
                         <button
                           key={value}
                           type="button"
-                          className={`product-options__value ${selectedOption === value ? 'is-active' : ''}`}
+                          // короткие значения (размеры «6», «17») рисуем ровным кругом,
+                          // длинные («40 см») — капсулой по ширине текста
+                          className={[
+                            'product-options__value',
+                            value.length <= 2 ? 'product-options__value--circle' : '',
+                            selectedOption === value ? 'is-active' : ''
+                          ].filter(Boolean).join(' ')}
                           onClick={() => setSelectedOption(value)}
                           aria-pressed={selectedOption === value}
                         >
