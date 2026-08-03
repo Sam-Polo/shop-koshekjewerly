@@ -17,21 +17,40 @@ export type SheetProduct = {
   coming_drop?: boolean
 }
 
-function getAuthFromEnv() {
+function getCredsFromEnv(): any {
   // можно указать GOOGLE_SA_FILE=путь/к/sa.json или GOOGLE_SA_JSON=строкой
   const filePath = process.env.GOOGLE_SA_FILE
   const raw = process.env.GOOGLE_SA_JSON
-  let creds: any
   if (filePath) {
-    const txt = fs.readFileSync(filePath, 'utf8')
-    creds = JSON.parse(txt)
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'))
   } else if (raw) {
-    creds = JSON.parse(raw)
+    return JSON.parse(raw)
   } else {
     throw new Error('GOOGLE_SA_JSON or GOOGLE_SA_FILE is required')
   }
+}
+
+function getAuthFromEnv() {
+  const creds = getCredsFromEnv()
   const scopes = ['https://www.googleapis.com/auth/spreadsheets.readonly']
   return new google.auth.JWT(creds.client_email, undefined, creds.private_key, scopes)
+}
+
+function getWriteAuthFromEnv() {
+  const creds = getCredsFromEnv()
+  const scopes = ['https://www.googleapis.com/auth/spreadsheets']
+  return new google.auth.JWT(creds.client_email, undefined, creds.private_key, scopes)
+}
+
+/** Имя колонки Google Sheets по индексу (0 → A, 26 → AA). */
+function colLetter(index: number): string {
+  let n = index
+  let out = ''
+  do {
+    out = String.fromCharCode(65 + (n % 26)) + out
+    n = Math.floor(n / 26) - 1
+  } while (n >= 0)
+  return out
 }
 
 // читаем один лист и проставляем категорию автоматически
@@ -130,6 +149,54 @@ export async function fetchProductsFromSheet(sheetId: string): Promise<SheetProd
   }
   
   return allProducts
+}
+
+/**
+ * Списывает остаток товара read-modify-write прямо по листу категории (источник истины) —
+ * переживает засыпание Render и не теряется при следующем импорте каталога, в отличие от
+ * прежней схемы с буфером в памяти. Читает свежее значение ячейки перед записью, поэтому
+ * не затирает ручную правку остатка менеджером, если она произошла раньше этого вызова.
+ * Возвращает новый остаток, либо null если строка/лист не найдены или остаток безлимитный
+ * (пустая ячейка — писать нечего).
+ */
+export async function decreaseStockInSheet(
+  sheetId: string,
+  category: string,
+  slug: string,
+  quantity: number
+): Promise<number | null> {
+  const auth = getWriteAuthFromEnv()
+  const sheets = google.sheets({ version: 'v4', auth })
+
+  const range = `${category}!A1:K1000`
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range })
+  const rows = res.data.values ?? []
+  if (rows.length === 0) return null
+
+  const headers = rows[0].map((h: string) => String(h).trim().toLowerCase())
+  const slugIdx = headers.indexOf('slug')
+  const stockIdx = headers.indexOf('stock')
+  if (slugIdx < 0 || stockIdx < 0) return null
+
+  const rowNum = rows.findIndex((r, i) => i > 0 && String(r?.[slugIdx] ?? '').trim() === slug)
+  if (rowNum < 1) return null
+
+  const raw = String(rows[rowNum]?.[stockIdx] ?? '').trim()
+  if (raw === '') return null // пустая ячейка = безлимит, decrementить нечего
+
+  const current = Number(raw.replace(',', '.'))
+  if (!Number.isFinite(current)) return null
+
+  const next = Math.max(0, current - quantity)
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: sheetId,
+    range: `${category}!${colLetter(stockIdx)}${rowNum + 1}`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: [[String(next)]] },
+  })
+
+  return next
 }
 
 

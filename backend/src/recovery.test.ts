@@ -8,6 +8,7 @@ vi.mock('./store.js', () => ({
   listProducts: vi.fn().mockReturnValue([]),
   upsertProducts: vi.fn(),
   decreaseProductStock: vi.fn().mockReturnValue(true),
+  getProductCategories: vi.fn().mockReturnValue([]),
 }))
 vi.mock('./orders.js', () => ({
   createOrder: vi.fn(),
@@ -106,6 +107,7 @@ describe('processPaidOrder', () => {
       listProducts: vi.fn().mockReturnValue([]),
       upsertProducts: vi.fn(),
       decreaseProductStock: vi.fn().mockReturnValue(true),
+      getProductCategories: vi.fn().mockReturnValue([]),
     }))
     vi.mock('./alerts.js', () => ({ sendAlert: vi.fn().mockResolvedValue(undefined) }))
     vi.mock('./amocrm.js', () => ({

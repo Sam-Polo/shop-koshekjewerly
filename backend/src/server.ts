@@ -7,8 +7,8 @@ import pino from 'pino';
 import fs from 'node:fs';
 import path from 'node:path';
 import rateLimit from 'express-rate-limit';
-import { fetchProductsFromSheet } from './sheets.js';
-import { listProducts, upsertProducts, decreaseProductStock } from './store.js';
+import { fetchProductsFromSheet, decreaseStockInSheet } from './sheets.js';
+import { listProducts, upsertProducts, decreaseProductStock, getProductCategories } from './store.js';
 import { createOrder, getOrder, updateOrderStatus, listOrders, restoreOrder, type Order, type Platform, type DeliveryMethod } from './orders.js';
 import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId, listPendingOrdersFromSheet, updateCdekInfoInSheet, updatePochtaInfoInSheet } from './orders-sheet.js'
 import { sendAlert } from './alerts.js';
@@ -640,7 +640,7 @@ async function sendOrderNotifications(order: any) {
     const articleText = item.article ? ` (арт: ${escapeHtml(item.article)})` : ''
     return `• ${escapeHtml(item.title)}${articleText} × ${item.quantity} — ${item.price * item.quantity} ₽`
   }).join('\n')
-  
+
   // для менеджера: товар [0001] × 1 — 1 ₽
   const itemsTextForManager = order.orderData.items.map((item: any) => {
     const articleText = item.article ? ` (арт: ${escapeHtml(item.article)})` : ''
@@ -1240,9 +1240,12 @@ export async function processPaidOrder(
   const paidAt = updatedOrder?.updatedAt ?? Date.now()
   updateOrderStatusInSheet(orderId, 'paid', paidAt).catch(() => {})
 
-  // уменьшаем сток товаров
+  // уменьшаем сток товаров: в памяти сразу (для мгновенного /api/products),
+  // в Sheets — read-modify-write по каждой категории товара (источник истины,
+  // переживает засыпание Render и не теряется при следующем импорте каталога)
   for (const item of order.orderData.items) {
     const productBefore = listProducts().find(p => p.slug === item.slug)
+    const categories = getProductCategories(item.slug)
     const success = decreaseProductStock(item.slug, item.quantity)
     if (!success) {
       logger.warn({
@@ -1257,6 +1260,18 @@ export async function processPaidOrder(
         slug: item.slug, quantity: item.quantity,
         stockAfter: listProducts().find(p => p.slug === item.slug)?.stock
       }, 'processPaidOrder: stock товара уменьшен')
+
+      const importSheetId = process.env.IMPORT_SHEET_ID
+      if (importSheetId && productBefore?.stock !== undefined) {
+        for (const category of categories) {
+          decreaseStockInSheet(importSheetId, category, item.slug, item.quantity).catch((e: any) => {
+            sendAlert(
+              `Остаток «${item.title}» (${item.slug}, категория ${category}) не сохранён в Sheets по заказу ${orderId}: ${e?.message}. В памяти уменьшен, после рестарта/реимпорта может вернуться к старому значению — поправьте вручную.`,
+              { tag: 'stock', level: 'high', hint: 'ошибка записи остатка в Google Sheets', code: 'STOCK_SHEET_WRITE_FAILED' }
+            ).catch(() => {})
+          })
+        }
+      }
     }
   }
 
