@@ -206,7 +206,7 @@ export const api = {
     return fetchWithAuth('/api/settings/orders-status')
   },
 
-  async updateOrdersSettings(settings: { ordersClosed: boolean; closeDate?: string; assemblyMessage?: string; trackMessage?: string; shippedMessage?: string; assembledMessage?: string; priorityOrderEnabled?: boolean; priorityOrderFee?: number; pickupEnabled?: boolean }) {
+  async updateOrdersSettings(settings: { ordersClosed: boolean; closeDate?: string; assemblyMessage?: string; trackMessage?: string; shippedMessage?: string; assembledMessage?: string; priorityOrderEnabled?: boolean; priorityOrderFee?: number; pickupEnabled?: boolean; cdekMarkupPercent?: number }) {
     return fetchWithAuth('/api/settings/orders-status', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },

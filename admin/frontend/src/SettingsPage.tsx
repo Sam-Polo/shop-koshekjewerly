@@ -23,6 +23,7 @@ type OrdersSettings = {
   priorityOrderEnabled: boolean
   priorityOrderFee: number
   pickupEnabled: boolean
+  cdekMarkupPercent: number
 }
 
 type MessageTab = 'order_confirmed' | 'track_assigned' | 'shipped' | 'assembled'
@@ -80,6 +81,7 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
     priorityOrderEnabled: true,
     priorityOrderFee: 30,
     pickupEnabled: true,
+    cdekMarkupPercent: 0,
   })
   const [messageTab, setMessageTab] = useState<MessageTab>('order_confirmed')
   const [ordersLoading, setOrdersLoading] = useState(true)
@@ -135,6 +137,7 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
         priorityOrderEnabled: data.priorityOrderEnabled !== false,
         priorityOrderFee: data.priorityOrderFee ?? 30,
         pickupEnabled: data.pickupEnabled !== false,
+        cdekMarkupPercent: data.cdekMarkupPercent ?? 0,
       })
     } catch (err: any) {
       showToast(err.message || 'Ошибка загрузки статуса заказов', 'error')
@@ -214,6 +217,7 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
         priorityOrderEnabled: orders.priorityOrderEnabled,
         priorityOrderFee: orders.priorityOrderFee,
         pickupEnabled: orders.pickupEnabled,
+        cdekMarkupPercent: orders.cdekMarkupPercent,
       })
       showToast(orders.ordersClosed ? 'Заказы закрыты' : 'Заказы открыты', 'success')
     } catch (err: any) {
@@ -323,6 +327,44 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
                 с самовывозом, даже если у покупателя открыт старый экран.
                 Уже оформленные заказы с самовывозом продолжают обрабатываться как раньше.
               </p>
+
+              <button
+                className="settings-save-btn"
+                onClick={handleSaveOrders}
+                disabled={ordersSaving}
+              >
+                {ordersSaving ? 'Сохранение...' : 'Сохранить'}
+              </button>
+            </div>
+          )}
+        </section>
+
+        {/* ── НАЦЕНКА СДЭК ───────────────────────────────── */}
+        <section className="settings-section">
+          <h2 className="settings-section__title">Наценка на доставку СДЭК</h2>
+          {ordersLoading ? (
+            <div className="settings-loading">Загрузка...</div>
+          ) : (
+            <div className="settings-card">
+              <div className="settings-field">
+                <label className="settings-label">Наценка (%)</label>
+                <input
+                  type="number"
+                  className="settings-input"
+                  min={0}
+                  max={100}
+                  value={orders.cdekMarkupPercent}
+                  onChange={e => {
+                    const v = parseInt(e.target.value, 10)
+                    if (!isNaN(v) && v >= 0 && v <= 100) setOrders(prev => ({ ...prev, cdekMarkupPercent: v }))
+                  }}
+                  style={{ maxWidth: 100 }}
+                />
+                <p className="settings-hint">
+                  Прибавляется к тарифу калькулятора СДЭК при расчёте стоимости доставки — покупатель
+                  сразу видит и оплачивает сумму с наценкой. 0% — наценки нет, тариф как есть. Сейчас: <b>+{orders.cdekMarkupPercent}%</b>
+                </p>
+              </div>
 
               <button
                 className="settings-save-btn"

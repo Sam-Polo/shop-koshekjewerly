@@ -64,7 +64,7 @@ router.put('/orders-status', async (req, res) => {
       return res.status(500).json({ error: 'GOOGLE_SHEET_ID not configured' })
     }
 
-    const { ordersClosed, closeDate, assemblyMessage, trackMessage, shippedMessage, assembledMessage, priorityOrderEnabled, priorityOrderFee, pickupEnabled } = req.body
+    const { ordersClosed, closeDate, assemblyMessage, trackMessage, shippedMessage, assembledMessage, priorityOrderEnabled, priorityOrderFee, pickupEnabled, cdekMarkupPercent } = req.body
 
     if (typeof ordersClosed !== 'boolean') {
       return res.status(400).json({ error: 'ordersClosed must be a boolean' })
@@ -100,7 +100,14 @@ router.put('/orders-status', async (req, res) => {
       }
     }
 
-    logger.info({ ordersClosed, closeDate, pickupEnabled }, 'сохранение настроек заказов')
+    if (cdekMarkupPercent !== undefined) {
+      const markup = Number(cdekMarkupPercent)
+      if (!Number.isInteger(markup) || markup < 0 || markup > 100) {
+        return res.status(400).json({ error: 'cdekMarkupPercent must be an integer 0–100' })
+      }
+    }
+
+    logger.info({ ordersClosed, closeDate, pickupEnabled, cdekMarkupPercent }, 'сохранение настроек заказов')
     await saveOrdersSettingsToSheet(sheetId, {
       ordersClosed,
       closeDate: closeDate || undefined,
@@ -110,7 +117,8 @@ router.put('/orders-status', async (req, res) => {
       assembledMessage: assembledMessage || undefined,
       priorityOrderEnabled: priorityOrderEnabled !== false,
       priorityOrderFee: priorityOrderFee !== undefined ? Number(priorityOrderFee) : undefined,
-      pickupEnabled: pickupEnabled !== false
+      pickupEnabled: pickupEnabled !== false,
+      cdekMarkupPercent: cdekMarkupPercent !== undefined ? Number(cdekMarkupPercent) : undefined
     })
     logger.info('настройки заказов сохранены')
 

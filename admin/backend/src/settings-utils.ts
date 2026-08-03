@@ -14,6 +14,7 @@ export type OrdersSettings = {
   priorityOrderEnabled?: boolean
   priorityOrderFee?: number
   pickupEnabled?: boolean
+  cdekMarkupPercent?: number
 }
 
 export type BannerSettings = {
@@ -137,6 +138,9 @@ export async function fetchOrdersSettingsFromSheet(sheetId: string): Promise<Ord
       } else if (key === 'pickup_enabled') {
         // отсутствие ключа = включён (обратная совместимость)
         settings.pickupEnabled = !(value === 'false' || value === '0' || value === 'no')
+      } else if (key === 'cdek_markup_percent') {
+        const pct = parseInt(originalValue, 10)
+        if (!isNaN(pct) && pct >= 0 && pct <= 100) settings.cdekMarkupPercent = pct
       }
     }
 
@@ -226,6 +230,7 @@ export async function saveOrdersSettingsToSheet(sheetId: string, settings: Order
     await upsertSettingRow(sheets, sheetId, rows, 'priority_order_enabled', settings.priorityOrderEnabled === false ? 'false' : 'true')
     await upsertSettingRow(sheets, sheetId, rows, 'priority_order_fee', String(settings.priorityOrderFee ?? 30))
     await upsertSettingRow(sheets, sheetId, rows, 'pickup_enabled', settings.pickupEnabled === false ? 'false' : 'true')
+    await upsertSettingRow(sheets, sheetId, rows, 'cdek_markup_percent', String(settings.cdekMarkupPercent ?? 0))
 
     logger.info({ ordersClosed: settings.ordersClosed, closeDate: settings.closeDate }, 'настройки заказов сохранены')
   } catch (error: any) {

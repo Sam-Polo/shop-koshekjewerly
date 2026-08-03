@@ -20,6 +20,8 @@ export type OrdersSettings = {
   priorityOrderFee?: number
   // самовывоз как способ получения (отключается в админке); отсутствие ключа = включён
   pickupEnabled?: boolean
+  // наценка % на стоимость доставки СДЭК поверх тарифа калькулятора; отсутствие ключа = 0
+  cdekMarkupPercent?: number
   banner?: BannerSettings
 }
 
@@ -140,6 +142,9 @@ export async function fetchOrdersSettingsFromSheet(sheetId: string): Promise<Ord
       } else if (key === 'pickup_enabled') {
         // отсутствие ключа = включён (обратная совместимость)
         settings.pickupEnabled = !(value === 'false' || value === '0' || value === 'no')
+      } else if (key === 'cdek_markup_percent') {
+        const pct = parseInt(originalValue, 10)
+        if (!isNaN(pct) && pct >= 0 && pct <= 100) settings.cdekMarkupPercent = pct
       } else if (key === 'banner_enabled') {
         hasBannerData = true
         banner.bannerEnabled = value === 'true' || value === '1' || value === 'yes'

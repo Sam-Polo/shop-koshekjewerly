@@ -122,7 +122,9 @@ export async function getPickupPoints(cityCode: number): Promise<CdekPvz[]> {
 
 // ── Delivery cost calculator ──────────────────────────────────────────────────
 
-export async function calculateDelivery(toCityCode: number): Promise<number> {
+// markupPercent — наценка админки поверх тарифа калькулятора (settings.cdekMarkupPercent,
+// читает и передаёт вызывающий код, чтобы этот модуль не зависел от Google Sheets)
+export async function calculateDelivery(toCityCode: number, markupPercent: number = 0): Promise<number> {
   const data = await cdekFetch('POST', '/calculator/tariff', {
     tariff_code: TARIFF_CODE,
     from_location: { code: FROM_CITY_CODE },
@@ -134,7 +136,7 @@ export async function calculateDelivery(toCityCode: number): Promise<number> {
     const errors = data?.errors ?? data?.error
     throw new Error(`CDEK calculator: no delivery_sum. Response: ${JSON.stringify(errors ?? data).slice(0, 300)}`)
   }
-  return Math.ceil(sum)
+  return Math.ceil(sum * (1 + markupPercent / 100))
 }
 
 // ── Create order ──────────────────────────────────────────────────────────────

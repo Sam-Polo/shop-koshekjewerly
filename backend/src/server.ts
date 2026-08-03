@@ -794,6 +794,20 @@ const CERTIFICATE_CATEGORY = 'сертификаты'
 // подпись в CRM/уведомлениях для заказа без физической отправки
 const DIGITAL_DELIVERY_LABEL = 'Электронный сертификат'
 
+// наценка % на доставку СДЭК из настроек (settings.cdek_markup_percent, 0 по умолчанию).
+// Единая точка чтения — используется и калькулятором для покупателя, и фоновой проверкой,
+// поэтому обе стороны всегда сравнивают стоимость с одной и той же наценкой.
+async function getCdekMarkupPercent(): Promise<number> {
+  const sheetId = process.env.IMPORT_SHEET_ID
+  if (!sheetId) return 0
+  try {
+    const settings = await getCachedOrdersSettings(sheetId)
+    return settings.cdekMarkupPercent ?? 0
+  } catch {
+    return 0
+  }
+}
+
 // H2: фоновая проверка, что клиент не занизил стоимость доставки.
 // Стоимость доставки приходит с клиента (мини-апп считает её через /api/cdek|pochta),
 // а суммы товаров/промокода/приоритета пересчитывает бэкенд. Здесь НЕ блокируем и НЕ
@@ -815,7 +829,8 @@ function verifyDeliveryCostAsync(order: Order, clientDeliveryCost: number): void
       } else {
         const code = order.orderData.cdekCityCode
         if (!code) return
-        serverCost = await calculateDelivery(code)
+        const markupPercent = await getCdekMarkupPercent()
+        serverCost = await calculateDelivery(code, markupPercent)
       }
 
       if (typeof serverCost !== 'number' || !Number.isFinite(serverCost) || serverCost <= 0) return
@@ -1872,7 +1887,8 @@ app.get('/api/cdek/calculate', generalLimiter, async (req, res) => {
   const cityCode = parseInt(String(req.query.city_code ?? ''), 10)
   if (!cityCode) return res.status(400).json({ error: 'city_code required' })
   try {
-    const cost = await calculateDelivery(cityCode)
+    const markupPercent = await getCdekMarkupPercent()
+    const cost = await calculateDelivery(cityCode, markupPercent)
     return res.json({ delivery_sum: cost })
   } catch (e: any) {
     logger.warn({ error: e?.message, cityCode }, 'CDEK calculate error')
