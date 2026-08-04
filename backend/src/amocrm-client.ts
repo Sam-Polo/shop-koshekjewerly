@@ -8,7 +8,8 @@ import { sendAlert } from './alerts.js'
 // продаж 01–02.08.2026 (94 заказа за двое суток против обычных 2–7 в день)
 // менеджер разгребал заказы пачками, amoCRM отвечал штормом вебхуков, а мы на
 // каждый вебхук стучались обратно без пауз и без ретрая на 429 — 03.08.2026
-// аккаунт словил блокировку за превышение лимитов.
+// amoCRM забанил IP Render'а (403 HTML-страницей от nginx, до API запрос уже
+// не доходил).
 //
 // Теперь ВСЕ запросы идут через одну очередь с одним воркером и паузой между
 // стартами. Очередь ничего не выбрасывает — только выстраивает в линию, поэтому
@@ -37,6 +38,17 @@ const DEPTH_ALERT_COOLDOWN_MS = 5 * 60_000
 // Сколько заказ может простоять в очереди, прежде чем это станет проблемой.
 const HIGH_LANE_WAIT_ALERT_MS = 15_000
 
+// ── Предохранитель ────────────────────────────────────────────────────────────
+// 403 от amoCRM — это не ошибка запроса, а бан на входе (nginx отбивает до API).
+// Продолжать долбиться в этом состоянии бессмысленно и вредно: нагрузка на
+// систему, которая нас только что забанила, может бан продлить. Поэтому при 403
+// «вышибает»: очередь замирает на паузу, растущую при каждом новом бане.
+const CIRCUIT_BASE_PAUSE_MS = Number(process.env.AMOCRM_CIRCUIT_BASE_PAUSE_MS ?? 60_000)
+// Заказы столько не ждут: лучше быстро упасть и уйти в штатный фолбэк
+// (3 попытки triggerAmoCrmAsync → critical-алерт → заказ цел в Sheets),
+// чем молча висеть в очереди, пока Робокасса ждёт ответа на Result URL.
+const CIRCUIT_HIGH_WAIT_MS = Number(process.env.AMOCRM_CIRCUIT_HIGH_WAIT_MS ?? 20_000)
+
 export function getAmoBase(): string {
   const sub = process.env.AMOCRM_SUBDOMAIN
   if (!sub) throw new Error('AMOCRM_SUBDOMAIN not set')
@@ -53,9 +65,15 @@ function sleep(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms))
 }
 
-// ── Очередь ───────────────────────────────────────────────────────────────────
+// ── Состояние ─────────────────────────────────────────────────────────────────
 
-type Job = { run: () => Promise<void>; enqueuedAt: number; lane: Lane }
+type Job = {
+  lane: Lane
+  enqueuedAt: number
+  task: () => Promise<unknown>
+  resolve: (v: unknown) => void
+  reject: (e: unknown) => void
+}
 
 const lanes: Record<Lane, Job[]> = { high: [], low: [] }
 let pumping = false
@@ -63,9 +81,59 @@ let lastStartedAt = 0
 let depthAlertedAt = 0
 let waitAlertedAt = 0
 
+let blockedUntil = 0
+let consecutiveBlocks = 0
+
 export function queueDepth(): { high: number; low: number; total: number } {
   return { high: lanes.high.length, low: lanes.low.length, total: lanes.high.length + lanes.low.length }
 }
+
+export function circuitState(): { open: boolean; blockedUntil: number; consecutiveBlocks: number } {
+  return { open: Date.now() < blockedUntil, blockedUntil, consecutiveBlocks }
+}
+
+/** Только для тестов: сбрасывает очередь и предохранитель в исходное состояние. */
+export function _resetForTests(): void {
+  lanes.high.length = 0
+  lanes.low.length = 0
+  blockedUntil = 0
+  consecutiveBlocks = 0
+  lastStartedAt = 0
+  depthAlertedAt = 0
+  waitAlertedAt = 0
+}
+
+// ── Предохранитель ────────────────────────────────────────────────────────────
+
+function openCircuit(method: string, path: string, body: string): void {
+  consecutiveBlocks++
+  // 1 мин → 2 → 4 → 8, потолок ×10 от базы
+  const pause = Math.min(CIRCUIT_BASE_PAUSE_MS * 2 ** (consecutiveBlocks - 1), CIRCUIT_BASE_PAUSE_MS * 10)
+  blockedUntil = Date.now() + pause
+  sendAlert(
+    `amoCRM: 403 на ${method} ${path} — доступ отбит на входе. ` +
+    `Пауза ${Math.round(pause / 1000)} с (подряд: ${consecutiveBlocks}). ${body.slice(0, 150)}`,
+    {
+      tag: 'amocrm',
+      level: 'critical',
+      hint: 'HTML-страница nginx вместо JSON = бан по IP, а не проблема токена — напишите в поддержку amoCRM',
+      code: 'AMOCRM_CIRCUIT_OPEN',
+    }
+  ).catch(() => {})
+}
+
+function closeCircuit(): void {
+  if (consecutiveBlocks === 0) return
+  const was = consecutiveBlocks
+  consecutiveBlocks = 0
+  blockedUntil = 0
+  sendAlert(
+    `amoCRM: доступ восстановлен, очередь разбирается (банов подряд было: ${was}).`,
+    { tag: 'amocrm', level: 'info', code: 'AMOCRM_CIRCUIT_CLOSED' }
+  ).catch(() => {})
+}
+
+// ── Очередь ───────────────────────────────────────────────────────────────────
 
 /** Очередь распухла — почти наверняка шторм вебхуков. Не выбрасываем, но сообщаем. */
 function checkDepth(): void {
@@ -110,14 +178,9 @@ function enqueue<T>(lane: Lane, task: () => Promise<T>): Promise<T> {
     lanes[lane].push({
       lane,
       enqueuedAt: Date.now(),
-      // run никогда не бросает — иначе исключение одной задачи остановило бы воркер
-      run: async () => {
-        try {
-          resolve(await task())
-        } catch (e) {
-          reject(e)
-        }
-      },
+      task: task as () => Promise<unknown>,
+      resolve: resolve as (v: unknown) => void,
+      reject,
     })
     checkDepth()
     void pump()
@@ -134,13 +197,38 @@ async function pump(): Promise<void> {
   pumping = true
   try {
     for (;;) {
+      if (lanes.high.length === 0 && lanes.low.length === 0) break
+
+      const remainingBlock = blockedUntil - Date.now()
+      if (remainingBlock > 0) {
+        // Предохранитель разомкнут. Заказы, которым ждать слишком долго, роняем
+        // сразу — у них есть свой фолбэк, и он лучше молчаливого зависания.
+        if (remainingBlock > CIRCUIT_HIGH_WAIT_MS && lanes.high.length > 0) {
+          const job = lanes.high.shift()!
+          job.reject(new Error(
+            `amoCRM: доступ заблокирован (403), запрос не отправлен; ` +
+            `пауза ещё ${Math.round(remainingBlock / 1000)} с`
+          ))
+          continue
+        }
+        // Спим короткими отрезками, а не одним куском: за время паузы могут
+        // прийти новые заказы, и они не должны застревать до конца бана.
+        await sleep(Math.min(remainingBlock, 500))
+        continue
+      }
+
       const job = lanes.high.shift() ?? lanes.low.shift()
       if (!job) break
+
       const wait = lastStartedAt + MIN_INTERVAL_MS - Date.now()
       if (wait > 0) await sleep(wait)
       lastStartedAt = Date.now()
       checkWait(job)
-      await job.run()
+      try {
+        job.resolve(await job.task())
+      } catch (e) {
+        job.reject(e)
+      }
     }
   } finally {
     pumping = false
@@ -153,9 +241,9 @@ async function pump(): Promise<void> {
  * Системные ошибки доступа алертим прямо здесь: они означают, что сломана вся
  * интеграция, а не один вызов, и вызывающий код об этом судить не может.
  * Остальные коды (4xx по телу запроса, 5xx) отдаём наверх — там свои ретраи
- * и свои алерты, дублировать не нужно.
+ * и свои алерты, дублировать не нужно. 403 обрабатывает предохранитель.
  */
-function alertOnAccessError(status: number, method: string, path: string, body: string): void {
+function alertOnAccessError(status: number, method: string, path: string): void {
   if (status === 401) {
     sendAlert(
       `amoCRM: 401 на ${method} ${path} — токен не принят.`,
@@ -164,18 +252,6 @@ function alertOnAccessError(status: number, method: string, path: string, body: 
         level: 'critical',
         hint: 'долгоживущий токен отозван или пересоздан — обновите AMOCRM_ACCESS_TOKEN',
         code: 'AMOCRM_TOKEN_INVALID',
-      }
-    ).catch(() => {})
-    return
-  }
-  if (status === 403) {
-    sendAlert(
-      `amoCRM: 403 на ${method} ${path} — доступ запрещён. ${body.slice(0, 200)}`,
-      {
-        tag: 'amocrm',
-        level: 'critical',
-        hint: 'похоже на блокировку интеграции за превышение лимитов — заказы перестанут попадать в CRM',
-        code: 'AMOCRM_ACCESS_FORBIDDEN',
       }
     ).catch(() => {})
     return
@@ -207,6 +283,16 @@ async function execute(method: string, path: string, body: unknown, attempt: num
       signal: ctrl.signal,
     })
 
+    if (resp.status === 403) {
+      const text = await resp.text().catch(() => '')
+      clearTimeout(timer)
+      openCircuit(method, path, text)
+      throw new Error(`amoCRM ${method} ${path} → HTTP 403: ${text.slice(0, 300)}`)
+    }
+
+    // достучались до API — значит бан снят (если он был)
+    closeCircuit()
+
     if (resp.status === 204) {
       clearTimeout(timer)
       return null
@@ -227,7 +313,7 @@ async function execute(method: string, path: string, body: unknown, attempt: num
     if (!resp.ok) {
       const text = await resp.text().catch(() => '')
       clearTimeout(timer)
-      alertOnAccessError(resp.status, method, path, text)
+      alertOnAccessError(resp.status, method, path)
       throw new Error(`amoCRM ${method} ${path} → HTTP ${resp.status}: ${text.slice(0, 300)}`)
     }
 

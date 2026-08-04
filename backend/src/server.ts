@@ -2728,6 +2728,26 @@ app.use((err: any, req: express.Request, res: express.Response, _next: express.N
   if (!res.headersSent) res.status(500).json({ error: 'internal_error' })
 })
 
+/**
+ * Исходящий IP сервиса — именно его видят внешние API, и именно он попал под бан
+ * amoCRM 03.08.2026 (403 HTML-страницей от nginx, до API запрос не доходил).
+ * В дашборде Render для free-tier исходящий адрес не показывается, поэтому меряем
+ * сами: без него не с чем идти в поддержку.
+ */
+async function detectEgressIp(): Promise<string> {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 5_000)
+  try {
+    const resp = await fetch('https://api.ipify.org?format=json', { signal: ctrl.signal })
+    const data = await resp.json() as { ip?: string }
+    clearTimeout(timer)
+    return typeof data?.ip === 'string' ? data.ip : 'неизвестен'
+  } catch {
+    clearTimeout(timer)
+    return 'неизвестен'
+  }
+}
+
 const port = Number(process.env.PORT ?? 4000);
 app.listen(port, async () => {
   logger.info({ port }, 'backend started');
@@ -2835,6 +2855,10 @@ app.listen(port, async () => {
     logger.info({ staleMinutes: botHeartbeatStaleMs / 60000 }, 'сторож heartbeat бота настроен')
   }
 
+  // пишем в лог всегда: нужен для разбора банов по IP на стороне внешних API
+  const egressIp = await detectEgressIp()
+  logger.info({ egressIp }, 'исходящий IP сервиса')
+
   // стартовый self-check — в канал ошибок при каждом рестарте
   if (process.env.FEATURE_DEBUG_ALERTS === 'true') {
     try {
@@ -2848,6 +2872,7 @@ app.listen(port, async () => {
       const sheetsOk = !!process.env.IMPORT_SHEET_ID
       const startMsg =
         `✅ [backend] перезапущен ${commit} | ${new Date().toISOString()}\n` +
+        `Исходящий IP: ${egressIp}\n` +
         `Recovery (1.1): ${recoveryOn ? 'on' : 'off'}\n` +
         `Polling (1.2): ${pollingOn ? `on (${pollIntervalMinutes}m)` : 'off'}\n` +
         `Cache (1.3): settings ${settingsTtl}s, categories ${categoriesTtl}s\n` +

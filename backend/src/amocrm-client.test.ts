@@ -5,6 +5,8 @@ process.env.AMOCRM_SUBDOMAIN = 'test'
 process.env.AMOCRM_ACCESS_TOKEN = 'token'
 process.env.AMOCRM_MIN_INTERVAL_MS = '20'   // короткий интервал, чтобы тесты были быстрыми
 process.env.AMOCRM_QUEUE_DEPTH_ALERT = '1000'
+process.env.AMOCRM_CIRCUIT_BASE_PAUSE_MS = '300'  // пауза предохранителя
+process.env.AMOCRM_CIRCUIT_HIGH_WAIT_MS = '50'    // < паузы → заказы падают быстро
 
 const sendAlert = vi.fn().mockResolvedValue(undefined)
 vi.mock('./alerts.js', () => ({ sendAlert: (...a: any[]) => sendAlert(...a) }))
@@ -59,6 +61,7 @@ beforeEach(() => {
   failWith = {}
   latencyMs = 5
   sendAlert.mockClear()
+  client._resetForTests()
 })
 
 describe('очередь amoCRM', () => {
@@ -121,14 +124,6 @@ describe('очередь amoCRM', () => {
 })
 
 describe('алерты клиента amoCRM', () => {
-  it('критично алертит на 403 — это блокировка интеграции', async () => {
-    failWith['/account'] = 403
-    await expect(client.amoFetch('GET', '/account')).rejects.toThrow(/HTTP 403/)
-    const call = sendAlert.mock.calls.find(c => c[1]?.code === 'AMOCRM_ACCESS_FORBIDDEN')
-    expect(call).toBeDefined()
-    expect(call![1].level).toBe('critical')
-  })
-
   it('критично алертит на 401 — токен отозван', async () => {
     failWith['/account'] = 401
     await expect(client.amoFetch('GET', '/account')).rejects.toThrow(/HTTP 401/)
@@ -141,5 +136,48 @@ describe('алерты клиента amoCRM', () => {
     failWith['/leads/500'] = 500
     await expect(client.amoFetch('GET', '/leads/500')).rejects.toThrow(/HTTP 500/)
     expect(sendAlert).not.toHaveBeenCalled()
+  })
+})
+
+describe('предохранитель на 403 (бан по IP)', () => {
+  it('размыкается на 403 и критично алертит', async () => {
+    failWith['/account'] = 403
+    await expect(client.amoFetch('GET', '/account')).rejects.toThrow(/HTTP 403/)
+
+    expect(client.circuitState().open).toBe(true)
+    const call = sendAlert.mock.calls.find(c => c[1]?.code === 'AMOCRM_CIRCUIT_OPEN')
+    expect(call).toBeDefined()
+    expect(call![1].level).toBe('critical')
+  })
+
+  it('перестаёт долбиться в забаненный endpoint', async () => {
+    failWith['/account'] = 403
+    await expect(client.amoFetch('GET', '/account')).rejects.toThrow(/HTTP 403/)
+    calls = []
+
+    // заказ падает быстро и в сеть не уходит — фолбэк отработает штатно
+    await expect(client.amoFetch('POST', '/leads', [{}], 'high'))
+      .rejects.toThrow(/доступ заблокирован/)
+    expect(calls).toHaveLength(0)
+  })
+
+  it('не теряет фоновую задачу — она дожидается конца паузы', async () => {
+    failWith['/account'] = 403
+    await expect(client.amoFetch('GET', '/account')).rejects.toThrow(/HTTP 403/)
+    calls = []
+
+    const res = await client.amoFetch('GET', '/leads/waited', undefined, 'low')
+    expect(res).toEqual({ path: '/leads/waited' })
+    expect(calls.map(c => c.path)).toEqual(['/leads/waited'])
+  })
+
+  it('замыкается обратно после удачного запроса', async () => {
+    failWith['/account'] = 403
+    await expect(client.amoFetch('GET', '/account')).rejects.toThrow(/HTTP 403/)
+    sendAlert.mockClear()
+
+    await client.amoFetch('GET', '/leads/ok', undefined, 'low')
+    expect(client.circuitState().open).toBe(false)
+    expect(sendAlert.mock.calls.find(c => c[1]?.code === 'AMOCRM_CIRCUIT_CLOSED')).toBeDefined()
   })
 })
