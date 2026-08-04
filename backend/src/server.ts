@@ -1400,12 +1400,13 @@ export async function processPaidOrder(
           ).catch(() => {})
         })
         // ярлык Ф7п берётся по id заказа Почты (не по ШПИ); файл в S3 кладём под этим id.
-        // Работает только с партиями, созданными с use-online-balance=true — без признака
-        // онлайн-баланса формы отдают 403 (указание техподдержки Почты, июль 2026).
+        // Требует партии БЕЗ use-online-balance — см. комментарий в createBatch (pochta.ts).
+        // Уровень high: без ярлыка менеджеру нечего печатать и посылку не примут на почте
+        // (именно на low этот сбой месяц оставался незамеченным, июль–август 2026).
         updateAmoCrmLeadBarcode(amoCrmLeadId, String(pochtaOrderId), downloadF7p, 'pochta-labels').catch((e: any) => {
           sendAlert(
             `amoCRM: не удалось прикрепить ярлык Ф7п к лиду ${amoCrmLeadId} (заказ ${orderId}): ${e?.message}`,
-            { tag: 'amocrm', level: 'low', code: 'AMOCRM_BARCODE_FAILED' }
+            { tag: 'amocrm', level: 'high', hint: 'менеджер должен распечатать формы из ЛК Почты вручную', code: 'AMOCRM_BARCODE_FAILED' }
           ).catch(() => {})
         })
       }
@@ -2683,9 +2684,8 @@ app.post('/api/pochta/test', express.json(), async (req, res) => {
       return res.status(200).json({ ok: false, error: 'ШПИ не присвоен за 15с', steps })
     }
 
-    // скачивание ярлыка Ф7п в проде отключено (формы отдавали 403 из-за «классической»
-    // схемы оплаты). По флагу tryLabel пробуем — проверка, что use-online-balance при
-    // создании партии починил печатные формы.
+    // скачивание ярлыка Ф7п по флагу tryLabel — чтобы обычный прогон пайплайна не
+    // плодил лишние PDF в S3. В проде ярлык качается всегда (см. processPaidOrder).
     if (b.tryLabel === true) {
       try {
         const pdf = await downloadF7p(order.id)

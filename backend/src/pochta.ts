@@ -290,12 +290,17 @@ export interface PochtaBatchResult {
 /**
  * Формирует партию из заказов backlog — Почта присваивает ШПИ.
  * POST /1.0/user/shipment (массив result-id) → [{ batch-name }].
- * use-online-balance=true обязателен: аккаунт работает на онлайн-балансе, без
- * признака партия уходит на «классическую» схему оплаты (выключена) и печатные
- * формы отдают 403 (указание техподдержки Почты, июль 2026).
+ *
+ * НЕ добавлять use-online-balance=true. В июле 2026 его поставили по совету
+ * техподдержки Почты, но он переключает партию на предоплаченную схему, которой
+ * у аккаунта нет: печатные формы начинают отдавать 403 (code 1007 UNAUTHORIZED),
+ * а ручное скачивание в ЛК — «недостаточно средств». Месяц EMS-отправлений ушёл
+ * без накладных, менеджеру нечего было печатать. Проверено живым тестом
+ * 2026-08-04: без флага работает «классическая» схема (оплата на стойке при
+ * сдаче) и формы отдаются нормально.
  */
 export async function createBatch(resultIds: number[]): Promise<string> {
-  const data = await pochtaFetch('POST', '/1.0/user/shipment?use-online-balance=true', resultIds) as any
+  const data = await pochtaFetch('POST', '/1.0/user/shipment', resultIds) as any
   const batchName = Array.isArray(data)
     ? data[0]?.['batch-name']
     : data?.['batch-name'] ?? data?.batches?.[0]?.['batch-name']
