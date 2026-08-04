@@ -1400,9 +1400,9 @@ export async function processPaidOrder(
           ).catch(() => {})
         })
         // ярлык берётся по id заказа Почты (не по ШПИ); файл в S3 кладём под этим id.
-        // ВНИМАНИЕ: при POCHTA_MAIL_TYPE=SMALL_PACKET (текущий прод) формы отдают 403 —
-        // Почта их для мелкого пакета на этом аккаунте не выдаёт, так что этот вызов
-        // штатно падает. Формы доступны только для EMS. См. docs/integrations/pochta-ems.md.
+        // ВНИМАНИЕ: пока онлайн-баланс аккаунта не пополнен, для мелкого пакета
+        // (POCHTA_MAIL_TYPE=SMALL_PACKET, текущий прод) формы отдают 403 и этот вызов
+        // штатно падает. См. docs/integrations/pochta-ems.md.
         // Уровень high: без ярлыка менеджеру нечего печатать и посылку не примут на почте
         // (именно на low этот сбой месяц оставался незамеченным, июль–август 2026).
         updateAmoCrmLeadBarcode(amoCrmLeadId, String(pochtaOrderId), downloadF7p, 'pochta-labels').catch((e: any) => {

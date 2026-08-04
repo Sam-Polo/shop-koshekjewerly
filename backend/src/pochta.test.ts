@@ -253,14 +253,13 @@ describe('createBatch', () => {
     await expect(pochta.createBatch([777])).rejects.toThrow('no batch-name')
   })
 
-  // Партия должна идти по классической схеме (оплата при сдаче): онлайн-баланс
-  // аккаунта не пополнен, и по такой партии ЛК отказывает в документах
-  // «недостаточно средств». См. комментарий в createBatch.
-  it('does not request the online-balance payment scheme', async () => {
+  // Классическая схема (оплата при сдаче) на аккаунте выключена — без этого признака
+  // Почта отказывает по всей партии. См. комментарий в createBatch.
+  it('requests the online-balance payment scheme', async () => {
     vi.stubGlobal('fetch', mockFetch([{ ok: true, body: BATCH_RESP }]))
     await pochta.createBatch([777])
     const calls = (fetch as any).mock.calls as [string, RequestInit][]
-    expect(calls[0][0]).not.toContain('use-online-balance')
+    expect(calls[0][0]).toContain('use-online-balance=true')
   })
 })
 
