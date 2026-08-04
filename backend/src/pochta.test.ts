@@ -253,9 +253,9 @@ describe('createBatch', () => {
     await expect(pochta.createBatch([777])).rejects.toThrow('no batch-name')
   })
 
-  // Регрессия: use-online-balance=true переключает партию на предоплаченную схему,
-  // которой у аккаунта нет → печатные формы отдают 403 и менеджеру нечего печатать
-  // (инцидент июль–август 2026, см. комментарий в createBatch).
+  // Партия должна идти по классической схеме (оплата при сдаче): онлайн-баланс
+  // аккаунта не пополнен, и по такой партии ЛК отказывает в документах
+  // «недостаточно средств». См. комментарий в createBatch.
   it('does not request the online-balance payment scheme', async () => {
     vi.stubGlobal('fetch', mockFetch([{ ok: true, body: BATCH_RESP }]))
     await pochta.createBatch([777])
