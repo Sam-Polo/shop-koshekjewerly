@@ -1,29 +1,14 @@
 import pino from 'pino'
-import { PIPELINE_ID, getAmoBase, getAmoToken, prepareLeadUpsert, type LeadUpsert } from './amocrm-lead-processor.js'
+import { PIPELINE_ID, prepareLeadUpsert, type LeadUpsert } from './amocrm-lead-processor.js'
 import { bulkUpsertOrders } from './shipment-items-sheet.js'
+import { amoFetch } from './amocrm-client.js'
 
 const logger = pino()
 
-async function amoGet(path: string): Promise<any> {
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), 12_000)
-  try {
-    const resp = await fetch(`${getAmoBase()}/api/v4${path}`, {
-      headers: { Authorization: `Bearer ${getAmoToken()}` },
-      signal: ctrl.signal,
-    })
-    clearTimeout(timer)
-    if (resp.status === 204) return null
-    if (!resp.ok) {
-      const text = await resp.text().catch(() => '')
-      throw new Error(`amoCRM GET ${path} → ${resp.status}: ${text.slice(0, 200)}`)
-    }
-    return resp.json()
-  } catch (e) {
-    clearTimeout(timer)
-    throw e
-  }
-}
+// Ночная страховка — чистый фон: полоса 'low', чтобы синк никогда не задерживал
+// создание лида по свежей оплате. Паузы между страницами больше не нужны —
+// интервал держит общая очередь (amocrm-client.ts).
+const amoGet = (path: string): Promise<any> => amoFetch('GET', path, undefined, 'low')
 
 export type SyncResult = {
   fetched: number
@@ -70,8 +55,6 @@ export async function syncRecentAmoCrmLeads(hours = 48): Promise<SyncResult> {
 
     if (leads.length < 250) break
     page++
-    // small delay between pages to avoid amoCRM rate limiting
-    await new Promise<void>(r => setTimeout(r, 300))
   }
 
   // Phase 2: one read + one batchUpdate + one append for the whole sync.

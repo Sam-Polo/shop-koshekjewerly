@@ -1,6 +1,7 @@
 import pino from 'pino'
 import { upsertOrderItems, type ShipmentItem, type ShipStatus, type ShipSource } from './shipment-items-sheet.js'
 import { parseAmoCrmComposition, normalizeArticle } from './shipment-items-parser.js'
+import { amoFetch } from './amocrm-client.js'
 
 export type LeadUpsert = {
   orderId: string
@@ -39,13 +40,8 @@ export const STAGE_NEW          = 86423886  // НОВЫЙ, ЖДЕТ ОТПРАВ
 export const STAGE_PICKUP       = 86584502  // САМОВЫВОЗ
 export const STAGE_PRIORITY     = 86486222  // ПРИОРИТЕТНЫЙ ЗАКАЗ
 
-export function getAmoBase(): string {
-  return `https://${process.env.AMOCRM_SUBDOMAIN}.amocrm.ru`
-}
-
-export function getAmoToken(): string {
-  return process.env.AMOCRM_ACCESS_TOKEN ?? ''
-}
+// реэкспорт для существующих импортов; единственный источник — amocrm-client.ts
+export { getAmoBase, getAmoToken } from './amocrm-client.js'
 
 export function readField(lead: any, fieldId: number): string | null {
   const cf: any[] = lead?.custom_fields_values ?? []
@@ -176,27 +172,8 @@ export function isTildaPickupInNew(fullLead: any): boolean {
 /**
  * Moves a lead to the САМОВЫВОЗ stage. Touches ONLY status_id (isolation).
  * Throws on non-OK response so the caller can alert.
+ * Фоновая правка чужого (тильдиного) лида — полоса 'low', не должна обгонять заказы.
  */
 export async function routeLeadToPickupStage(leadId: number): Promise<void> {
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), 12_000)
-  try {
-    const resp = await fetch(`${getAmoBase()}/api/v4/leads/${leadId}`, {
-      method: 'PATCH',
-      headers: {
-        Authorization: `Bearer ${getAmoToken()}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ pipeline_id: PIPELINE_ID, status_id: STAGE_PICKUP }),
-      signal: ctrl.signal,
-    })
-    clearTimeout(timer)
-    if (!resp.ok) {
-      const text = await resp.text().catch(() => '')
-      throw new Error(`PATCH lead ${leadId} → ${resp.status}: ${text.slice(0, 200)}`)
-    }
-  } catch (e) {
-    clearTimeout(timer)
-    throw e
-  }
+  await amoFetch('PATCH', `/leads/${leadId}`, { pipeline_id: PIPELINE_ID, status_id: STAGE_PICKUP }, 'low')
 }

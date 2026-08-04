@@ -1143,21 +1143,11 @@ const PICKUP_ADDRESS = 'г. Москва, ул. Горбунова, 2'
 const LATIN_TEXT_RE = /^[A-Za-z0-9\s.,'\-/()#&]+$/
 const isLatinText = (v: string) => LATIN_TEXT_RE.test(v.trim())
 
-// получаем slug тестового товара из переменных окружения
-const getTestProductSlug = () => {
-  const slug = import.meta.env.VITE_TEST_PRODUCT_SLUG || ''
-  // детальное логирование для отладки
-  console.log('[getTestProductSlug] все env переменные:', {
-    VITE_TEST_PRODUCT_SLUG: import.meta.env.VITE_TEST_PRODUCT_SLUG,
-    VITE_API_URL: import.meta.env.VITE_API_URL,
-    BASE_URL: import.meta.env.BASE_URL,
-    MODE: import.meta.env.MODE,
-    PROD: import.meta.env.PROD,
-    DEV: import.meta.env.DEV
-  })
-  console.log('[getTestProductSlug] результат:', slug)
-  return slug
-}
+// slug тестового товара из переменных окружения (вшивается в бандл на сборке).
+// Влияет ТОЛЬКО на стоимость доставки — она становится нулевой и не рассчитывается.
+// На создание отправления СДЭК и лида в amoCRM не влияет никак: это бэкенд,
+// он про тестовый слаг вообще не знает.
+const getTestProductSlug = () => import.meta.env.VITE_TEST_PRODUCT_SLUG || ''
 
 // проверяем, является ли товар тестовым
 const isTestProduct = (slug: string): boolean => {
@@ -1167,46 +1157,17 @@ const isTestProduct = (slug: string): boolean => {
 
 // проверяем, содержит ли корзина только тестовые товары
 const isCartOnlyTestProducts = (cart: CartItem[], products: Product[]): boolean => {
-  if (cart.length === 0) {
-    console.log('[isCartOnlyTestProducts] корзина пуста')
-    return false
-  }
-  
-  const testSlug = getTestProductSlug()
-  console.log('[isCartOnlyTestProducts] testSlug из env:', testSlug)
-  
-  if (!testSlug) {
-    console.log('[isCartOnlyTestProducts] тестовый товар не задан, считаем что все обычные')
-    return false // если не задан тестовый товар, считаем что все обычные
-  }
-  
-  // проверяем что все товары в корзине - тестовые. Композиты считаем не-тестовыми.
-  const cartItems = cart.map(item => {
-    if (item.kind === 'constructor') {
-      return { item, product: null, isTest: false }
-    }
-    const product = products.find(p => p.slug === item.slug)
-    const isTest = product ? isTestProduct(product.slug) : false
-    console.log('[isCartOnlyTestProducts] товар:', {
-      slug: item.slug,
-      found: !!product,
-      isTest,
-      testSlug
-    })
-    return { item, product, isTest }
-  })
+  if (cart.length === 0) return false
 
-  const allTest = cartItems.every(({ isTest }) => isTest)
-  console.log('[isCartOnlyTestProducts] результат:', {
-    cartLength: cart.length,
-    allTest,
-    items: cartItems.map(({ item, isTest }) => ({
-      key: item.kind === 'regular' ? item.slug : item.id,
-      isTest
-    }))
+  const testSlug = getTestProductSlug()
+  if (!testSlug) return false // если не задан тестовый товар, считаем что все обычные
+
+  // проверяем что все товары в корзине - тестовые. Композиты считаем не-тестовыми.
+  return cart.every(item => {
+    if (item.kind === 'constructor') return false
+    const product = products.find(p => p.slug === item.slug)
+    return product ? isTestProduct(product.slug) : false
   })
-  
-  return allTest
 }
 
 // компонент формы оформления заказа (СДЭК интеграция)

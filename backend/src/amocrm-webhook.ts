@@ -1,7 +1,8 @@
 import type { Request, Response } from 'express'
 import pino from 'pino'
 import { sendAlert } from './alerts.js'
-import { PIPELINE_ID, STAGE_MAP, getAmoBase, getAmoToken, processAmoCrmLead, isTildaPickupInNew, routeLeadToPickupStage, ENUM_TELEGRAM, FIELD_SOURCE, FIELD_DELIVERY_TYPE, FIELD_ORDER_NUMBER, readField, readFieldEnum } from './amocrm-lead-processor.js'
+import { PIPELINE_ID, STAGE_MAP, processAmoCrmLead, isTildaPickupInNew, routeLeadToPickupStage, ENUM_TELEGRAM, FIELD_SOURCE, FIELD_DELIVERY_TYPE, FIELD_ORDER_NUMBER, readField, readFieldEnum } from './amocrm-lead-processor.js'
+import { amoFetch } from './amocrm-client.js'
 import { deleteRowsByLeadId } from './shipment-items-sheet.js'
 import { getCachedOrdersSettings } from './settings.js'
 
@@ -12,45 +13,26 @@ const FIELD_TG_CHAT_ID = Number(process.env.AMOCRM_CONTACT_FIELD_TG_ID ?? '77025
 const DEFAULT_ASSEMBLED_MESSAGE =
   '✅ Ваш заказ {{ord}} собран и готов к выдаче!\nЖдём вас по адресу: г. Москва, ул. Горбунова, 2 💗'
 
+// Обработка вебхуков — фон: полоса 'low', чтобы шторм вебхуков (массовая
+// операция со сделками в CRM) не задерживал создание лидов по свежим оплатам.
+// Ошибку глушим в null, как и раньше: не смогли дочитать лид — просто пропускаем,
+// ночной delta-sync подберёт.
+const amoGetLow = (path: string): Promise<any> =>
+  amoFetch('GET', path, undefined, 'low').catch(() => null)
+
 async function fetchLeadContactId(leadId: number): Promise<number | null> {
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), 12_000)
-  try {
-    const resp = await fetch(
-      `${getAmoBase()}/api/v4/leads/${leadId}?with=contacts`,
-      { headers: { Authorization: `Bearer ${getAmoToken()}` }, signal: ctrl.signal }
-    )
-    clearTimeout(timer)
-    if (!resp.ok) return null
-    const data = await resp.json()
-    const contacts: any[] = data?._embedded?.contacts ?? []
-    const main = contacts.find((c: any) => c.is_main) ?? contacts[0]
-    return main ? Number(main.id) : null
-  } catch {
-    clearTimeout(timer)
-    return null
-  }
+  const data = await amoGetLow(`/leads/${leadId}?with=contacts`)
+  const contacts: any[] = data?._embedded?.contacts ?? []
+  const main = contacts.find((c: any) => c.is_main) ?? contacts[0]
+  return main ? Number(main.id) : null
 }
 
 async function fetchContactTgChatId(contactId: number): Promise<string | null> {
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), 12_000)
-  try {
-    const resp = await fetch(
-      `${getAmoBase()}/api/v4/contacts/${contactId}?with=custom_fields`,
-      { headers: { Authorization: `Bearer ${getAmoToken()}` }, signal: ctrl.signal }
-    )
-    clearTimeout(timer)
-    if (!resp.ok) return null
-    const data = await resp.json()
-    const cf: any[] = data?.custom_fields_values ?? []
-    const field = cf.find((f: any) => Number(f.field_id) === FIELD_TG_CHAT_ID)
-    const val = field?.values?.[0]?.value
-    return val !== undefined && val !== null && val !== '' ? String(val) : null
-  } catch {
-    clearTimeout(timer)
-    return null
-  }
+  const data = await amoGetLow(`/contacts/${contactId}?with=custom_fields`)
+  const cf: any[] = data?.custom_fields_values ?? []
+  const field = cf.find((f: any) => Number(f.field_id) === FIELD_TG_CHAT_ID)
+  const val = field?.values?.[0]?.value
+  return val !== undefined && val !== null && val !== '' ? String(val) : null
 }
 
 async function handleAssembledNotification(fullLead: any): Promise<void> {
@@ -121,20 +103,7 @@ async function handleAssembledNotification(fullLead: any): Promise<void> {
 }
 
 async function fetchLead(leadId: number): Promise<any | null> {
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), 12_000)
-  try {
-    const resp = await fetch(
-      `${getAmoBase()}/api/v4/leads/${leadId}?with=custom_fields`,
-      { headers: { Authorization: `Bearer ${getAmoToken()}` }, signal: ctrl.signal }
-    )
-    clearTimeout(timer)
-    if (!resp.ok) return null
-    return resp.json()
-  } catch {
-    clearTimeout(timer)
-    return null
-  }
+  return amoGetLow(`/leads/${leadId}?with=custom_fields`)
 }
 
 export function handleAmoCrmWebhook(req: Request, res: Response): void {

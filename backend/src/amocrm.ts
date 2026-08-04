@@ -1,55 +1,12 @@
 import { sendAlert } from './alerts.js'
 import type { Order } from './orders.js'
 import { uploadBufferToS3 } from './s3.js'
+import { amoFetch } from './amocrm-client.js'
 
-const getBase = () => {
-  const sub = process.env.AMOCRM_SUBDOMAIN
-  if (!sub) throw new Error('AMOCRM_SUBDOMAIN not set')
-  return `https://${sub}.amocrm.ru`
-}
-
-const getToken = () => {
-  const token = process.env.AMOCRM_ACCESS_TOKEN
-  if (!token) throw new Error('AMOCRM_ACCESS_TOKEN not set')
-  return token
-}
-
-// ── Authenticated fetch ───────────────────────────────────────────────────────
-
-async function amoFetch(method: string, path: string, body?: unknown, attempt = 1): Promise<unknown> {
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), 12_000)
-  try {
-    const resp = await fetch(`${getBase()}/api/v4${path}`, {
-      method,
-      headers: {
-        Authorization: `Bearer ${getToken()}`,
-        'Content-Type': 'application/json',
-      },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-      signal: ctrl.signal,
-    })
-    clearTimeout(timer)
-    if (resp.status === 204) return null
-    // amoCRM лимит ~7 req/sec на аккаунт → 429. Ретраим с backoff (учитываем Retry-After).
-    if (resp.status === 429 && attempt <= 4) {
-      const retryAfter = Number(resp.headers.get('Retry-After'))
-      const delayMs = Number.isFinite(retryAfter) && retryAfter > 0
-        ? Math.min(retryAfter * 1000, 10_000)
-        : [500, 1500, 4000, 8000][attempt - 1]
-      await sleep(delayMs)
-      return amoFetch(method, path, body, attempt + 1)
-    }
-    if (!resp.ok) {
-      const text = await resp.text().catch(() => '')
-      throw new Error(`amoCRM ${method} ${path} → HTTP ${resp.status}: ${text.slice(0, 300)}`)
-    }
-    return resp.json()
-  } catch (e) {
-    clearTimeout(timer)
-    throw e
-  }
-}
+// Все запросы этого модуля — критический путь заказа (лид при оплате, трек,
+// штрихкод), поэтому идут в полосе 'high' по умолчанию: они должны обгонять
+// фоновую обработку вебхуков. Очередь, троттлинг и ретрай на 429 — в
+// amocrm-client.ts.
 
 // ── Field helpers ─────────────────────────────────────────────────────────────
 
