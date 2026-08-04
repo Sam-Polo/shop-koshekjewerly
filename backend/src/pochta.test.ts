@@ -257,10 +257,10 @@ describe('createBatch', () => {
   // которой у аккаунта нет → печатные формы отдают 403 и менеджеру нечего печатать
   // (инцидент июль–август 2026, см. комментарий в createBatch).
   it('does not request the online-balance payment scheme', async () => {
-    const fetchMock = mockFetch([{ ok: true, body: BATCH_RESP }])
-    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('fetch', mockFetch([{ ok: true, body: BATCH_RESP }]))
     await pochta.createBatch([777])
-    expect(String(fetchMock.mock.calls[0][0])).not.toContain('use-online-balance')
+    const calls = (fetch as any).mock.calls as [string, RequestInit][]
+    expect(calls[0][0]).not.toContain('use-online-balance')
   })
 })
 
