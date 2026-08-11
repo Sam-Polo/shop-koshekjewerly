@@ -78,6 +78,41 @@ function formatMemberSince(iso: string): string {
   return `${MONTHS_GENITIVE[d.getMonth()]} ${d.getFullYear()}`
 }
 
+// Telegram НЕ передаёт пол пользователя (в initData только id, имя, username, язык),
+// поэтому обращение «Кот/Кошка» приходится угадывать по имени.
+//
+// Наивное правило «оканчивается на -а/-я → женское» тут не работает: Telegram-имя часто
+// уменьшительное, а мужских уменьшительных на -а/-я полно (Саша, Дима, Миша, Женя).
+// Поэтому сначала явный список мужских, потом окончание, и только затем — дефолт.
+//
+// Дефолт женский осознанно: аудитория магазина почти целиком женская, так что ошибка
+// в эту сторону задевает меньше людей. Неоднозначные имена (Саша, Женя, Валя) уходят
+// в дефолт по той же причине.
+const MALE_NAMES = new Set([
+  'никита', 'илья', 'данила', 'лёва', 'лева', 'гоша', 'паша', 'дима', 'миша', 'серёжа',
+  'сережа', 'ваня', 'костя', 'витя', 'толя', 'коля', 'петя', 'вова', 'гена', 'слава',
+  'юра', 'лёша', 'леша', 'стёпа', 'степа', 'боря', 'сеня', 'сева', 'кеша', 'тёма', 'тема',
+  'рома', 'алёша', 'алеша', 'гриша', 'вася', 'яша', 'жора', 'кузя', 'антоша', 'валера',
+  'андрюша', 'ильюша', 'игорёк', 'мага', 'муса', 'иса',
+])
+
+// женские имена, которые НЕ оканчиваются на -а/-я — иначе правило по окончанию
+// зачислило бы их в мужские
+const FEMALE_NAMES = new Set([
+  'любовь', 'нинель', 'адель', 'айгуль', 'гюзель', 'эсфирь', 'рахиль', 'жасмин',
+  'кармен', 'элен', 'ким', 'сюзан', 'мэрилин', 'жаклин',
+])
+
+function catForName(firstName: string): 'Кот' | 'Кошка' {
+  const name = firstName.trim().toLowerCase().split(/[\s-]/)[0]
+  if (!name) return 'Кошка'
+  if (MALE_NAMES.has(name)) return 'Кот'
+  if (FEMALE_NAMES.has(name)) return 'Кошка'
+  // не оканчивается на -а/-я — почти наверняка мужское (Иван, Сергей, Пётр)
+  if (!/[ая]$/.test(name)) return 'Кот'
+  return 'Кошка'
+}
+
 function pluralOrders(n: number): string {
   const mod10 = n % 10
   const mod100 = n % 100
@@ -238,14 +273,26 @@ const IconPerson = ({ size = 22 }: { size?: number }) => (
   </svg>
 )
 
-// filled — товар уже в избранном: сердечко заливается тем же цветом, что и контур
+// Сердечко «от руки»: несимметричное, одним росчерком, с заходом линии за начало —
+// отсюда характерное перекрестие у выемки.
+//
+// Рисованный контур незамкнут, залить его напрямую нельзя. Поэтому фигур две: замкнутый
+// силуэт под заливку (рисуется только в активном состоянии) и поверх него сам росчерк.
+// Заменить сердечко на другое = поменять эти две строки, логику трогать не нужно.
+const HEART_FILL = 'M12.1 20.8C9 18 5.9 15.6 4 12.9 1.9 10 2.6 6.4 5.4 5c2.5-1.2 5.3 0 6.5 2.4C13.1 4.9 16 3.7 18.4 5c2.8 1.5 3.3 5.1 1.4 7.8-1.9 2.7-4.8 5.1-7.7 8z'
+const HEART_STROKE = 'M10.4 10c.5-1.1 1-1.9 1.5-2.6C10.7 5 7.9 3.8 5.4 5 2.6 6.4 1.9 10 4 12.9c1.9 2.7 5 5.1 8.1 7.9 2.9-2.9 5.8-5.3 7.7-8 1.9-2.7 1.4-6.3-1.4-7.8-2.4-1.3-5.3-.1-6.5 2.4'
+
+// filled — товар уже в избранном
 const IconHeart = ({ size = 22, filled = false }: { size?: number; filled?: boolean }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill={filled ? 'currentColor' : 'none'} aria-hidden="true">
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    {filled && <path d={HEART_FILL} fill="currentColor" />}
     <path
-      d="M12 20.4C6.4 16.5 3 13.6 3 9.9 3 7 5.2 4.9 8 4.9c1.6 0 3.1.8 4 2 .9-1.2 2.4-2 4-2 2.8 0 5 2.1 5 5 0 3.7-3.4 6.6-9 10.5z"
+      d={HEART_STROKE}
       stroke="currentColor"
-      strokeWidth="1.6"
+      strokeWidth="1.8"
+      strokeLinecap="round"
       strokeLinejoin="round"
+      fill="none"
     />
   </svg>
 )
@@ -2507,11 +2554,13 @@ const AccountScreen = ({
   return (
     <>
       <div className="account-card">
-        {firstName && <p className="account-card__greeting">Здравствуйте, {firstName}</p>}
+        {firstName && (
+          <p className="account-card__greeting">Привет, {catForName(firstName)} {firstName}</p>
+        )}
         {totalOrders > 0 && (
           <p className="account-card__stats">
             {totalOrders} {pluralOrders(totalOrders)}
-            {memberSince ? ` · с нами с ${memberSince}` : ''}
+            {memberSince ? ` · в кошачьей семье с ${memberSince}` : ''}
           </p>
         )}
       </div>
@@ -3317,7 +3366,7 @@ export default function App() {
             она доступна и после прокрутки каталога. */}
         <div className="header-actions">
           <button
-            className={`header-action${favorites.length > 0 ? ' header-action--filled' : ''}`}
+            className="header-action"
             onClick={openFavorites}
             aria-label="Избранное"
           >
