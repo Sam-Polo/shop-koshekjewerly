@@ -10,7 +10,7 @@ import rateLimit from 'express-rate-limit';
 import { fetchProductsFromSheet, decreaseStockInSheet } from './sheets.js';
 import { listProducts, upsertProducts, decreaseProductStock, getProductCategories } from './store.js';
 import { createOrder, getOrder, updateOrderStatus, listOrders, restoreOrder, type Order, type Platform, type DeliveryMethod } from './orders.js';
-import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId, listPendingOrdersFromSheet, updateCdekInfoInSheet, updatePochtaInfoInSheet } from './orders-sheet.js'
+import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId, getOrderHistoryByChatId, listPendingOrdersFromSheet, updateCdekInfoInSheet, updatePochtaInfoInSheet } from './orders-sheet.js'
 import { sendAlert } from './alerts.js';
 import { searchCities, getPickupPoints, calculateDelivery, triggerCdekOrderAsync, getCdekUuidByTrack, downloadCdekBarcode } from './cdek.js';
 import { calculateTariff as calculatePochtaTariff, triggerPochtaOrderAsync, downloadF7p, getCountries as getPochtaCountries, createPochtaOrder, createBatch, getShpiFromBatch, checkRequiredPochtaEnv, pochtaFetch, _batchShipmentsPath } from './pochta.js';
@@ -2256,6 +2256,58 @@ app.get('/api/orders/my', async (req, res) => {
     return res.json({ orders })
   } catch (e: any) {
     logger.error({ chatId, error: e?.message }, 'ошибка получения заказов пользователя')
+    return res.status(500).json({ error: 'internal_error' })
+  }
+})
+
+// Есть ли у покупателя доступ к разделам ЛК и избранного (пока — только у админов).
+// Отдельный дешёвый эндпойнт: избранное живёт на клиенте и Sheets ему не нужен вовсе,
+// а мини-аппу надо решить, показывать список или заглушку «в разработке».
+// Ответ — исключительно про доступ, никаких данных заказа.
+app.post('/api/account/access', (req, res) => {
+  const { initData } = req.body || {}
+  if (!initData || typeof initData !== 'string') {
+    return res.status(400).json({ error: 'init_data_required' })
+  }
+  const { id: chatId } = extractUserFromInitData(initData)
+  return res.json({ allowed: isAdminChatId(chatId) })
+})
+
+// личный кабинет мини-аппа: история заказов покупателя.
+//
+// Контракт намеренно отличается от /api/orders/my (тот бот-онли и принимает chatId
+// параметром — боту можно, он знает настоящий chat_id от самого Telegram).
+// Здесь chat_id ВЫВОДИТСЯ НА СЕРВЕРЕ из initData и никогда не принимается от клиента:
+// когда появится проверка подписи initData, эндпойнт станет безопасным без правок
+// контракта и без единой правки фронта.
+//
+// ВРЕМЕННЫЙ ГЕЙТ: пока подпись initData не проверяется (см. extractUserFromInitData),
+// историю отдаём ТОЛЬКО админам из ADMIN_CHAT_IDS. Иначе любой мог бы подставить
+// произвольный chat_id и выгрузить чужие ПДн — chat_id в Telegram последовательные,
+// то есть это не точечная атака, а дамп клиентской базы перебором.
+// Гейт снимаем только вместе с валидацией подписи (и кэшем поверх Sheets).
+app.post('/api/account/orders', async (req, res) => {
+  try {
+    const { initData } = req.body || {}
+    if (!initData || typeof initData !== 'string') {
+      return res.status(400).json({ error: 'init_data_required' })
+    }
+
+    const { id: chatId } = extractUserFromInitData(initData)
+    if (!chatId) return res.status(401).json({ error: 'unauthorized' })
+
+    if (!isAdminChatId(chatId)) {
+      // 200, а не 403: для мини-аппа это штатное состояние «раздел ещё не открыт»
+      return res.json({ gated: true, orders: [] })
+    }
+
+    const orders = await getOrderHistoryByChatId(chatId, 20)
+    return res.json({ gated: false, orders })
+  } catch (e: any) {
+    logger.error({ error: e?.message }, 'ошибка получения истории заказов для ЛК')
+    sendAlert(`Ошибка истории заказов в ЛК: ${e?.message}`, {
+      tag: 'account', level: 'low', hint: 'личный кабинет не смог показать историю заказов', code: 'ACCOUNT_HISTORY_FAILED'
+    }).catch(() => {})
     return res.status(500).json({ error: 'internal_error' })
   }
 })

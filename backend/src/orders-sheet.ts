@@ -390,6 +390,110 @@ export async function getOrdersByCustomerChatId(chatId: string, limit = 10): Pro
   }
 }
 
+export type OrderHistoryItem = {
+  title: string
+  price: number
+  quantity: number
+  option?: string
+}
+
+export type OrderHistoryEntry = {
+  orderId: string
+  createdAt: string
+  status: string
+  total: number
+  deliveryMethod: string
+  trackNumber: string | null
+  trackUrl: string | null
+  items: OrderHistoryItem[]
+}
+
+/**
+ * История заказов покупателя для личного кабинета в мини-аппе.
+ *
+ * Отличается от `getOrdersByCustomerChatId` (та обслуживает /myorders в боте и намеренно
+ * оставлена нетронутой): здесь нужен более широкий диапазон — до AB, потому что трек-номера
+ * живут в колонках Y (СДЭК) и AA (ЕМС), а `A:U` обрывается на total — плюс состав заказа
+ * из отдельного листа order_items.
+ *
+ * Показываем только оплаченные: строки `pending` — это в основном брошенные корзины,
+ * покупателю они не «заказы».
+ *
+ * ВНИМАНИЕ: два полных чтения листов на вызов, фильтрация линейным сканом. Пока ЛК
+ * открыт только админам (гейт в эндпойнте) — это несколько запросов в день. Перед
+ * открытием на всех пользователей обязателен кэш, иначе выжжем квоту Sheets API.
+ */
+export async function getOrderHistoryByChatId(chatId: string, limit = 20): Promise<OrderHistoryEntry[]> {
+  const spreadsheetId = getSheetId()
+  if (!spreadsheetId) return []
+  try {
+    const auth = getAuth()
+    const api = google.sheets({ version: 'v4', auth })
+    const [ordersRes, itemsRes] = await Promise.all([
+      api.spreadsheets.values.get({ spreadsheetId, range: `${ORDERS_SHEET}!A:AB` }),
+      api.spreadsheets.values.get({ spreadsheetId, range: `${ORDER_ITEMS_SHEET}!A:H` }),
+    ])
+
+    const orderRows = ordersRes.data.values || []
+    const itemRows = itemsRes.data.values || []
+
+    // сначала отбираем свои заказы, только потом собираем позиции — чтобы не строить
+    // индекс по всему листу order_items ради двух-трёх заказов
+    const mine: string[][] = []
+    for (let i = 1; i < orderRows.length; i++) {
+      const row = orderRows[i] as string[]
+      if (!row || row[5] !== chatId) continue
+      if (row[3] !== 'paid') continue
+      mine.push(row)
+    }
+    mine.sort((a, b) => new Date(b[1] ?? '').getTime() - new Date(a[1] ?? '').getTime())
+    const page = mine.slice(0, limit)
+    const wanted = new Set(page.map(row => row[0]))
+
+    const itemsByOrder = new Map<string, OrderHistoryItem[]>()
+    for (let i = 1; i < itemRows.length; i++) {
+      const row = itemRows[i] as string[]
+      const oid = row?.[0]
+      if (!oid || !wanted.has(oid)) continue
+      const bucket = itemsByOrder.get(oid) ?? []
+      bucket.push({
+        title: row[2] ?? '',
+        price: parseFloat(row[3]) || 0,
+        quantity: parseInt(row[4], 10) || 1,
+        option: row[7] || undefined,
+      })
+      itemsByOrder.set(oid, bucket)
+    }
+
+    return page.map(row => {
+      const orderId = row[0] ?? ''
+      const deliveryMethod = row[25] ?? ''
+      const cdekTrack = row[24] || ''
+      const emsTrack = row[26] || ''
+      const trackNumber = (deliveryMethod === 'ems' ? emsTrack : cdekTrack) || null
+      // формат ссылок тот же, что в отбивках покупателю (server.ts) — расхождение сбивало бы с толку
+      const trackUrl = !trackNumber
+        ? null
+        : deliveryMethod === 'ems'
+          ? `https://www.pochta.ru/tracking#${trackNumber}`
+          : `https://cdek.ru/m/order/${trackNumber}`
+      return {
+        orderId,
+        createdAt: row[1] ?? '',
+        status: row[3] ?? '',
+        total: parseFloat(row[20]) || 0,
+        deliveryMethod,
+        trackNumber,
+        trackUrl,
+        items: itemsByOrder.get(orderId) ?? [],
+      }
+    })
+  } catch (e: any) {
+    logger.warn({ chatId, error: e?.message }, 'getOrderHistoryByChatId: ошибка чтения из Sheets')
+    return []
+  }
+}
+
 export async function updateCdekInfoInSheet(orderId: string, cdekUuid: string, cdekTrackNumber: string | null): Promise<void> {
   const spreadsheetId = getSheetId()
   if (!spreadsheetId) return

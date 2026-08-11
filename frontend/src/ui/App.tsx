@@ -6,6 +6,7 @@ import { Pagination, Zoom, Navigation } from 'swiper/modules'
 import { motion, AnimatePresence } from 'framer-motion'
 import Constructor, { ConstructorDetailModal, type ConstructorComposite, type ConstructorDetailView, type JewelryType } from './Constructor'
 import { COUNTRIES, type Country } from './countries'
+import { loadFavorites, saveFavorites } from './favorites'
 
 const CONSTRUCTOR_CATEGORY_KEY = 'constructor'
 
@@ -64,6 +65,15 @@ function formatDate(dateString: string): string {
   }
 }
 
+// created_at заказа — ISO с временем (2026-08-11T10:23:45.000Z), а не YYYY-MM-DD,
+// поэтому formatDate выше здесь не подходит
+function formatOrderDate(iso: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+
 type Category = {
   key: string
   title: string
@@ -93,6 +103,18 @@ type Product = {
   article?: string // артикул товара
   coming_drop?: boolean
   options?: ProductOption // если задана — выбор обязателен перед добавлением в корзину
+}
+
+/** заказ в истории личного кабинета (ответ POST /api/account/orders) */
+type OrderHistoryEntry = {
+  orderId: string
+  createdAt: string
+  status: string
+  total: number
+  deliveryMethod: string
+  trackNumber: string | null
+  trackUrl: string | null
+  items: Array<{ title: string; price: number; quantity: number; option?: string }>
 }
 
 type RegularCartItem = {
@@ -184,6 +206,27 @@ async function fetchWithRetry(url: string, options?: RequestInit): Promise<Respo
   }
   throw lastError
 }
+
+// Иконки: тонкий контур, наследуют цвет через currentColor — как иконка корзины.
+// Держим инлайном, чтобы не тянуть библиотеку иконок ради двух штук.
+const IconPerson = ({ size = 22 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <circle cx="12" cy="8" r="3.6" stroke="currentColor" strokeWidth="1.6" />
+    <path d="M4.8 20c0-3.7 3.2-6.1 7.2-6.1s7.2 2.4 7.2 6.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+  </svg>
+)
+
+// filled — товар уже в избранном: сердечко заливается тем же цветом, что и контур
+const IconHeart = ({ size = 22, filled = false }: { size?: number; filled?: boolean }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill={filled ? 'currentColor' : 'none'} aria-hidden="true">
+    <path
+      d="M12 20.4C6.4 16.5 3 13.6 3 9.9 3 7 5.2 4.9 8 4.9c1.6 0 3.1.8 4 2 .9-1.2 2.4-2 4-2 2.8 0 5 2.1 5 5 0 3.7-3.4 6.6-9 10.5z"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinejoin="round"
+    />
+  </svg>
+)
 
 // fallback категории (если API не отдаёт)
 // категория сертификатов — товары из неё можно купить электронно (только промокод)
@@ -637,13 +680,17 @@ const ProductModal = ({
   onClose,
   onAddedToCart,
   ordersClosed,
-  onOrdersClosedClick
-}: { 
+  onOrdersClosedClick,
+  isFavorite,
+  onToggleFavorite
+}: {
   product: Product
   cart: CartItem[]
   onAddToCart: (slug: string, quantity: number, digital?: boolean, option?: string) => void
   onClose: () => void
   onAddedToCart: () => void
+  isFavorite: boolean
+  onToggleFavorite: (slug: string) => void
   ordersClosed: boolean
   onOrdersClosedClick: () => void
 }) => {
@@ -738,7 +785,15 @@ const ProductModal = ({
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content modal-content--product" onClick={e => e.stopPropagation()}>
         <button className="modal-close" onClick={onClose}>&times;</button>
-        
+        <button
+          className={`product-modal__fav${isFavorite ? ' product-modal__fav--active' : ''}`}
+          onClick={() => onToggleFavorite(product.slug)}
+          aria-label={isFavorite ? 'Убрать из избранного' : 'В избранное'}
+          aria-pressed={isFavorite}
+        >
+          <IconHeart size={22} filled={isFavorite} />
+        </button>
+
         {/* фото-галерея */}
         {product.images && product.images.length > 0 && (
           <div className="product-modal__gallery">
@@ -2387,6 +2442,145 @@ const ThumbnailButton = ({
   )
 }
 
+// Заглушка для разделов, ещё не открытых обычным покупателям.
+// Показывается, пока не снят гейт ADMIN_CHAT_IDS на бэкенде.
+const ScreenStub = ({ title }: { title: string }) => (
+  <div className="screen-stub">
+    <p className="screen-stub__title">{title} в разработке</p>
+    <p className="screen-stub__text">Скоро будет готово 🤍</p>
+  </div>
+)
+
+const AccountScreen = ({
+  gate,
+  ordersState,
+  orders,
+}: {
+  gate: 'unknown' | 'checking' | 'allowed' | 'denied' | 'error'
+  ordersState: 'idle' | 'loading' | 'ready' | 'error'
+  orders: OrderHistoryEntry[]
+}) => {
+  if (gate === 'unknown' || gate === 'checking') {
+    return <p className="screen-loading">Загрузка...</p>
+  }
+  // ошибку проверки доступа не отличаем от отказа: показываем ту же заглушку,
+  // чтобы покупатель не упирался в непонятную ошибку в разделе, которого ещё нет
+  if (gate !== 'allowed') return <ScreenStub title="Личный кабинет" />
+
+  if (ordersState === 'loading' || ordersState === 'idle') {
+    return <p className="screen-loading">Загружаем историю заказов...</p>
+  }
+  if (ordersState === 'error') {
+    return <p className="screen-loading">Не удалось загрузить историю заказов. Попробуйте позже.</p>
+  }
+  if (orders.length === 0) {
+    return <p className="screen-empty">Здесь появятся ваши заказы 🤍</p>
+  }
+
+  return (
+    <div className="order-history">
+      {orders.map(order => (
+        <div key={order.orderId} className="order-history__card">
+          <div className="order-history__head">
+            <span className="order-history__id">{order.orderId}</span>
+            <span className="order-history__date">{formatOrderDate(order.createdAt)}</span>
+          </div>
+          <div className="order-history__items">
+            {order.items.map((item, idx) => (
+              <div key={idx} className="order-history__item">
+                <span className="order-history__item-title">
+                  {item.title}
+                  {item.option ? ` (${item.option})` : ''}
+                  {item.quantity > 1 ? ` × ${item.quantity}` : ''}
+                </span>
+                <span className="order-history__item-price">{item.price * item.quantity} ₽</span>
+              </div>
+            ))}
+          </div>
+          <div className="order-history__total">
+            <span>Итого</span>
+            <span>{order.total} ₽</span>
+          </div>
+          {order.trackUrl && (
+            <a
+              className="order-history__track"
+              href={order.trackUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Отследить: {order.trackNumber}
+            </a>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+const FavoritesScreen = ({
+  gate,
+  products,
+  favorites,
+  onSelect,
+  onToggleFavorite,
+}: {
+  gate: 'unknown' | 'checking' | 'allowed' | 'denied' | 'error'
+  products: Product[]
+  favorites: string[]
+  onSelect: (product: Product) => void
+  onToggleFavorite: (slug: string) => void
+}) => {
+  if (gate === 'unknown' || gate === 'checking') {
+    return <p className="screen-loading">Загрузка...</p>
+  }
+  if (gate !== 'allowed') return <ScreenStub title="Избранное" />
+
+  // избранное хранит только слаги: товар мог закончиться или уехать из каталога,
+  // поэтому резолвим по актуальному списку и молча пропускаем исчезнувшие
+  const items = favorites
+    .map(slug => products.find(p => p.slug === slug))
+    .filter((p): p is Product => !!p)
+
+  if (items.length === 0) {
+    return <p className="screen-empty">В избранном пока пусто 🤍</p>
+  }
+
+  return (
+    <div className="products-grid">
+      {items.map(product => (
+        <div key={product.slug} className="product-card" onClick={() => onSelect(product)}>
+          <div className="product-card__image-wrapper">
+            <ImageWithLoader
+              src={product.images && product.images.length > 0 ? firstPhoto(product.images) : ''}
+              alt={product.title}
+            />
+            <button
+              className="product-card__fav product-card__fav--active"
+              onClick={e => { e.stopPropagation(); onToggleFavorite(product.slug) }}
+              aria-label="Убрать из избранного"
+            >
+              <IconHeart size={20} filled />
+            </button>
+          </div>
+          <div className="product-card__info">
+            <h3 className="product-card__title">{product.title}</h3>
+            <div className="product-card__price">
+              {product.discount_price_rub !== undefined && product.discount_price_rub > 0 ? (
+                <>
+                  <span className="product-card__price-old">{product.price_rub} ₽</span>
+                  <span className="product-card__price-new">{product.discount_price_rub} ₽</span>
+                </>
+              ) : (
+                <span>{product.price_rub} ₽</span>
+              )}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default function App() {
   const [aboutModalOpen, setAboutModalOpen] = useState(false)
   const [cartOpen, setCartOpen] = useState(false)
@@ -2422,6 +2616,15 @@ export default function App() {
   const [priorityOrderEnabled, setPriorityOrderEnabled] = useState(true)
   const [priorityOrderFee, setPriorityOrderFee] = useState(30)
   const [pickupEnabled, setPickupEnabled] = useState(true)
+  // избранное: слаги товаров. Добавлять может любой покупатель, хранится в CloudStorage
+  // (favorites.ts). Закрыт пока только ПРОСМОТР списка — экраном за гейтом ADMIN_CHAT_IDS.
+  const [favorites, setFavorites] = useState<string[]>([])
+  // экран вместо каталога: личный кабинет / избранное
+  const [activeScreen, setActiveScreen] = useState<'account' | 'favorites' | null>(null)
+  const [accountOrders, setAccountOrders] = useState<OrderHistoryEntry[]>([])
+  const [ordersState, setOrdersState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  // доступ к разделам ЛК/избранного: пока открыты только админам (проверяет бэкенд)
+  const [gate, setGate] = useState<'unknown' | 'checking' | 'allowed' | 'denied' | 'error'>('unknown')
   const mainContentRef = useRef<HTMLElement>(null)
   const productsTitleRef = useRef<HTMLHeadingElement>(null)
   
@@ -2677,6 +2880,115 @@ export default function App() {
     } catch {}
   }, [])
 
+  // избранное поднимаем один раз при старте (CloudStorage — асинхронный)
+  useEffect(() => {
+    let cancelled = false
+    loadFavorites()
+      .then(slugs => { if (!cancelled) setFavorites(slugs) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
+  // переключение сердечка. Пишем оптимистично: клик обязан ощущаться мгновенно,
+  // а запись в CloudStorage асинхронная и может подтормаживать
+  const toggleFavorite = (slug: string) => {
+    setFavorites(prev => {
+      const next = prev.includes(slug) ? prev.filter(s => s !== slug) : [...prev, slug]
+      saveFavorites(next).catch(() => {})
+      return next
+    })
+  }
+
+  const getInitData = (): string => {
+    try {
+      return WebApp.initData || ''
+    } catch {
+      return ''
+    }
+  }
+
+  // Разделы ЛК и избранного пока открыты только админам. Проверку делает бэкенд —
+  // здесь она нужна лишь чтобы выбрать, что рисовать: содержимое или заглушку.
+  // Ходим один раз за сессию, результат переиспользуют оба экрана.
+  const checkGate = () => {
+    if (gate !== 'unknown' && gate !== 'error') return
+    // без initData покупателя не опознать (MAX или запуск вне мессенджера) — заглушка
+    const initData = getInitData()
+    if (!initData) { setGate('denied'); return }
+
+    setGate('checking')
+    const apiUrl = import.meta.env.VITE_API_URL || '/api'
+    fetchWithRetry(`${apiUrl}/api/account/access`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, platform: appPlatform }),
+    })
+      .then(async res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const data = await res.json()
+        setGate(data.allowed ? 'allowed' : 'denied')
+      })
+      .catch(() => setGate('error'))
+  }
+
+  const openAccount = () => {
+    setActiveScreen('account')
+    checkGate()
+  }
+
+  const openFavorites = () => {
+    setActiveScreen('favorites')
+    checkGate()
+  }
+
+  // историю тянем при каждом заходе в ЛК: с прошлого раза заказ мог оплатиться или уехать
+  useEffect(() => {
+    if (activeScreen !== 'account' || gate !== 'allowed') return
+    const initData = getInitData()
+    if (!initData) return
+
+    let cancelled = false
+    setOrdersState('loading')
+    const apiUrl = import.meta.env.VITE_API_URL || '/api'
+    fetchWithRetry(`${apiUrl}/api/account/orders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, platform: appPlatform }),
+    })
+      .then(async res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const data = await res.json()
+        if (cancelled) return
+        setAccountOrders(data.orders || [])
+        setOrdersState('ready')
+      })
+      .catch(() => { if (!cancelled) setOrdersState('error') })
+
+    return () => { cancelled = true }
+  }, [activeScreen, gate])
+
+  // нативная шестерёнка Telegram — вход в ЛК с любой позиции скролла.
+  // Иконки в герое статичны и после прокрутки недоступны, шестерёнка это компенсирует.
+  // В MAX SettingsButton нет — там вход только из героя.
+  useEffect(() => {
+    if (appPlatform !== 'telegram') return
+    const settingsButton = (WebApp as any)?.SettingsButton
+    if (!settingsButton || typeof settingsButton.show !== 'function') return
+
+    const handleSettingsClick = () => openAccount()
+    try {
+      settingsButton.onClick(handleSettingsClick)
+      settingsButton.show()
+    } catch {}
+
+    return () => {
+      try {
+        settingsButton.offClick(handleSettingsClick)
+        settingsButton.hide()
+      } catch {}
+    }
+  }, [])
+
   // обработчик отмены перехода к оплате
   const handlePaymentCancel = () => {
     setPaymentRedirectOpen(false)
@@ -2703,13 +3015,15 @@ export default function App() {
         setCartOpen(false)
       } else if (aboutModalOpen) {
         setAboutModalOpen(false)
+      } else if (activeScreen) {
+        setActiveScreen(null)
       } else if (selectedCategory) {
         setSelectedCategory(null)
         mainContentRef.current?.scrollIntoView({ behavior: 'smooth' })
       }
     }
 
-    if (selectedProduct || cartOpen || aboutModalOpen || selectedCategory || checkoutOpen || deliveryRegionOpen || paymentRedirectOpen || telegramRequiredOpen) {
+    if (selectedProduct || cartOpen || aboutModalOpen || selectedCategory || activeScreen || checkoutOpen || deliveryRegionOpen || paymentRedirectOpen || telegramRequiredOpen) {
       WebApp.BackButton.show()
       WebApp.BackButton.onClick(handleBackButtonClick)
     } else {
@@ -2726,7 +3040,7 @@ export default function App() {
       WebApp.BackButton.offClick(handleBackButtonClick)
       document.body.style.overflow = 'unset'
     }
-  }, [selectedProduct, cartOpen, aboutModalOpen, selectedCategory, checkoutOpen, deliveryRegionOpen, paymentRedirectOpen, telegramRequiredOpen])
+  }, [selectedProduct, cartOpen, aboutModalOpen, selectedCategory, activeScreen, checkoutOpen, deliveryRegionOpen, paymentRedirectOpen, telegramRequiredOpen])
 
   // проверяем наличие валидного initData от платформы (Telegram или MAX)
   const hasValidInitData = (): boolean => {
@@ -2930,6 +3244,25 @@ export default function App() {
           className="page-header__background"
           style={{ backgroundImage: `url(${backgroundImage})` }}
         />
+        {/* избранное и личный кабинет: статично в углу героя, ЛК — в самом углу.
+            В Telegram вход в ЛК продублирован нативной шестерёнкой (SettingsButton),
+            она доступна и после прокрутки каталога. */}
+        <div className="header-actions">
+          <button
+            className={`header-action${favorites.length > 0 ? ' header-action--filled' : ''}`}
+            onClick={openFavorites}
+            aria-label="Избранное"
+          >
+            <IconHeart size={22} filled={favorites.length > 0} />
+          </button>
+          <button
+            className="header-action"
+            onClick={openAccount}
+            aria-label="Личный кабинет"
+          >
+            <IconPerson size={22} />
+          </button>
+        </div>
         <img src={logoImage} alt="KOSHEK logo" className={`header-logo ${logoImageLoaded ? 'image-loaded' : ''}`} />
         <h1 className="page-header__title">KOSHEK</h1>
         <p className="page-header__text">Girls выбирают KOSHEK и бриллианты.</p>
@@ -2954,7 +3287,39 @@ export default function App() {
 
       <main className="page" ref={mainContentRef}>
         <AnimatePresence mode="wait">
-          {!selectedCategory ? (
+          {activeScreen ? (
+            // ЛК и избранное — отдельные экраны вместо каталога (не модалки)
+            <motion.section
+              key={activeScreen}
+              className="account-section"
+              variants={pageVariants}
+              initial="initial"
+              animate="in"
+              exit="out"
+              transition={{ duration: 0.3 }}
+              onAnimationComplete={() => {
+                mainContentRef.current?.scrollIntoView({ behavior: 'smooth' })
+              }}
+            >
+              <h2 className="products-section__title">
+                {activeScreen === 'account' ? 'Личный кабинет' : 'Избранное'}
+              </h2>
+              {activeScreen === 'account' ? (
+                <AccountScreen gate={gate} ordersState={ordersState} orders={accountOrders} />
+              ) : (
+                <FavoritesScreen
+                  gate={gate}
+                  products={products}
+                  favorites={favorites}
+                  onSelect={setSelectedProduct}
+                  onToggleFavorite={toggleFavorite}
+                />
+              )}
+              <button className="btn-text account-section__back" onClick={() => setActiveScreen(null)}>
+                ← В каталог
+              </button>
+            </motion.section>
+          ) : !selectedCategory ? (
             // сетка категорий
             <motion.section
               key="categories"
@@ -3043,6 +3408,14 @@ export default function App() {
                             )}
                           </>
                         )}
+                        <button
+                          className={`product-card__fav${favorites.includes(product.slug) ? ' product-card__fav--active' : ''}`}
+                          onClick={e => { e.stopPropagation(); toggleFavorite(product.slug) }}
+                          aria-label={favorites.includes(product.slug) ? 'Убрать из избранного' : 'В избранное'}
+                          aria-pressed={favorites.includes(product.slug)}
+                        >
+                          <IconHeart size={20} filled={favorites.includes(product.slug)} />
+                        </button>
                       </div>
                       <div className="product-card__info">
                         <h3 className="product-card__title">{product.title}</h3>
@@ -3108,6 +3481,8 @@ export default function App() {
           onAddToCart={updateCart}
           onClose={() => setSelectedProduct(null)}
           onAddedToCart={handleAddedToCart}
+          isFavorite={favorites.includes(selectedProduct.slug)}
+          onToggleFavorite={toggleFavorite}
           ordersClosed={ordersClosed}
           onOrdersClosedClick={() => setOrdersClosedModalOpen(true)}
         />

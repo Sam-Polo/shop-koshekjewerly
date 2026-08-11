@@ -557,6 +557,46 @@ button, input, select, textarea { font-family: inherit; }
 .cart-button svg { stroke: #fff; }
 .cart-button__badge { position: absolute; top: -4px; right: -4px; background: #d32f2f; color: #fff; border-radius: 12px; padding: 2px 8px; font-size: 12px; font-weight: 600; min-width: 20px; text-align: center; }
 
+/* Избранное и личный кабинет.
+   Иконки статичны в углу героя и уезжают вместе с ним при прокрутке; в Telegram вход
+   в ЛК продублирован нативной шестерёнкой (SettingsButton), она доступна всегда. */
+.header-actions { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); right: 16px; display: flex; gap: 10px; z-index: 3; }
+.header-action { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; padding: 0; background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.5); border-radius: 50%; color: #ffffff; cursor: pointer; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); transition: background 0.25s ease, transform 0.2s ease; }
+.header-action:hover { background: rgba(255,255,255,0.26); }
+.header-action:active { transform: scale(0.94); }
+
+/* сердечко на карточке товара: в гриде каталога и в избранном */
+.product-card__fav { position: absolute; top: 8px; right: 8px; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; padding: 0; background: rgba(255,255,255,0.82); border: none; border-radius: 50%; color: var(--page-fg-muted); cursor: pointer; z-index: 2; transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease; }
+.product-card__fav:hover { background: #ffffff; color: #d480e0; }
+.product-card__fav:active { transform: scale(0.9); }
+.product-card__fav--active { color: #d480e0; }
+
+/* в карточке товара — слева от крестика закрытия */
+.product-modal__fav { position: absolute; top: 10px; right: 46px; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; padding: 0; background: rgba(255,255,255,0.82); border: none; border-radius: 50%; color: var(--page-fg-muted); cursor: pointer; z-index: 20; transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease; }
+.product-modal__fav:hover { background: #ffffff; color: #d480e0; }
+.product-modal__fav:active { transform: scale(0.9); }
+.product-modal__fav--active { color: #d480e0; }
+
+.account-section { min-height: 50vh; }
+.account-section__back { display: block; margin: 32px auto 0; }
+.screen-loading, .screen-empty { text-align: center; padding: 40px 20px; font-size: 18px; color: var(--page-fg); opacity: 0.6; }
+.screen-stub { text-align: center; padding: 60px 20px; }
+.screen-stub__title { margin: 0 0 12px; font-size: 22px; font-weight: 400; letter-spacing: 0.04em; }
+.screen-stub__text { margin: 0; font-size: 16px; color: var(--page-fg-muted); }
+
+.order-history { display: flex; flex-direction: column; gap: 16px; max-width: 640px; margin: 0 auto; }
+.order-history__card { background: #ffffff; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+.order-history__head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 16px; }
+.order-history__id { font-size: 16px; letter-spacing: 0.04em; }
+.order-history__date { font-size: 14px; color: var(--page-fg-muted); white-space: nowrap; }
+.order-history__items { display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid #efefef; }
+.order-history__item { display: flex; justify-content: space-between; gap: 12px; font-size: 15px; }
+.order-history__item-title { flex: 1; }
+.order-history__item-price { white-space: nowrap; color: var(--page-fg-muted); }
+.order-history__total { display: flex; justify-content: space-between; padding-top: 12px; font-size: 16px; }
+.order-history__track { display: inline-block; margin-top: 14px; font-size: 15px; color: #d480e0; text-decoration: none; border-bottom: 1px solid rgba(212,128,224,0.4); transition: color 0.2s ease; }
+.order-history__track:hover { color: #c069d0; }
+
 .modal-content--cart { max-width: 600px; max-height: 85vh; display: flex; flex-direction: column; }
 .cart-modal__title { margin: 0 0 24px; font-size: 24px; font-weight: 400; }
 .cart-modal__empty { text-align: center; padding: 40px 20px; color: #666; }
@@ -905,6 +945,10 @@ button, input, select, textarea { font-family: inherit; }
   .product-modal__thumbnail { width: 50px; height: 62.5px; }
   .modal-content--product, .modal-content--cart { max-width: 100%; margin: 0; max-height: 100vh; border-radius: 0; }
   .cart-button { bottom: 16px; right: 16px; width: 56px; height: 56px; }
+  .header-actions { top: calc(12px + env(safe-area-inset-top, 0px)); right: 12px; gap: 8px; }
+  .header-action { width: 36px; height: 36px; }
+  .product-card__fav { width: 30px; height: 30px; top: 6px; right: 6px; }
+  .order-history__card { padding: 16px; }
   .toast-notification { bottom: 80px; left: 20px; right: 20px; transform: none; padding: 12px 20px; }
   .modal-content--checkout { max-width: 100%; margin: 0; max-height: 100vh; border-radius: 0; }
   .checkout-form { padding: 20px; }
