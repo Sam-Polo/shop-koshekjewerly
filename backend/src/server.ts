@@ -2301,8 +2301,8 @@ app.post('/api/account/orders', async (req, res) => {
       return res.json({ gated: true, orders: [] })
     }
 
-    const orders = await getOrderHistoryByChatId(chatId, 20)
-    return res.json({ gated: false, orders })
+    const { orders, totalOrders, firstOrderAt } = await getOrderHistoryByChatId(chatId, 20)
+    return res.json({ gated: false, orders, totalOrders, firstOrderAt })
   } catch (e: any) {
     logger.error({ error: e?.message }, 'ошибка получения истории заказов для ЛК')
     sendAlert(`Ошибка истории заказов в ЛК: ${e?.message}`, {

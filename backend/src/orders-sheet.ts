@@ -408,6 +408,14 @@ export type OrderHistoryEntry = {
   items: OrderHistoryItem[]
 }
 
+export type OrderHistoryResult = {
+  orders: OrderHistoryEntry[]
+  /** всего оплаченных заказов — по ВСЕМ строкам, не по отданной странице */
+  totalOrders: number
+  /** дата самого первого заказа (для «с нами с …»), ISO; null если заказов нет */
+  firstOrderAt: string | null
+}
+
 /**
  * История заказов покупателя для личного кабинета в мини-аппе.
  *
@@ -423,9 +431,10 @@ export type OrderHistoryEntry = {
  * открыт только админам (гейт в эндпойнте) — это несколько запросов в день. Перед
  * открытием на всех пользователей обязателен кэш, иначе выжжем квоту Sheets API.
  */
-export async function getOrderHistoryByChatId(chatId: string, limit = 20): Promise<OrderHistoryEntry[]> {
+export async function getOrderHistoryByChatId(chatId: string, limit = 20): Promise<OrderHistoryResult> {
+  const empty: OrderHistoryResult = { orders: [], totalOrders: 0, firstOrderAt: null }
   const spreadsheetId = getSheetId()
-  if (!spreadsheetId) return []
+  if (!spreadsheetId) return empty
   try {
     const auth = getAuth()
     const api = google.sheets({ version: 'v4', auth })
@@ -465,7 +474,7 @@ export async function getOrderHistoryByChatId(chatId: string, limit = 20): Promi
       itemsByOrder.set(oid, bucket)
     }
 
-    return page.map(row => {
+    const orders = page.map(row => {
       const orderId = row[0] ?? ''
       const deliveryMethod = row[25] ?? ''
       const cdekTrack = row[24] || ''
@@ -488,9 +497,18 @@ export async function getOrderHistoryByChatId(chatId: string, limit = 20): Promi
         items: itemsByOrder.get(orderId) ?? [],
       }
     })
+
+    // счётчик и «с нами с …» считаем по ВСЕМ заказам, а не по отданной странице:
+    // иначе у покупателя с 25 заказами цифры молча врали бы, оставаясь правдоподобными.
+    // mine отсортирован по убыванию даты, поэтому самый первый заказ — последний элемент.
+    return {
+      orders,
+      totalOrders: mine.length,
+      firstOrderAt: mine.length > 0 ? (mine[mine.length - 1][1] ?? null) : null,
+    }
   } catch (e: any) {
     logger.warn({ chatId, error: e?.message }, 'getOrderHistoryByChatId: ошибка чтения из Sheets')
-    return []
+    return empty
   }
 }
 

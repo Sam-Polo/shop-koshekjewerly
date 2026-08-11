@@ -65,6 +65,27 @@ function formatDate(dateString: string): string {
   }
 }
 
+// «с нами с марта 2026» требует родительного падежа, а toLocaleDateString без дня
+// отдаёт именительный («март 2026») — поэтому месяцы списком
+const MONTHS_GENITIVE = [
+  'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+  'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'
+]
+
+function formatMemberSince(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return `${MONTHS_GENITIVE[d.getMonth()]} ${d.getFullYear()}`
+}
+
+function pluralOrders(n: number): string {
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (mod10 === 1 && mod100 !== 11) return 'заказ'
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'заказа'
+  return 'заказов'
+}
+
 // created_at заказа — ISO с временем (2026-08-11T10:23:45.000Z), а не YYYY-MM-DD,
 // поэтому formatDate выше здесь не подходит
 function formatOrderDate(iso: string): string {
@@ -2455,10 +2476,16 @@ const AccountScreen = ({
   gate,
   ordersState,
   orders,
+  firstName,
+  totalOrders,
+  firstOrderAt,
 }: {
   gate: 'unknown' | 'checking' | 'allowed' | 'denied' | 'error'
   ordersState: 'idle' | 'loading' | 'ready' | 'error'
   orders: OrderHistoryEntry[]
+  firstName: string
+  totalOrders: number
+  firstOrderAt: string | null
 }) => {
   if (gate === 'unknown' || gate === 'checking') {
     return <p className="screen-loading">Загрузка...</p>
@@ -2473,11 +2500,24 @@ const AccountScreen = ({
   if (ordersState === 'error') {
     return <p className="screen-loading">Не удалось загрузить историю заказов. Попробуйте позже.</p>
   }
-  if (orders.length === 0) {
-    return <p className="screen-empty">Здесь появятся ваши заказы 🤍</p>
-  }
+
+  const memberSince = firstOrderAt ? formatMemberSince(firstOrderAt) : ''
 
   return (
+    <>
+      <div className="account-card">
+        {firstName && <p className="account-card__greeting">Здравствуйте, {firstName}</p>}
+        {totalOrders > 0 && (
+          <p className="account-card__stats">
+            {totalOrders} {pluralOrders(totalOrders)}
+            {memberSince ? ` · с нами с ${memberSince}` : ''}
+          </p>
+        )}
+      </div>
+
+      {orders.length === 0 ? (
+        <p className="screen-empty">Здесь появятся ваши заказы 🤍</p>
+      ) : (
     <div className="order-history">
       {orders.map(order => (
         <div key={order.orderId} className="order-history__card">
@@ -2514,6 +2554,18 @@ const AccountScreen = ({
         </div>
       ))}
     </div>
+      )}
+
+      <button
+        className="btn-text account-support"
+        onClick={() => {
+          const username = getSupportUsername()
+          window.open(`https://t.me/${username.replace('@', '')}`, '_blank')
+        }}
+      >
+        Написать в поддержку
+      </button>
+    </>
   )
 }
 
@@ -2622,6 +2674,8 @@ export default function App() {
   // экран вместо каталога: личный кабинет / избранное
   const [activeScreen, setActiveScreen] = useState<'account' | 'favorites' | null>(null)
   const [accountOrders, setAccountOrders] = useState<OrderHistoryEntry[]>([])
+  const [accountTotalOrders, setAccountTotalOrders] = useState(0)
+  const [accountFirstOrderAt, setAccountFirstOrderAt] = useState<string | null>(null)
   const [ordersState, setOrdersState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
   // доступ к разделам ЛК/избранного: пока открыты только админам (проверяет бэкенд)
   const [gate, setGate] = useState<'unknown' | 'checking' | 'allowed' | 'denied' | 'error'>('unknown')
@@ -2899,6 +2953,15 @@ export default function App() {
     })
   }
 
+  // в приветствии ЛК — только имя, без фамилии
+  const customerFirstName = (() => {
+    try {
+      return WebApp.initDataUnsafe?.user?.first_name || ''
+    } catch {
+      return ''
+    }
+  })()
+
   const getInitData = (): string => {
     try {
       return WebApp.initData || ''
@@ -2960,6 +3023,8 @@ export default function App() {
         const data = await res.json()
         if (cancelled) return
         setAccountOrders(data.orders || [])
+        setAccountTotalOrders(data.totalOrders || 0)
+        setAccountFirstOrderAt(data.firstOrderAt || null)
         setOrdersState('ready')
       })
       .catch(() => { if (!cancelled) setOrdersState('error') })
@@ -3305,7 +3370,14 @@ export default function App() {
                 {activeScreen === 'account' ? 'Личный кабинет' : 'Избранное'}
               </h2>
               {activeScreen === 'account' ? (
-                <AccountScreen gate={gate} ordersState={ordersState} orders={accountOrders} />
+                <AccountScreen
+                  gate={gate}
+                  ordersState={ordersState}
+                  orders={accountOrders}
+                  firstName={customerFirstName}
+                  totalOrders={accountTotalOrders}
+                  firstOrderAt={accountFirstOrderAt}
+                />
               ) : (
                 <FavoritesScreen
                   gate={gate}
