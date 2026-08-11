@@ -146,9 +146,38 @@ export interface CdekOrderResult {
   cdekNumber: string | null
 }
 
+/**
+ * Таможенное описание груза для международных отправлений.
+ *
+ * СДЭК классифицирует груз по полю `name` позиции (в тексте ошибки он ссылается на
+ * ware_key, но проверяет именно название). Маркетинговые имена каталога — «Малинка на
+ * конго», «выпечка», «ягоды» — читаются как продукты питания, запрещённые к
+ * международной пересылке: заявка получает `international.restriction.item` и навсегда
+ * зависает без трек-номера (инцидент авг-2026, заказ в Минск).
+ *
+ * Проверено A/B на боевом API: та же посылка, тот же тариф 136 и тот же Минск —
+ * с маркетинговым названием отказ, с описанием ниже трек присваивается штатно.
+ * Физически весь каталог — бижутерия, поэтому одно описание закрывает все товары
+ * и новые позиции не будут снова упираться в это ограничение.
+ */
+const INTL_CUSTOMS_ITEM_NAME = 'Бижутерия (украшение)'
+
+/**
+ * Международное ли направление. Мини-апп пишет в заказ `country = 'Россия'` для РФ и
+ * двухбуквенный код страны для остальных (BY, UZ, KZ…). Пустая страна (старые заказы)
+ * трактуется как РФ — прежнее поведение, без риска для внутренних отправлений.
+ */
+function isInternationalOrder(order: Order): boolean {
+  const country = (order.orderData.country ?? '').trim().toLowerCase()
+  return country !== '' && country !== 'россия' && country !== 'russia'
+}
+
 export async function createCdekOrder(order: Order, pvzCode: string): Promise<CdekOrderResult> {
+  // за границу уезжает таможенное описание, по России — название товара (менеджеру
+  // важно видеть в накладной, что именно в посылке)
+  const international = isInternationalOrder(order)
   const items = order.orderData.items.map((item, idx) => ({
-    name: item.title.slice(0, 255),
+    name: (international ? INTL_CUSTOMS_ITEM_NAME : item.title).slice(0, 255),
     ware_key: (item.slug ?? `item-${idx}`).slice(0, 20),
     payment: { value: 0 },
     cost: item.price,
@@ -192,6 +221,17 @@ export async function createCdekOrder(order: Order, pvzCode: string): Promise<Cd
 export async function getCdekTrackNumber(uuid: string): Promise<string | null> {
   const data = await cdekFetch('GET', `/orders/${uuid}`) as any
   return (data?.entity?.cdek_number as string) ?? null
+}
+
+/**
+ * Ошибки заявки по уже созданному заказу. СДЭК выдаёт uuid сразу, а валидацию проводит
+ * асинхронно — отказ (например, запрет международной пересылки) виден только здесь,
+ * в `requests[].errors`. Пустой массив = заявка принята.
+ */
+export async function getCdekOrderErrors(uuid: string): Promise<string[]> {
+  const data = await cdekFetch('GET', `/orders/${uuid}`) as any
+  const errors = (data?.requests ?? []).flatMap((r: any) => r.errors ?? [])
+  return errors.map((e: any) => `${e.code}: ${String(e.message ?? '').slice(0, 400)}`)
 }
 
 // ── Get order UUID by track number ────────────────────────────────────────────
@@ -280,7 +320,11 @@ const RETRY_DELAYS_MS = [2_000, 4_000]
 
 export async function triggerCdekOrderAsync(
   order: Order,
-  onTrackReady: (uuid: string, cdekNumber: string) => Promise<void>
+  onTrackReady: (uuid: string, cdekNumber: string) => Promise<void>,
+  // вызывается сразу после создания заказа в СДЭК, до ожидания трека: даёт возможность
+  // сохранить uuid. Без этого отклонённое отправление не оставляет о себе следа —
+  // заказ в ЛК СДЭКа есть, а найти его по нашим данным нечем.
+  onOrderCreated?: (uuid: string) => Promise<void>
 ): Promise<void> {
   const pvzCode = order.orderData.pvzCode
   if (!pvzCode) {
@@ -312,6 +356,12 @@ export async function triggerCdekOrderAsync(
 
   if (!result) return
 
+  // uuid сохраняем до ожидания трека и дожидаемся записи — иначе она могла бы
+  // затереть трек, записанный ниже в onTrackReady
+  if (onOrderCreated) {
+    await onOrderCreated(result.uuid).catch(() => {})
+  }
+
   let cdekNumber = result.cdekNumber
 
   // if cdek_number not assigned yet, poll up to 5 times with 5s interval
@@ -333,9 +383,26 @@ export async function triggerCdekOrderAsync(
       ).catch(() => {})
     })
   } else {
-    sendAlert(
-      `CDEK: заказ ${order.orderId} создан (uuid=${result.uuid}), cdek_number не присвоен за 25с. Трек придёт позже.`,
-      { tag: 'cdek', level: 'info', hint: 'проверьте трек в ЛК CDEK через несколько минут', code: 'CDEK_NO_TRACK_YET' }
-    ).catch(() => {})
+    // Отличаем «СДЭК не успел присвоить номер» от «СДЭК отказал в приёме»: во втором
+    // случае трек не появится никогда, и менеджер должен узнать причину сразу, а не
+    // ждать посылку, которую никто не повезёт.
+    let errors: string[] = []
+    try {
+      errors = await getCdekOrderErrors(result.uuid)
+    } catch {
+      // статус не прочитался — не молчим, уходим в info-ветку ниже
+    }
+
+    if (errors.length > 0) {
+      sendAlert(
+        `CDEK ОТКЛОНИЛ отправление по заказу ${order.orderId} (uuid=${result.uuid}) — трека не будет.\nПричины:\n${errors.join('\n')}`,
+        { tag: 'cdek', level: 'high', hint: 'отправление не создано: устраните причину и оформите его вручную в ЛК СДЭК', code: 'CDEK_ORDER_REJECTED' }
+      ).catch(() => {})
+    } else {
+      sendAlert(
+        `CDEK: заказ ${order.orderId} создан (uuid=${result.uuid}), cdek_number не присвоен за 25с. Трек придёт позже.`,
+        { tag: 'cdek', level: 'info', hint: 'проверьте трек в ЛК CDEK через несколько минут', code: 'CDEK_NO_TRACK_YET' }
+      ).catch(() => {})
+    }
   }
 }

@@ -1497,6 +1497,10 @@ export async function processPaidOrder(
           `📦 СДЭК трек по заказу <code>${escapeHtml(orderId)}</code>:\n<code>${cdekNumber}</code>\n${trackingUrl}`
         ).catch(() => {})
       }
+    }, async (uuid) => {
+      // uuid известен сразу; трек может не появиться никогда (СДЭК может отказать).
+      // Записываем его отдельно, чтобы отправление всегда можно было найти в ЛК СДЭК.
+      await updateCdekInfoInSheet(orderId, uuid, null).catch(() => {})
     }).catch((e: any) => {
       sendAlert(
         `CDEK: необработанная ошибка при запуске triggerCdekOrderAsync для ${orderId}: ${e?.message}`,
