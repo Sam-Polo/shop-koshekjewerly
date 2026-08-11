@@ -44,7 +44,7 @@ vi.mock('./store.js', () => ({
   listProducts: vi.fn().mockReturnValue([]),
 }))
 
-import { getOrderFromSheet } from './orders-sheet.js'
+import { getOrderFromSheet, isOrderShipped } from './orders-sheet.js'
 
 const ORDER_ID = 'ORD-1717000000000'
 
@@ -83,6 +83,41 @@ const ITEM_ROW = [
   'ART-001',
   'rings',
 ]
+
+// Статус «отправлен» в ЛК выводится только из того, что уже лежит в Sheets — к СДЭКу
+// за ним не ходим. Проверить это на реальных данных нельзя (в команде нет покупателей,
+// которые действительно получают заказы), поэтому правило закрыто тестом целиком.
+describe('isOrderShipped', () => {
+  it('отправлен: есть cdek-трек и флаг shipped_notified', () => {
+    expect(isOrderShipped('cdek', '1234567890', 'shipped_notified')).toBe(true)
+  })
+
+  it('не отправлен: трек есть, флага нет (заказ создан, но не уехал)', () => {
+    expect(isOrderShipped('cdek', '1234567890', '')).toBe(false)
+  })
+
+  it('не отправлен: флаг есть, но трека нет', () => {
+    expect(isOrderShipped('cdek', '', 'shipped_notified')).toBe(false)
+  })
+
+  it('EMS: всегда false, даже с треком и флагом', () => {
+    expect(isOrderShipped('ems', '1234567890', 'shipped_notified')).toBe(false)
+  })
+
+  it('старый заказ с пустым delivery_method считается СДЭКом, если есть трек', () => {
+    expect(isOrderShipped('', '1234567890', 'shipped_notified')).toBe(true)
+  })
+
+  it('находит флаг среди других заметок менеджера', () => {
+    const note = 'позвонить покупателю\nshipped_notified\ntrack: https://cdek.ru/m/order/123'
+    expect(isOrderShipped('cdek', '1234567890', note)).toBe(true)
+  })
+
+  it('самовывоз и электронный сертификат: трека нет, значит не отправлен', () => {
+    expect(isOrderShipped('pickup', '', 'shipped_notified')).toBe(false)
+    expect(isOrderShipped('digital', '', '')).toBe(false)
+  })
+})
 
 describe('getOrderFromSheet', () => {
   beforeEach(() => {

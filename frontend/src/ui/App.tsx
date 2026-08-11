@@ -135,6 +135,7 @@ type OrderHistoryEntry = {
   deliveryMethod: string
   trackNumber: string | null
   trackUrl: string | null
+  shipped: boolean
   items: Array<{ title: string; price: number; quantity: number; option?: string }>
 }
 
@@ -2525,6 +2526,8 @@ const AccountScreen = ({
             <span className="order-history__id">{order.orderId}</span>
             <span className="order-history__date">{formatOrderDate(order.createdAt)}</span>
           </div>
+          {/* метка на месте: порядок заказов в списке не меняем */}
+          {order.shipped && <span className="order-history__shipped">Отправлен</span>}
           <div className="order-history__items">
             {order.items.map((item, idx) => (
               <div key={idx} className="order-history__item">

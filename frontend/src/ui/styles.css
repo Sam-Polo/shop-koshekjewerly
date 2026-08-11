@@ -594,6 +594,7 @@ button, input, select, textarea { font-family: inherit; }
 .order-history__head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 16px; }
 .order-history__id { font-size: 16px; letter-spacing: 0.04em; }
 .order-history__date { font-size: 14px; color: var(--page-fg-muted); white-space: nowrap; }
+.order-history__shipped { display: inline-block; margin: 0 0 14px; padding: 4px 12px; font-size: 13px; letter-spacing: 0.04em; color: #b0559c; background: rgba(212, 128, 224, 0.12); }
 .order-history__items { display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid #efefef; }
 .order-history__item { display: flex; justify-content: space-between; gap: 12px; font-size: 15px; }
 .order-history__item-title { flex: 1; }

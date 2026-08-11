@@ -405,7 +405,31 @@ export type OrderHistoryEntry = {
   deliveryMethod: string
   trackNumber: string | null
   trackUrl: string | null
+  /** отправлен ли (см. isOrderShipped); для EMS всегда false */
+  shipped: boolean
   items: OrderHistoryItem[]
+}
+
+/**
+ * Отправлен ли заказ — по данным, которые уже лежат в Sheets, без обращений к СДЭКу.
+ *
+ * Признак отправки — флаг `shipped_notified` в admin_note: его ставит вебхук СДЭКа
+ * на статусе RECEIVED_AT_SENDER_CITY (для EMS — менеджер вручную из админки).
+ *
+ * Для EMS возвращаем false намеренно: там флаг зависит от того, нажал ли менеджер
+ * отбивку, то есть статус был бы недостоверным. Международных заказов немного, и у их
+ * покупателей обычно все заказы EMS — расхождения они не увидят.
+ *
+ * Пустой deliveryMethod у старых заказов (колонка появилась позже) трактуем как СДЭК,
+ * если проставлен cdek-трек.
+ *
+ * ВНИМАНИЕ: «доставлен» в системе не существует — вебхук DELIVERED мы не обрабатываем.
+ * Поэтому отправленный заказ остаётся «отправлен» навсегда, в том числе давно полученный.
+ */
+export function isOrderShipped(deliveryMethod: string, cdekTrack: string, adminNote: string): boolean {
+  if (deliveryMethod === 'ems') return false
+  if (!cdekTrack) return false
+  return adminNote.includes('shipped_notified')
 }
 
 export type OrderHistoryResult = {
@@ -494,6 +518,8 @@ export async function getOrderHistoryByChatId(chatId: string, limit = 20): Promi
         deliveryMethod,
         trackNumber,
         trackUrl,
+        // admin_note — колонка W (индекс 22), уже входит в прочитанный диапазон A:AB
+        shipped: isOrderShipped(deliveryMethod, cdekTrack, row[22] ?? ''),
         items: itemsByOrder.get(orderId) ?? [],
       }
     })
