@@ -15,9 +15,9 @@
   --tile-placeholder: #888888;
   --btn-bg: #efefef;
   --tile-overlay: rgba(0, 0, 0, 0.45);
-  /* сердечко избранного: цвет-ориентир от заказчика, меняется здесь одним местом */
-  --fav-color: #80144C;
-  --fav-color-hover: #a01a60;
+  /* сердечко избранного: меняется здесь одним местом */
+  --fav-color: #B01E4A;
+  --fav-color-hover: #C93A63;
 }
 
 * { box-sizing: border-box; }
