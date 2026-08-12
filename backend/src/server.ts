@@ -1178,11 +1178,26 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
       clientTotal: orderData.total // логируем что прислал клиент для сравнения
     }, 'заказ создан с пересчитанными ценами на бэкенде, ожидает оплаты')
 
-    // fire-and-forget запись в Google Sheets (orders + order_items)
-    appendOrderToSheet(order).catch(() => {})
+    // запись в Google Sheets (orders + order_items); для total=0 дожидаемся явно ниже —
+    // иначе processPaidOrder может обновить статус раньше, чем строка появится в Sheets
+    const sheetAppended = appendOrderToSheet(order)
 
     // H2: фоновая сверка стоимости доставки (не блокирует заказ, только алерт при занижении)
     verifyDeliveryCostAsync(order, deliveryCost)
+
+    // скидка/промокод/сертификат целиком покрыли сумму — Робокассу не дёргаем вообще:
+    // она не проводит платежи на 0₽. Раньше такой заказ уходил в форму оплаты с OutSum=0.00,
+    // шлюз его отклонял, а покупатель просто переоформлял заказ заново по кругу
+    // (см. серию алертов RECEIPT_BUILD_FAILED 12.08.2026 — buildReceipt корректно отказывался
+    // строить чек на 0₽, но сама первопричина оставалась незамеченной). Фулфилмент — тем же
+    // processPaidOrder, что и обычная оплата (сток, amoCRM, отправление, уведомления),
+    // просто с outSum='0' вместо колбэка Робокассы.
+    if (total === 0) {
+      await sheetAppended
+      await processPaidOrder(order, '0', invoiceId, orderId)
+      logger.info({ orderId }, 'заказ с total=0 обработан без Робокассы')
+      return res.json({ ok: true, orderId, payment: null, paymentUrl: null })
+    }
 
     // проверяем наличие обязательных переменных для Робокассы
     if (!process.env.ROBOKASSA_MERCHANT_LOGIN || !process.env.ROBOKASSA_PASSWORD_1) {
@@ -1249,11 +1264,15 @@ export async function processPaidOrder(
   const robokassaAmount = parseFloat(outSum)
   const orderAmount = order.orderData.total
 
-  // Сумма ОБЯЗАНА быть валидным положительным числом И совпадать с заказом.
+  // Сумма ОБЯЗАНА быть валидным неотрицательным числом И совпадать с заказом.
   // Критично: пустой/битый OutSum (например из OpStateExt при polling) даёт NaN,
   // а Math.abs(NaN - x) > 0.01 === false — без явной проверки заказ прошёл бы как
-  // оплаченный с непроверенной суммой. Поэтому NaN/≤0 отбраковываем отдельно.
-  const amountValid = Number.isFinite(robokassaAmount) && robokassaAmount > 0
+  // оплаченный с непроверенной суммой. Поэтому NaN/<0 отбраковываем отдельно.
+  // >=0 (а не >0): заказ с total=0 (скидка/сертификат покрыли сумму целиком) сюда
+  // приходит из POST /api/orders напрямую с outSum='0', минуя Робокассу — она платежи
+  // на 0₽ не проводит. Для настоящих заказов orderAmount>0, поэтому 0 здесь всё равно
+  // не пройдёт проверку ниже и не спутается с оплатой.
+  const amountValid = Number.isFinite(robokassaAmount) && robokassaAmount >= 0
   if (!amountValid || Math.abs(robokassaAmount - orderAmount) > 0.01) {
     logger.error({
       invId, orderId, robokassaAmount, orderAmount, amountValid,
