@@ -231,10 +231,19 @@ async function fetchWithRetry(url: string, options?: RequestInit): Promise<Respo
 
 // Иконки: тонкий контур, наследуют цвет через currentColor — как иконка корзины.
 // Держим инлайном, чтобы не тянуть библиотеку иконок ради двух штук.
+// Вьюбокс 30×28 — тот же, что у сердца от дизайнеров, намеренно. У сердца линия
+// толщиной 1.09 единицы (замерено по расстоянию между внешним и внутренним контуром),
+// в общей системе координат это просто strokeWidth 1.1 — иконки совпадают по толщине
+// без пересчётов, и обе занимают сопоставимую долю площади.
 const IconPerson = ({ size = 22 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <circle cx="12" cy="8" r="3.6" stroke="currentColor" strokeWidth="1.6" />
-    <path d="M4.8 20c0-3.7 3.2-6.1 7.2-6.1s7.2 2.4 7.2 6.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+  <svg width={size} height={size} viewBox="0 0 30 28" fill="none" aria-hidden="true">
+    <circle cx="15" cy="8.2" r="4.7" stroke="currentColor" strokeWidth="1.1" />
+    <path
+      d="M5.7 25.5c0-5.4 4.2-8.7 9.3-8.7s9.3 3.3 9.3 8.7"
+      stroke="currentColor"
+      strokeWidth="1.1"
+      strokeLinecap="round"
+    />
   </svg>
 )
 
