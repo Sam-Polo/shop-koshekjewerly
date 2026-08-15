@@ -10,7 +10,7 @@ import rateLimit from 'express-rate-limit';
 import { fetchProductsFromSheet, decreaseStockInSheet } from './sheets.js';
 import { listProducts, upsertProducts, decreaseProductStock, getProductCategories } from './store.js';
 import { createOrder, getOrder, updateOrderStatus, listOrders, restoreOrder, type Order, type Platform, type DeliveryMethod } from './orders.js';
-import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId, getOrderHistoryByChatId, listPendingOrdersFromSheet, updateCdekInfoInSheet, updatePochtaInfoInSheet } from './orders-sheet.js'
+import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId, getOrderHistoryByChatId, advanceOrderStatusInSheet, listPendingOrdersFromSheet, updateCdekInfoInSheet, updatePochtaInfoInSheet } from './orders-sheet.js'
 import { sendAlert } from './alerts.js';
 import { searchCities, getPickupPoints, calculateDelivery, triggerCdekOrderAsync, getCdekUuidByTrack, downloadCdekBarcode } from './cdek.js';
 import { calculateTariff as calculatePochtaTariff, triggerPochtaOrderAsync, downloadF7p, getCountries as getPochtaCountries, createPochtaOrder, createBatch, getShpiFromBatch, checkRequiredPochtaEnv, pochtaFetch, _batchShipmentsPath } from './pochta.js';
@@ -1289,6 +1289,9 @@ export async function processPaidOrder(
   const updatedOrder = updateOrderStatus(orderId, 'paid')
   const paidAt = updatedOrder?.updatedAt ?? Date.now()
   updateOrderStatusInSheet(orderId, 'paid', paidAt).catch(() => {})
+  // «Принят» ставим сразу по факту оплаты, не дожидаясь вебхука о создании лида:
+  // иначе при сбое amoCRM покупатель видел бы оплаченный заказ вообще без статуса
+  advanceOrderStatusInSheet(orderId, 'Принят').catch(() => {})
 
   // уменьшаем сток товаров: в памяти сразу (для мгновенного /api/products),
   // в Sheets — read-modify-write по каждой категории товара (источник истины,
@@ -2069,6 +2072,23 @@ app.post('/api/cdek/webhook', express.json(), (req, res) => {
           `CDEK shipped: уведомление не доставлено покупателю (заказ ${orderNumber}, трек ${cdekNumber}): ${result.errorDescription ?? 'неизвестно'}`,
           { tag: 'cdek', level: 'high', hint: 'покупатель не получил уведомление об отправке — возможно бот заблокирован или chat_id не сохранён', code: 'CDEK_SHIPPED_NOTIFY_FAILED' }
         ).catch(() => {})
+      }
+    })()
+  }
+
+  // ── Задание 3: статус заказа для ЛК покупателя ──────────────────────────────
+  // Отдельным заданием от уведомления: оно дедуплицируется по shipped_notified и
+  // при повторном вебхуке не сработает, а статус нужно проставить в любом случае —
+  // например если заказ оплачивался ещё до появления колонки order_status.
+  // «Уже у вас» ставится ТОЛЬКО отсюда: это единственное подтверждение доставки
+  // фактическими данными перевозчика, а не движением сделки руками менеджера.
+  if (orderNumber.startsWith('ORD-') && (statusCode === 'RECEIVED_AT_SENDER_CITY' || statusCode === 'DELIVERED')) {
+    void (async () => {
+      const next = statusCode === 'DELIVERED' ? 'Уже у вас' : 'В пути'
+      try {
+        await advanceOrderStatusInSheet(orderNumber, next)
+      } catch (e: any) {
+        logger.warn({ orderNumber, statusCode, error: e?.message }, 'CDEK webhook: не удалось обновить статус заказа')
       }
     })()
   }

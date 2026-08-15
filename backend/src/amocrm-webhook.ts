@@ -1,8 +1,9 @@
 import type { Request, Response } from 'express'
 import pino from 'pino'
 import { sendAlert } from './alerts.js'
-import { PIPELINE_ID, STAGE_MAP, processAmoCrmLead, isTildaPickupInNew, routeLeadToPickupStage, ENUM_TELEGRAM, FIELD_SOURCE, FIELD_DELIVERY_TYPE, FIELD_ORDER_NUMBER, readField, readFieldEnum } from './amocrm-lead-processor.js'
+import { PIPELINE_ID, STAGE_MAP, processAmoCrmLead, isTildaPickupInNew, routeLeadToPickupStage, customerStatusForStage, ENUM_TELEGRAM, FIELD_SOURCE, FIELD_DELIVERY_TYPE, FIELD_ORDER_NUMBER, readField, readFieldEnum } from './amocrm-lead-processor.js'
 import { amoFetch } from './amocrm-client.js'
+import { advanceOrderStatusInSheet } from './orders-sheet.js'
 import { deleteRowsByLeadId } from './shipment-items-sheet.js'
 import { getCachedOrdersSettings } from './settings.js'
 
@@ -180,6 +181,19 @@ export function handleAmoCrmWebhook(req: Request, res: Response): void {
           `amoCRM webhook: не удалось обновить учёт для лида ${leadId}: ${e?.message}`,
           { tag: 'amocrm', level: 'moderate', code: 'AMOCRM_WEBHOOK_SHEET_UPDATE_FAILED' }
         ).catch(() => {})
+      }
+
+      // Статус заказа для ЛК покупателя. Только наши заказы (ORD-*): у Тильдиных
+      // номер числовой, и строки в листе orders для них нет.
+      // Пишем ПОСЛЕ учёта отгрузок: тот критичнее, а статус — витрина.
+      const customerStatus = customerStatusForStage(statusId)
+      const leadOrderId = readField(fullLead, FIELD_ORDER_NUMBER) ?? ''
+      if (customerStatus && leadOrderId.startsWith('ORD-')) {
+        try {
+          await advanceOrderStatusInSheet(leadOrderId, customerStatus)
+        } catch (e: any) {
+          logger.warn({ leadId, leadOrderId, err: e?.message }, 'amoCRM webhook: не удалось обновить статус заказа')
+        }
       }
 
       // Tilda pickup leads land in «Новый» — route them to the САМОВЫВОЗ stage.

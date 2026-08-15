@@ -78,6 +78,15 @@ function formatMemberSince(iso: string): string {
   return `${MONTHS_GENITIVE[d.getMonth()]} ${d.getFullYear()}`
 }
 
+// статусы приходят с бэкенда строками — модификатор класса нужен, чтобы не тащить
+// кириллицу в имена CSS-классов
+const STATUS_MODIFIER: Record<string, string> = {
+  'Принят': 'accepted',
+  'В сборке': 'packing',
+  'В пути': 'transit',
+  'Уже у вас': 'delivered',
+}
+
 function pluralOrders(n: number): string {
   const mod10 = n % 10
   const mod100 = n % 100
@@ -135,7 +144,8 @@ type OrderHistoryEntry = {
   deliveryMethod: string
   trackNumber: string | null
   trackUrl: string | null
-  shipped: boolean
+  /** Принят / В сборке / В пути / Уже у вас; пусто — статус ещё не проставлен */
+  orderStatus: string
   items: Array<{ title: string; price: number; quantity: number; option?: string }>
 }
 
@@ -2540,7 +2550,11 @@ const AccountScreen = ({
             <span className="order-history__date">{formatOrderDate(order.createdAt)}</span>
           </div>
           {/* метка на месте: порядок заказов в списке не меняем */}
-          {order.shipped && <span className="order-history__shipped">Отправлен</span>}
+          {order.orderStatus && (
+            <span className={`order-history__status order-history__status--${STATUS_MODIFIER[order.orderStatus] ?? 'default'}`}>
+              {order.orderStatus}
+            </span>
+          )}
           <div className="order-history__items">
             {order.items.map((item, idx) => (
               <div key={idx} className="order-history__item">

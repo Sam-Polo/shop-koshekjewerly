@@ -44,7 +44,8 @@ vi.mock('./store.js', () => ({
   listProducts: vi.fn().mockReturnValue([]),
 }))
 
-import { getOrderFromSheet, isOrderShipped } from './orders-sheet.js'
+import { getOrderFromSheet, isOrderShipped, statusRank, ORDER_STATUSES } from './orders-sheet.js'
+import { customerStatusForStage } from './amocrm-lead-processor.js'
 
 const ORDER_ID = 'ORD-1717000000000'
 
@@ -116,6 +117,61 @@ describe('isOrderShipped', () => {
   it('самовывоз и электронный сертификат: трека нет, значит не отправлен', () => {
     expect(isOrderShipped('pickup', '', 'shipped_notified')).toBe(false)
     expect(isOrderShipped('digital', '', '')).toBe(false)
+  })
+})
+
+// Статус заказа в ЛК собирается из двух независимых источников (этапы amoCRM и
+// вебхук СДЭКа), которые приходят в произвольном порядке. Правила движения статуса
+// закрыты тестами целиком: проверить их на реальных заказах нечем — в команде нет
+// людей, которые действительно получают посылки.
+describe('статусы заказа для ЛК', () => {
+  it('порядок статусов задаёт движение заказа', () => {
+    expect(ORDER_STATUSES).toEqual(['Принят', 'В сборке', 'В пути', 'Уже у вас'])
+    expect(statusRank('Принят')).toBeLessThan(statusRank('В сборке'))
+    expect(statusRank('В сборке')).toBeLessThan(statusRank('В пути'))
+    expect(statusRank('В пути')).toBeLessThan(statusRank('Уже у вас'))
+  })
+
+  it('неизвестный или пустой статус — ранг -1, любой реальный статус его обгоняет', () => {
+    expect(statusRank('')).toBe(-1)
+    expect(statusRank('какая-то ерунда')).toBe(-1)
+    expect(statusRank('Принят')).toBeGreaterThan(statusRank(''))
+  })
+
+  it('этапы «до отправки» дают Принят', () => {
+    expect(customerStatusForStage(86423882)).toBe('Принят') // Неразобранное
+    expect(customerStatusForStage(86486222)).toBe('Принят') // ПРИОРИТЕТНЫЙ ЗАКАЗ
+    expect(customerStatusForStage(86423886)).toBe('Принят') // НОВЫЙ, ЖДЕТ ОТПРАВКИ
+    expect(customerStatusForStage(86584502)).toBe('Принят') // САМОВЫВОЗ
+  })
+
+  it('«В работе» и «Собран» дают В сборке', () => {
+    expect(customerStatusForStage(86486582)).toBe('В сборке')
+    expect(customerStatusForStage(86486586)).toBe('В сборке')
+  })
+
+  it('«Отправлен» и «Завершён» дают В пути', () => {
+    expect(customerStatusForStage(86462242)).toBe('В пути')
+    expect(customerStatusForStage(142)).toBe('В пути')
+  })
+
+  it('CRM никогда не выдаёт «Уже у вас» — доставку подтверждает только СДЭК', () => {
+    const fromCrm = [86423882, 86486222, 86423886, 86584502, 86486582, 86486586, 86462242, 142]
+      .map(customerStatusForStage)
+    expect(fromCrm).not.toContain('Уже у вас')
+  })
+
+  it('возврат и закрытие статус не меняют', () => {
+    expect(customerStatusForStage(86423894)).toBeNull() // ВОЗВРАЩЕН
+    expect(customerStatusForStage(143)).toBeNull()      // Закрыто
+    expect(customerStatusForStage(999999)).toBeNull()   // чужой этап
+  })
+
+  it('откат этапа в CRM не отматывает статус назад', () => {
+    // менеджер вернул сделку из «Отправлен» в «В работе» уже после доставки
+    const current = 'Уже у вас'
+    const fromCrm = customerStatusForStage(86486582)! // В сборке
+    expect(statusRank(fromCrm)).toBeLessThan(statusRank(current))
   })
 })
 

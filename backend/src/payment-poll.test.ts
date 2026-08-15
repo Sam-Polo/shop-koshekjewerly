@@ -18,6 +18,7 @@ vi.mock('./orders.js', () => ({
 vi.mock('./orders-sheet.js', () => ({
   appendOrderToSheet: vi.fn().mockResolvedValue(undefined),
   updateOrderStatusInSheet: vi.fn().mockResolvedValue(undefined),
+  advanceOrderStatusInSheet: vi.fn().mockResolvedValue(false),
   ensureOrderSheets: vi.fn().mockResolvedValue(undefined),
   getOrderFromSheet: vi.fn(),
 }))

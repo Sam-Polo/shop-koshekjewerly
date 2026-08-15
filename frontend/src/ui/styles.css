@@ -570,8 +570,10 @@ button, input, select, textarea { font-family: inherit; }
 .header-action:hover { background: #ffffff; }
 .header-action:active { transform: scale(0.94); }
 
-/* сердечко на карточке товара: в гриде каталога и в избранном */
-.product-card__fav { position: absolute; top: 8px; right: 8px; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; padding: 0; background: none; border: none; color: var(--fav-color); cursor: pointer; z-index: 2; transition: color 0.2s ease, transform 0.2s ease; }
+/* сердечко на карточке товара: в гриде каталога и в избранном.
+   z-index выше бейджа (10) и затемнения «нет в наличии» — сердце не должно
+   перекрываться ничем, даже если бейдж на него заезжает */
+.product-card__fav { position: absolute; top: 8px; right: 8px; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; padding: 0; background: none; border: none; color: var(--fav-color); cursor: pointer; z-index: 11; transition: color 0.2s ease, transform 0.2s ease; }
 .product-card__fav:hover { color: var(--fav-color-hover); }
 .product-card__fav:active { transform: scale(0.9); }
 .product-card__fav--active { color: var(--fav-color); }
@@ -599,7 +601,11 @@ button, input, select, textarea { font-family: inherit; }
 .order-history__head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 16px; }
 .order-history__id { font-size: 16px; letter-spacing: 0.04em; }
 .order-history__date { font-size: 14px; color: var(--page-fg-muted); white-space: nowrap; }
-.order-history__shipped { display: inline-block; margin: 0 0 14px; padding: 4px 12px; font-size: 13px; letter-spacing: 0.04em; color: #b0559c; background: rgba(212, 128, 224, 0.12); }
+/* статус заказа: нейтральный по умолчанию, к концу пути становится заметнее */
+.order-history__status { display: inline-block; margin: 0 0 14px; padding: 4px 12px; font-size: 13px; letter-spacing: 0.04em; color: var(--page-fg-muted); background: rgba(0, 0, 0, 0.05); }
+.order-history__status--packing { color: #8a6a1f; background: rgba(191, 146, 67, 0.14); }
+.order-history__status--transit { color: var(--fav-color); background: rgba(176, 30, 74, 0.10); }
+.order-history__status--delivered { color: #4a6b28; background: rgba(94, 102, 35, 0.14); }
 .order-history__items { display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid #efefef; }
 .order-history__item { display: flex; justify-content: space-between; gap: 12px; font-size: 15px; }
 .order-history__item-title { flex: 1; }

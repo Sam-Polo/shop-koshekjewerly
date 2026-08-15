@@ -10,14 +10,32 @@ const logger = pino()
 const ORDERS_SHEET = 'orders'
 const ORDER_ITEMS_SHEET = 'order_items'
 
+// order_status (AC) дописан В КОНЕЦ намеренно: индексы колонок захардкожены
+// в getOrderFromSheet и остальных читателях, вставка в середину сдвинула бы всё.
 const ORDERS_HEADERS = [
   'order_id', 'created_at', 'updated_at', 'status', 'platform',
   'customer_chat_id', 'customer_name', 'full_name', 'phone', 'username',
   'country', 'city', 'address', 'delivery_region', 'delivery_cost',
   'items_total', 'promocode_code', 'promocode_discount',
   'priority_order', 'priority_fee', 'total', 'client_comment', 'admin_note',
-  'cdek_uuid', 'cdek_track_number', 'delivery_method', 'pochta_shpi', 'pd_consent'
+  'cdek_uuid', 'cdek_track_number', 'delivery_method', 'pochta_shpi', 'pd_consent',
+  'order_status'
 ]
+
+/** колонка order_status в листе orders (0-based индекс 28 = буква AC) */
+const ORDER_STATUS_COL = 'AC'
+const ORDER_STATUS_INDEX = 28
+
+/**
+ * Статус заказа для покупателя. Порядок массива = порядок движения заказа;
+ * статус умеет двигаться только ВПЕРЁД (см. advanceOrderStatusInSheet).
+ */
+export const ORDER_STATUSES = ['Принят', 'В сборке', 'В пути', 'Уже у вас'] as const
+export type OrderCustomerStatus = (typeof ORDER_STATUSES)[number]
+
+export function statusRank(status: string): number {
+  return ORDER_STATUSES.indexOf(status as OrderCustomerStatus)
+}
 
 const ORDER_ITEMS_HEADERS = [
   'order_id', 'slug', 'title', 'price', 'quantity', 'article', 'category', 'option'
@@ -405,8 +423,8 @@ export type OrderHistoryEntry = {
   deliveryMethod: string
   trackNumber: string | null
   trackUrl: string | null
-  /** отправлен ли (см. isOrderShipped); для EMS всегда false */
-  shipped: boolean
+  /** статус для покупателя: Принят / В сборке / В пути / Уже у вас; '' если ещё не проставлен */
+  orderStatus: string
   items: OrderHistoryItem[]
 }
 
@@ -463,7 +481,7 @@ export async function getOrderHistoryByChatId(chatId: string, limit = 20): Promi
     const auth = getAuth()
     const api = google.sheets({ version: 'v4', auth })
     const [ordersRes, itemsRes] = await Promise.all([
-      api.spreadsheets.values.get({ spreadsheetId, range: `${ORDERS_SHEET}!A:AB` }),
+      api.spreadsheets.values.get({ spreadsheetId, range: `${ORDERS_SHEET}!A:AC` }),
       api.spreadsheets.values.get({ spreadsheetId, range: `${ORDER_ITEMS_SHEET}!A:H` }),
     ])
 
@@ -518,8 +536,10 @@ export async function getOrderHistoryByChatId(chatId: string, limit = 20): Promi
         deliveryMethod,
         trackNumber,
         trackUrl,
-        // admin_note — колонка W (индекс 22), уже входит в прочитанный диапазон A:AB
-        shipped: isOrderShipped(deliveryMethod, cdekTrack, row[22] ?? ''),
+        // фолбэк на shipped_notified в admin_note (колонка W) нужен для заказов,
+        // оплаченных ДО появления колонки order_status: у них она пустая навсегда,
+        // но факт отправки в admin_note записан
+        orderStatus: row[ORDER_STATUS_INDEX] || (isOrderShipped(deliveryMethod, cdekTrack, row[22] ?? '') ? 'В пути' : ''),
         items: itemsByOrder.get(orderId) ?? [],
       }
     })
@@ -535,6 +555,66 @@ export async function getOrderHistoryByChatId(chatId: string, limit = 20): Promi
   } catch (e: any) {
     logger.warn({ chatId, error: e?.message }, 'getOrderHistoryByChatId: ошибка чтения из Sheets')
     return empty
+  }
+}
+
+/**
+ * Двигает статус заказа вперёд. Назад не откатывает НИКОГДА.
+ *
+ * Зачем: источников два и они независимы. Менеджер в amoCRM может передвинуть сделку
+ * обратно в «В работе» уже после того, как СДЭК прислал доставку, а вебхуки вообще
+ * приходят в произвольном порядке (ретраи, Render поспал, ночной синк догоняет).
+ * Без этого правила покупатель видел бы, как заказ «разъезжается» назад.
+ *
+ * Возвращает true, если значение реально изменилось.
+ */
+export async function advanceOrderStatusInSheet(orderId: string, next: OrderCustomerStatus): Promise<boolean> {
+  const spreadsheetId = getSheetId()
+  if (!spreadsheetId) return false
+  const nextRank = statusRank(next)
+  if (nextRank < 0) return false
+
+  try {
+    await ensureOrderSheets()
+    const auth = getAuth()
+    const api = google.sheets({ version: 'v4', auth })
+
+    // один запрос вместо двух: колонка с номерами заказов и колонка статусов
+    const res = await api.spreadsheets.values.batchGet({
+      spreadsheetId,
+      ranges: [`${ORDERS_SHEET}!A:A`, `${ORDERS_SHEET}!${ORDER_STATUS_COL}:${ORDER_STATUS_COL}`],
+    })
+    const idRows = res.data.valueRanges?.[0]?.values || []
+    const statusRows = res.data.valueRanges?.[1]?.values || []
+
+    let rowNumber = -1
+    for (let i = 1; i < idRows.length; i++) {
+      if (idRows[i]?.[0] === orderId) { rowNumber = i + 1; break }
+    }
+    if (rowNumber === -1) {
+      logger.info({ orderId, next }, 'advanceOrderStatus: заказ не найден в Sheets — пропускаем')
+      return false
+    }
+
+    const current = statusRows[rowNumber - 1]?.[0] ?? ''
+    if (statusRank(current) >= nextRank) {
+      logger.info({ orderId, current, next }, 'advanceOrderStatus: статус не двигается назад — пропускаем')
+      return false
+    }
+
+    await api.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${ORDERS_SHEET}!${ORDER_STATUS_COL}${rowNumber}`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [[next]] },
+    })
+    logger.info({ orderId, from: current || '—', to: next, rowNumber }, 'advanceOrderStatus: статус обновлён')
+    return true
+  } catch (e: any) {
+    logger.warn({ orderId, next, error: e?.message }, 'advanceOrderStatus: ошибка записи в Sheets')
+    // статус — витрина для покупателя, а не деньги: алертить на каждый сбой не нужно,
+    // следующий вебхук или ночной синк дожмут
+    return false
   }
 }
 
