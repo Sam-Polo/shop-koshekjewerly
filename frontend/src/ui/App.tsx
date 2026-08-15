@@ -3325,7 +3325,9 @@ export default function App() {
             onClick={openFavorites}
             aria-label="Избранное"
           >
-            <IconHeart size={22} filled={favorites.length > 0} />
+            {/* в баннере сердце всегда пустое: это кнопка перехода в раздел,
+                а не индикатор того, есть ли что-то в избранном */}
+            <IconHeart size={22} />
           </button>
           <button
             className="header-action"
