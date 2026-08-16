@@ -22,7 +22,12 @@ function signInitData(fields: Record<string, string>, token = BOT_TOKEN): string
   return params.toString()
 }
 
-const USER = JSON.stringify({ id: 123456789, first_name: 'Семён', last_name: 'Половодов' })
+const USER = JSON.stringify({
+  id: 123456789,
+  first_name: 'Семён',
+  last_name: 'Половодов',
+  username: 'semyonp88',
+})
 
 function validInitData(overrides: Record<string, string> = {}): string {
   return signInitData({
@@ -40,6 +45,7 @@ describe('validateTelegramInitData', () => {
     if (!res.ok) return
     expect(res.userId).toBe('123456789')
     expect(res.displayName).toBe('Семён Половодов')
+    expect(res.username).toBe('semyonp88')
     expect(res.authDate).toBe(AUTH_DATE)
   })
 
@@ -119,5 +125,17 @@ describe('validateTelegramInitData', () => {
     const res = validateTelegramInitData(data, BOT_TOKEN, undefined, NOW_MS)
     expect(res.ok).toBe(true)
     if (res.ok) expect(res.displayName).toBe('Оля')
+  })
+
+  // ник в Telegram необязателен, а форма обратной связи подписывает им сообщение —
+  // отсутствие поля не должно превращаться в строку "undefined" в канале менеджера
+  it('пользователь без username — username равен null', () => {
+    const data = signInitData({
+      auth_date: String(AUTH_DATE),
+      user: JSON.stringify({ id: 555, first_name: 'Оля' }),
+    })
+    const res = validateTelegramInitData(data, BOT_TOKEN, undefined, NOW_MS)
+    expect(res.ok).toBe(true)
+    if (res.ok) expect(res.username).toBeNull()
   })
 })

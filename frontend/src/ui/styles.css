@@ -939,6 +939,36 @@ button, input, select, textarea { font-family: inherit; }
 .order-success__actions { display: flex; flex-direction: column; align-items: center; gap: 14px; margin-top: 4px; }
 .order-success__secondary { color: #aaa; font-size: 14px; text-decoration: underline; text-underline-offset: 3px; }
 .order-success__secondary:hover { color: #888; }
+/* приглашение к обратной связи после оплаты: заметно, но тише обеих кнопок выше */
+.order-success__feedback { display: block; margin: 22px auto 0; padding-top: 18px; border-top: 1px solid #f0f0f0; width: 100%; max-width: 280px; color: #b9a0c4; font-size: 13px; }
+.order-success__feedback:hover { color: #d480e0; }
+
+/* обратная связь */
+.modal-content--feedback { max-width: 480px; padding: 0; }
+.modal-close--feedback { color: #c9c9c9; }
+.feedback-form { padding: 32px 24px 24px; }
+.feedback-form__title { margin: 0 0 10px; font-size: 24px; font-weight: 400; font-family: 'Forum', serif; }
+.feedback-form__intro { margin: 0 0 22px; font-size: 15px; line-height: 1.55; color: #777; }
+.feedback-form__categories { margin-bottom: 18px; }
+.feedback-form__textarea { margin-top: 0; min-height: 130px; }
+.feedback-form__order { margin: 10px 0 0; font-size: 13px; color: #999; }
+.feedback-form__submit { margin-top: 18px; }
+/* односторонность формы проговорена прямо здесь — иначе срочные вопросы уходили бы
+   в канал и ждали ответа, которого не будет */
+.feedback-form__note { margin: 14px 0 0; font-size: 13px; line-height: 1.5; color: #999; text-align: center; }
+.feedback-form__note .manager-link { color: #d480e0; text-decoration: underline; cursor: pointer; }
+
+.feedback-thanks { padding: 44px 24px 32px; text-align: center; }
+.feedback-thanks__icon { font-size: 52px; line-height: 1; margin-bottom: 18px; }
+.feedback-thanks__title { margin: 0 0 12px; font-size: 26px; font-weight: 400; font-family: 'Forum', serif; }
+.feedback-thanks__text { margin: 0 auto; max-width: 320px; font-size: 15px; line-height: 1.6; color: #777; }
+
+/* блок обратной связи в личном кабинете */
+.account-feedback { max-width: 640px; margin: 32px auto 0; padding: 22px 20px; text-align: center; background: #fdf6ff; border: 1px solid #e7d8ec; }
+.account-feedback__title { margin: 0 0 8px; font-size: 18px; font-weight: 400; letter-spacing: 0.02em; }
+.account-feedback__text { margin: 0 0 16px; font-size: 14px; line-height: 1.5; color: var(--page-fg-muted); }
+.account-feedback__button { color: #d480e0; font-size: 15px; text-decoration: underline; text-underline-offset: 3px; }
+.account-feedback__button:hover { color: #c069d0; }
 
 @media (max-width: 900px) {
   .page { padding: 48px 16px 64px; }

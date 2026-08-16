@@ -20,7 +20,7 @@ import crypto from 'node:crypto'
  */
 
 export type InitDataResult =
-  | { ok: true; userId: string; displayName: string | null; authDate: number }
+  | { ok: true; userId: string; displayName: string | null; username: string | null; authDate: number }
   | { ok: false; reason: InitDataFailure }
 
 export type InitDataFailure =
@@ -81,10 +81,14 @@ export function validateTelegramInitData(
     const userId = user?.id?.toString()
     if (!userId) return { ok: false, reason: 'no_user' }
     const nameParts = [user.first_name, user.last_name].filter(Boolean)
+    // username есть не у всех аккаунтов (в Telegram он необязателен) — отсюда null.
+    // Значение доверенное: оно из той же строки, подпись которой мы только что проверили.
+    const username = typeof user.username === 'string' && user.username ? user.username : null
     return {
       ok: true,
       userId,
       displayName: nameParts.length > 0 ? nameParts.join(' ') : null,
+      username,
       authDate,
     }
   } catch {

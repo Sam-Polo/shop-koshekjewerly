@@ -461,6 +461,17 @@ const getSupportUsername = () => {
   return import.meta.env.VITE_SUPPORT_USERNAME || 'koshekmanager'
 }
 
+// Подписанный initData платформы. Пустая строка = покупателя не опознать: MAX (там своя
+// схема, подписи Telegram нет) или запуск вне мессенджера. Лежит на уровне модуля, потому
+// что нужен и личному кабинету, и форме обратной связи.
+const getInitData = (): string => {
+  try {
+    return WebApp.initData || ''
+  } catch {
+    return ''
+  }
+}
+
 // компонент для кликабельной ссылки на менеджера
 const ManagerLink = ({ children }: { children: React.ReactNode }) => {
   const username = getSupportUsername()
@@ -1160,14 +1171,147 @@ const PaymentRedirectModal = ({
   )
 }
 
+// ── Обратная связь ──────────────────────────────────────────────────────────
+// Пожелания, отзывы и мелкие поломки — всё, с чем не хочется дёргать менеджера в ЛС.
+// Форма односторонняя: ответа на неё не будет, поэтому под кнопкой отправки стоит
+// прямая ссылка на поддержку — чтобы срочные вопросы не оседали в канале без ответа.
+//
+// Работает только в Telegram: бэкенд требует подписанный initData (иначе публичный
+// эндпойнт заливали бы спамом напрямую), а MAX подписи Telegram не даёт.
+const FEEDBACK_CATEGORIES = [
+  { id: 'idea', label: 'Идея' },
+  { id: 'review', label: 'Отзыв' },
+  { id: 'problem', label: 'Не работает' },
+  { id: 'other', label: 'Другое' },
+] as const
+
+const FEEDBACK_MAX_LENGTH = 1000
+
+const FeedbackModal = ({ orderId, onClose }: { orderId?: string; onClose: () => void }) => {
+  const [category, setCategory] = useState<string>('idea')
+  const [message, setMessage] = useState('')
+  const [state, setState] = useState<'form' | 'sending' | 'sent'>('form')
+  const [error, setError] = useState('')
+
+  const handleSubmit = async () => {
+    const text = message.trim()
+    if (!text || state === 'sending') return
+
+    setState('sending')
+    setError('')
+    try {
+      const apiUrl = import.meta.env.VITE_API_URL || '/api'
+      // без ретраев: повтор после таймаута продублировал бы сообщение в канале
+      const res = await fetch(`${apiUrl}/api/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          initData: getInitData(),
+          platform: appPlatform,
+          category,
+          message: text,
+          orderId,
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data?.error || `HTTP ${res.status}`)
+      }
+      setState('sent')
+    } catch (e: any) {
+      // Render мог спать: первый запрос за 15 минут упирается в холодный старт.
+      // Поэтому текст ошибки зовёт повторить, а не «что-то пошло не так».
+      setError(
+        e?.message === 'too_many_feedback'
+          ? 'Вы уже отправили несколько сообщений подряд. Напишите нам чуть позже 🤍'
+          : 'Не получилось отправить. Попробуйте ещё раз через минуту.'
+      )
+      setState('form')
+    }
+  }
+
+  const remaining = FEEDBACK_MAX_LENGTH - message.length
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content modal-content--feedback" onClick={e => e.stopPropagation()}>
+        <button className="modal-close modal-close--feedback" onClick={onClose}>&times;</button>
+
+        {state === 'sent' ? (
+          <div className="feedback-thanks">
+            <div className="feedback-thanks__icon">🤍</div>
+            <h3 className="feedback-thanks__title">Спасибо!</h3>
+            <p className="feedback-thanks__text">
+              Мы прочитаем ваше сообщение — каждое из&nbsp;них помогает нам стать лучше.
+            </p>
+            <button className="btn btn--primary feedback-form__submit" onClick={onClose}>
+              Закрыть
+            </button>
+          </div>
+        ) : (
+          <div className="feedback-form">
+            <h3 className="feedback-form__title">Помогите нам стать лучше</h3>
+            <p className="feedback-form__intro">
+              Расскажите, что понравилось, чего не&nbsp;хватает или что стоит починить.
+              Мы&nbsp;читаем всё и&nbsp;правда меняем магазин по&nbsp;вашим просьбам.
+            </p>
+
+            <div className="product-options feedback-form__categories">
+              <span className="product-options__label">О чём напишете?</span>
+              <div className="product-options__list">
+                {FEEDBACK_CATEGORIES.map(item => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`product-options__value ${category === item.id ? 'is-active' : ''}`}
+                    onClick={() => setCategory(item.id)}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <textarea
+              className="checkout-form__textarea feedback-form__textarea"
+              placeholder="Ваше сообщение..."
+              value={message}
+              maxLength={FEEDBACK_MAX_LENGTH}
+              onChange={e => setMessage(e.target.value)}
+            />
+            <span className="checkout-form__char-count">осталось {remaining}</span>
+
+            {orderId && <p className="feedback-form__order">Заказ: {orderId}</p>}
+            {error && <span className="checkout-form__error">{error}</span>}
+
+            <button
+              className="btn btn--primary feedback-form__submit"
+              onClick={handleSubmit}
+              disabled={!message.trim() || state === 'sending'}
+            >
+              {state === 'sending' ? 'Отправляем...' : 'Отправить'}
+            </button>
+
+            <p className="feedback-form__note">
+              Это сообщение без ответа. Если нужен ответ — <ManagerLink>напишите менеджеру</ManagerLink>
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 const OrderSuccessModal = ({
   orderId,
   paymentStatus,
-  onClose
+  onClose,
+  onFeedback,
 }: {
   orderId?: string
   paymentStatus?: 'success' | 'fail' | null
   onClose: () => void
+  onFeedback?: (orderId?: string) => void
 }) => {
   const isSuccess = paymentStatus !== 'fail'
   const botUsername = import.meta.env.VITE_BOT_USERNAME || 'koshekjewerlybot'
@@ -1208,6 +1352,16 @@ const OrderSuccessModal = ({
                   Продолжить покупки
                 </button>
               </div>
+              {/* Момент максимальной вовлечённости — но кнопку намеренно держим тихой,
+                  третьей по весу: заказ важнее, чем наш сбор пожеланий. */}
+              {onFeedback && (
+                <button
+                  className="btn-text order-success__feedback"
+                  onClick={() => { onClose(); onFeedback(displayId ?? undefined) }}
+                >
+                  Есть пожелания по магазину?
+                </button>
+              )}
             </>
           ) : (
             <>
@@ -2502,6 +2656,7 @@ const AccountScreen = ({
   firstName,
   totalOrders,
   firstOrderAt,
+  onFeedback,
 }: {
   gate: 'unknown' | 'checking' | 'allowed' | 'denied' | 'error'
   ordersState: 'idle' | 'loading' | 'ready' | 'error'
@@ -2509,6 +2664,7 @@ const AccountScreen = ({
   firstName: string
   totalOrders: number
   firstOrderAt: string | null
+  onFeedback: () => void
 }) => {
   if (gate === 'unknown' || gate === 'checking') {
     return <p className="screen-loading">Загрузка...</p>
@@ -2600,6 +2756,18 @@ const AccountScreen = ({
     </div>
       )}
 
+      {/* Гейт не нужен: до сюда доходят только те, чей initData бэкенд уже проверил,
+          а значит форма обратной связи для них точно сработает. */}
+      <div className="account-feedback">
+        <p className="account-feedback__title">Помогите нам стать лучше</p>
+        <p className="account-feedback__text">
+          Расскажите, чего не&nbsp;хватает магазину или что стоит починить — мы&nbsp;читаем всё.
+        </p>
+        <button className="btn-text account-feedback__button" onClick={onFeedback}>
+          Оставить обратную связь
+        </button>
+      </div>
+
       <button
         className="btn-text account-support"
         onClick={() => {
@@ -2674,6 +2842,9 @@ const FavoritesScreen = ({
 
 export default function App() {
   const [aboutModalOpen, setAboutModalOpen] = useState(false)
+  // форма обратной связи; orderId заполняется, когда её открыли из контекста заказа
+  const [feedbackModalOpen, setFeedbackModalOpen] = useState(false)
+  const [feedbackOrderId, setFeedbackOrderId] = useState<string | undefined>(undefined)
   const [cartOpen, setCartOpen] = useState(false)
   const [deliveryRegionOpen, setDeliveryRegionOpen] = useState(false)
   const [deliveryMethod, setDeliveryMethod] = useState<DeliveryMethod | null>(null)
@@ -3001,14 +3172,6 @@ export default function App() {
     }
   })()
 
-  const getInitData = (): string => {
-    try {
-      return WebApp.initData || ''
-    } catch {
-      return ''
-    }
-  }
-
   // Опознал ли нас бэкенд по подписи initData. Нужно только личному кабинету:
   // избранное клиентское и работает без бэкенда вовсе. Ходим один раз за сессию.
   const checkGate = () => {
@@ -3039,6 +3202,15 @@ export default function App() {
 
   const openFavorites = () => {
     setActiveScreen('favorites')
+  }
+
+  // Форму показываем только там, где бэкенд сможет опознать отправителя по подписи:
+  // в MAX и вне мессенджера кнопка вела бы в тупик, поэтому её просто нет.
+  const canSendFeedback = appPlatform !== 'max' && !!getInitData()
+
+  const openFeedback = (orderId?: string) => {
+    setFeedbackOrderId(orderId)
+    setFeedbackModalOpen(true)
   }
 
   // историю тянем при каждом заходе в ЛК: с прошлого раза заказ мог оплатиться или уехать
@@ -3115,6 +3287,8 @@ export default function App() {
         setSelectedProduct(null)
       } else if (cartOpen) {
         setCartOpen(false)
+      } else if (feedbackModalOpen) {
+        setFeedbackModalOpen(false)
       } else if (aboutModalOpen) {
         setAboutModalOpen(false)
       } else if (activeScreen) {
@@ -3125,14 +3299,14 @@ export default function App() {
       }
     }
 
-    if (selectedProduct || cartOpen || aboutModalOpen || selectedCategory || activeScreen || checkoutOpen || deliveryRegionOpen || paymentRedirectOpen || telegramRequiredOpen) {
+    if (selectedProduct || cartOpen || aboutModalOpen || feedbackModalOpen || selectedCategory || activeScreen || checkoutOpen || deliveryRegionOpen || paymentRedirectOpen || telegramRequiredOpen) {
       WebApp.BackButton.show()
       WebApp.BackButton.onClick(handleBackButtonClick)
     } else {
       WebApp.BackButton.hide()
     }
 
-    if (selectedProduct || cartOpen || aboutModalOpen || checkoutOpen || deliveryRegionOpen || paymentRedirectOpen || telegramRequiredOpen) {
+    if (selectedProduct || cartOpen || aboutModalOpen || feedbackModalOpen || checkoutOpen || deliveryRegionOpen || paymentRedirectOpen || telegramRequiredOpen) {
       document.body.style.overflow = 'hidden'
     } else {
       document.body.style.overflow = 'unset'
@@ -3142,7 +3316,7 @@ export default function App() {
       WebApp.BackButton.offClick(handleBackButtonClick)
       document.body.style.overflow = 'unset'
     }
-  }, [selectedProduct, cartOpen, aboutModalOpen, selectedCategory, activeScreen, checkoutOpen, deliveryRegionOpen, paymentRedirectOpen, telegramRequiredOpen])
+  }, [selectedProduct, cartOpen, aboutModalOpen, feedbackModalOpen, selectedCategory, activeScreen, checkoutOpen, deliveryRegionOpen, paymentRedirectOpen, telegramRequiredOpen])
 
   // проверяем наличие валидного initData от платформы (Telegram или MAX)
   const hasValidInitData = (): boolean => {
@@ -3410,6 +3584,7 @@ export default function App() {
               </h2>
               {activeScreen === 'account' ? (
                 <AccountScreen
+                  onFeedback={() => openFeedback()}
                   gate={gate}
                   ordersState={ordersState}
                   orders={accountOrders}
@@ -3558,6 +3733,9 @@ export default function App() {
             window.open(`https://t.me/${username.replace('@', '')}`, '_blank')
           }}>Поддержка</button>
           <button className="btn-text" onClick={() => setAboutModalOpen(true)}>О нас</button>
+          {canSendFeedback && (
+            <button className="btn-text" onClick={() => openFeedback()}>Обратная связь</button>
+          )}
         </footer>
       </main>
 
@@ -3584,6 +3762,10 @@ export default function App() {
       )}
 
       {aboutModalOpen && <AboutUsModal onClose={() => setAboutModalOpen(false)} />}
+
+      {feedbackModalOpen && (
+        <FeedbackModal orderId={feedbackOrderId} onClose={() => setFeedbackModalOpen(false)} />
+      )}
       {selectedProduct && (
         <ProductModal
           product={selectedProduct}
@@ -3674,13 +3856,14 @@ export default function App() {
           )}
           
           {orderSuccessOpen && (
-            <OrderSuccessModal 
+            <OrderSuccessModal
               orderId={orderId || undefined}
               paymentStatus={paymentStatus || undefined}
               onClose={() => {
                 setOrderSuccessOpen(false)
                 setPaymentStatus(null)
               }}
+              onFeedback={canSendFeedback ? openFeedback : undefined}
             />
           )}
 

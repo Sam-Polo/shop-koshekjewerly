@@ -240,6 +240,21 @@ const orderLimiter = rateLimit({
   }
 })
 
+// обратная связь из мини-аппа: эндпойнт требует подписанный initData, но лимит нужен
+// и поверх подписи — один покупатель не должен уметь залить канал менеджера простынёй
+// сообщений в один присест. 5 за 15 минут хватает на «написал, вспомнил, дописал».
+const feedbackLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: 'too_many_feedback' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req: express.Request, res: express.Response) => {
+    logger.warn({ ip: req.ip, path: req.path }, 'rate limit обратной связи превышен')
+    res.status(429).json({ error: 'too_many_feedback' })
+  }
+})
+
 // применяем общий rate limiting ко всем запросам
 app.use(generalLimiter)
 
@@ -2313,7 +2328,11 @@ app.get('/api/orders/my', async (req, res) => {
 //
 // MAX не подписывает initData по схеме Telegram, поэтому кабинет там недоступен: фронт
 // и так показывает заглушку, потому что WebApp.initData в MAX пустой.
-function authenticateAccount(initData: unknown): { ok: true; chatId: string } | { ok: false; status: number; body: any } {
+type AccountAuth =
+  | { ok: true; chatId: string; displayName: string | null; username: string | null }
+  | { ok: false; status: number; body: any }
+
+function authenticateAccount(initData: unknown): AccountAuth {
   if (!initData || typeof initData !== 'string') {
     return { ok: false, status: 400, body: { error: 'init_data_required' } }
   }
@@ -2335,7 +2354,12 @@ function authenticateAccount(initData: unknown): { ok: true; chatId: string } | 
     return { ok: false, status: 401, body: { error: 'unauthorized', reason: result.reason } }
   }
 
-  return { ok: true, chatId: result.userId }
+  return {
+    ok: true,
+    chatId: result.userId,
+    displayName: result.displayName,
+    username: result.username,
+  }
 }
 
 // Доступен ли покупателю личный кабинет. Открыт всем, у кого initData прошёл проверку
@@ -2365,6 +2389,91 @@ app.post('/api/account/orders', async (req, res) => {
     logger.error({ error: e?.message }, 'ошибка получения истории заказов для ЛК')
     sendAlert(`Ошибка истории заказов в ЛК: ${e?.message}`, {
       tag: 'account', level: 'low', hint: 'личный кабинет не смог показать историю заказов', code: 'ACCOUNT_HISTORY_FAILED'
+    }).catch(() => {})
+    return res.status(500).json({ error: 'internal_error' })
+  }
+})
+
+// ── Обратная связь из мини-аппа ─────────────────────────────────────────────
+// Форма «Помогите нам стать лучше»: пожелания, отзывы, некритичные проблемы.
+// Всё, что срочно, покупатель по-прежнему пишет менеджеру в ЛС.
+//
+// Хранилища нет намеренно: канал в Telegram сам себе архив (поиск, история), а лист
+// в Sheets стоил бы записей из общей квоты — той же, через которую идут заказы.
+//
+// Подпись initData обязательна, хотя ПДн эндпойнт не отдаёт: он ПИШЕТ в чат менеджера,
+// и без проверки любой, кто открыл бандл на GitHub Pages, слал бы туда что угодно
+// напрямую curl'ом. Имя и ник берутся из подписанных данных, а не из тела запроса.
+const FEEDBACK_CATEGORIES: Record<string, string> = {
+  idea: '💡 Предложение',
+  review: '🤍 Отзыв',
+  problem: '🔧 Проблема',
+  other: '💬 Другое',
+}
+const FEEDBACK_MAX_LENGTH = 1000
+
+app.post('/api/feedback', feedbackLimiter, async (req, res) => {
+  try {
+    const body = req.body || {}
+    const auth = authenticateAccount(body.initData)
+    if (!auth.ok) return res.status(auth.status).json(auth.body)
+
+    const message = typeof body.message === 'string' ? body.message.trim() : ''
+    if (!message) return res.status(400).json({ error: 'message_required' })
+    if (message.length > FEEDBACK_MAX_LENGTH) return res.status(400).json({ error: 'message_too_long' })
+
+    const channelId = process.env.FEEDBACK_CHANNEL_CHAT_ID?.trim()
+    if (!channelId) {
+      // писать некуда — но покупателю об этом знать неоткуда, для него форма «сработала»
+      logger.error('обратная связь: FEEDBACK_CHANNEL_CHAT_ID не задан, сообщение потеряно')
+      sendAlert(`Обратная связь не доставлена: FEEDBACK_CHANNEL_CHAT_ID не задан.\n\n${message.slice(0, 500)}`, {
+        tag: 'feedback', level: 'high',
+        hint: 'заведите канал, добавьте бота админом и проставьте FEEDBACK_CHANNEL_CHAT_ID в env Render',
+        code: 'FEEDBACK_NO_CHANNEL',
+      }).catch(() => {})
+      return res.status(500).json({ error: 'server_misconfigured' })
+    }
+
+    const category = FEEDBACK_CATEGORIES[body.category] ?? FEEDBACK_CATEGORIES.other
+    // ник кликабелен в Telegram — менеджер может ответить в ЛС, если сочтёт нужным
+    const who = [
+      auth.displayName ? escapeHtml(auth.displayName) : 'Без имени',
+      auth.username ? `@${escapeHtml(auth.username)}` : null,
+    ].filter(Boolean).join(' · ')
+    const orderId = typeof body.orderId === 'string' ? body.orderId.trim().slice(0, 40) : ''
+
+    // Экранирование раздувает текст: 1000 апострофов превратятся в 6000 символов
+    // (`&#039;`) и упрутся в лимит Telegram в 4096. Подписи важнее хвоста сообщения,
+    // поэтому режем именно текст, а не собранное письмо целиком.
+    const escaped = escapeHtml(message)
+    const safeText = escaped.length > 3500 ? `${escaped.slice(0, 3500)}…` : escaped
+
+    const lines = [
+      `<b>${category}</b>`,
+      '',
+      safeText,
+      '',
+      `👤 ${who}`,
+      `🆔 <code>${escapeHtml(auth.chatId)}</code>`,
+    ]
+    if (orderId) lines.push(`📦 ${escapeHtml(orderId)}`)
+
+    const sent = await sendTelegramMessage(channelId, lines.join('\n'))
+    if (!sent.ok) {
+      sendAlert(`Обратная связь не доставлена в канал: ${sent.errorDescription ?? 'неизвестная ошибка'}`, {
+        tag: 'feedback', level: 'moderate',
+        hint: 'проверьте, что бот админ в канале FEEDBACK_CHANNEL_CHAT_ID',
+        code: 'FEEDBACK_SEND_FAILED',
+      }).catch(() => {})
+      return res.status(502).json({ error: 'delivery_failed' })
+    }
+
+    logger.info({ chatId: auth.chatId, category: body.category }, 'обратная связь отправлена в канал')
+    return res.json({ ok: true })
+  } catch (e: any) {
+    logger.error({ error: e?.message }, 'ошибка обработки обратной связи')
+    sendAlert(`Ошибка обработки обратной связи: ${e?.message}`, {
+      tag: 'feedback', level: 'moderate', hint: 'форма обратной связи в мини-аппе не сработала', code: 'FEEDBACK_FAILED',
     }).catch(() => {})
     return res.status(500).json({ error: 'internal_error' })
   }
