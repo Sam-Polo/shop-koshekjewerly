@@ -44,7 +44,7 @@ vi.mock('./store.js', () => ({
   listProducts: vi.fn().mockReturnValue([]),
 }))
 
-import { getOrderFromSheet, isOrderShipped, statusRank, ORDER_STATUSES } from './orders-sheet.js'
+import { getOrderFromSheet, isOrderShipped, statusRank, labelForDelivery } from './orders-sheet.js'
 import { customerStatusForStage } from './amocrm-lead-processor.js'
 
 const ORDER_ID = 'ORD-1717000000000'
@@ -126,10 +126,27 @@ describe('isOrderShipped', () => {
 // людей, которые действительно получают посылки.
 describe('статусы заказа для ЛК', () => {
   it('порядок статусов задаёт движение заказа', () => {
-    expect(ORDER_STATUSES).toEqual(['Принят', 'В сборке', 'В пути', 'Уже у вас'])
     expect(statusRank('Принят')).toBeLessThan(statusRank('В сборке'))
     expect(statusRank('В сборке')).toBeLessThan(statusRank('В пути'))
     expect(statusRank('В пути')).toBeLessThan(statusRank('Уже у вас'))
+  })
+
+  it('«Отправлен» (EMS) стоит на одной ступени с «В пути» — метки не перебивают друг друга', () => {
+    expect(statusRank('Отправлен')).toBe(statusRank('В пути'))
+    expect(statusRank('В сборке')).toBeLessThan(statusRank('Отправлен'))
+    expect(statusRank('Отправлен')).toBeLessThan(statusRank('Уже у вас'))
+  })
+
+  it('EMS: «В пути» показывается как «Отправлен», остальные статусы не трогаются', () => {
+    expect(labelForDelivery('В пути', 'ems')).toBe('Отправлен')
+    expect(labelForDelivery('Принят', 'ems')).toBe('Принят')
+    expect(labelForDelivery('В сборке', 'ems')).toBe('В сборке')
+  })
+
+  it('СДЭК и самовывоз оставляют «В пути» как есть', () => {
+    expect(labelForDelivery('В пути', 'cdek')).toBe('В пути')
+    expect(labelForDelivery('В пути', 'pickup')).toBe('В пути')
+    expect(labelForDelivery('В пути', '')).toBe('В пути')
   })
 
   it('неизвестный или пустой статус — ранг -1, любой реальный статус его обгоняет', () => {

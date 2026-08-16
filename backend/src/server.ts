@@ -10,7 +10,7 @@ import rateLimit from 'express-rate-limit';
 import { fetchProductsFromSheet, decreaseStockInSheet } from './sheets.js';
 import { listProducts, upsertProducts, decreaseProductStock, getProductCategories } from './store.js';
 import { createOrder, getOrder, updateOrderStatus, listOrders, restoreOrder, type Order, type Platform, type DeliveryMethod } from './orders.js';
-import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId, getOrderHistoryByChatId, advanceOrderStatusInSheet, listPendingOrdersFromSheet, updateCdekInfoInSheet, updatePochtaInfoInSheet } from './orders-sheet.js'
+import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId, getOrderHistoryByChatId, advanceOrderStatusInSheet, statusRank, listPendingOrdersFromSheet, updateCdekInfoInSheet, updatePochtaInfoInSheet } from './orders-sheet.js'
 import { sendAlert } from './alerts.js';
 import { searchCities, getPickupPoints, calculateDelivery, triggerCdekOrderAsync, getCdekUuidByTrack, downloadCdekBarcode } from './cdek.js';
 import { calculateTariff as calculatePochtaTariff, triggerPochtaOrderAsync, downloadF7p, getCountries as getPochtaCountries, createPochtaOrder, createBatch, getShpiFromBatch, checkRequiredPochtaEnv, pochtaFetch, _batchShipmentsPath } from './pochta.js';
@@ -2353,6 +2353,27 @@ app.post('/api/account/orders', async (req, res) => {
     }).catch(() => {})
     return res.status(500).json({ error: 'internal_error' })
   }
+})
+
+// Ручная простановка статуса заказа — чтобы проверять ЛК на проде без физической
+// отправки посылки. Гоняет ровно тот же код, что вебхуки (advanceOrderStatusInSheet),
+// то есть проверяет и правило «не откатываться назад», и подмену метки для EMS,
+// но НИКАКИХ сообщений покупателю не шлёт — в отличие от воспроизведения CDEK-вебхука.
+// Ответ показывает, изменилось ли значение: false = статус не двинулся (уже дальше).
+app.post('/api/admin/order-status', async (req, res) => {
+  const key = req.header('x-admin-key')
+  if (!key || key !== process.env.ADMIN_IMPORT_KEY) {
+    return res.status(401).json({ error: 'unauthorized' })
+  }
+  const { orderId, status } = req.body || {}
+  if (!orderId || typeof orderId !== 'string') {
+    return res.status(400).json({ error: 'order_id_required' })
+  }
+  if (statusRank(status) < 0) {
+    return res.status(400).json({ error: 'unknown_status', allowed: ['Принят', 'В сборке', 'В пути', 'Отправлен', 'Уже у вас'] })
+  }
+  const changed = await advanceOrderStatusInSheet(orderId, status)
+  return res.json({ ok: true, orderId, status, changed })
 })
 
 // ручной импорт (для тестов или форс-обновления)

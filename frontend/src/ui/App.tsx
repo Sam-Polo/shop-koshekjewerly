@@ -84,6 +84,7 @@ const STATUS_MODIFIER: Record<string, string> = {
   'Принят': 'accepted',
   'В сборке': 'packing',
   'В пути': 'transit',
+  'Отправлен': 'transit', // конечный статус для EMS — тот же момент пути, что «В пути»
   'Уже у вас': 'delivered',
 }
 

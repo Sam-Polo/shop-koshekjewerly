@@ -25,16 +25,35 @@ const ORDERS_HEADERS = [
 /** колонка order_status в листе orders (0-based индекс 28 = буква AC) */
 const ORDER_STATUS_COL = 'AC'
 const ORDER_STATUS_INDEX = 28
+/** колонка delivery_method (0-based индекс 25 = буква Z) */
+const DELIVERY_METHOD_COL = 'Z'
+
+export type OrderCustomerStatus = 'Принят' | 'В сборке' | 'В пути' | 'Отправлен' | 'Уже у вас'
 
 /**
- * Статус заказа для покупателя. Порядок массива = порядок движения заказа;
- * статус умеет двигаться только ВПЕРЁД (см. advanceOrderStatusInSheet).
+ * Ступени пути заказа. Статус умеет двигаться только ВПЕРЁД (см. advanceOrderStatusInSheet).
+ *
+ * «Отправлен» и «В пути» стоят на ОДНОЙ ступени намеренно: это один и тот же момент,
+ * просто у EMS он конечный (Почта не присылает подтверждения вручения, вебхука у неё нет),
+ * а у СДЭКа за ним следует «Уже у вас». Заказ едет чем-то одним, поэтому обе метки
+ * на одном заказе не встретятся, а одинаковый ранг не даёт им перебивать друг друга.
  */
-export const ORDER_STATUSES = ['Принят', 'В сборке', 'В пути', 'Уже у вас'] as const
-export type OrderCustomerStatus = (typeof ORDER_STATUSES)[number]
+const STATUS_RANK: Record<string, number> = {
+  'Принят': 0,
+  'В сборке': 1,
+  'В пути': 2,
+  'Отправлен': 2,
+  'Уже у вас': 3,
+}
 
 export function statusRank(status: string): number {
-  return ORDER_STATUSES.indexOf(status as OrderCustomerStatus)
+  return STATUS_RANK[status] ?? -1
+}
+
+/** для EMS «В пути» показывается как «Отправлен» — и это его конечный статус */
+export function labelForDelivery(status: OrderCustomerStatus, deliveryMethod: string): OrderCustomerStatus {
+  if (status === 'В пути' && deliveryMethod === 'ems') return 'Отправлен'
+  return status
 }
 
 const ORDER_ITEMS_HEADERS = [
@@ -474,9 +493,9 @@ export type OrderHistoryResult = {
  * открытием на всех пользователей обязателен кэш, иначе выжжем квоту Sheets API.
  */
 export async function getOrderHistoryByChatId(chatId: string, limit = 20): Promise<OrderHistoryResult> {
-  const empty: OrderHistoryResult = { orders: [], totalOrders: 0, firstOrderAt: null }
   const spreadsheetId = getSheetId()
-  if (!spreadsheetId) return empty
+  // не сконфигурирован лист — это поломка окружения, а не «нет заказов»
+  if (!spreadsheetId) throw new Error('IMPORT_SHEET_ID not set')
   try {
     const auth = getAuth()
     const api = google.sheets({ version: 'v4', auth })
@@ -553,8 +572,12 @@ export async function getOrderHistoryByChatId(chatId: string, limit = 20): Promi
       firstOrderAt: mine.length > 0 ? (mine[mine.length - 1][1] ?? null) : null,
     }
   } catch (e: any) {
-    logger.warn({ chatId, error: e?.message }, 'getOrderHistoryByChatId: ошибка чтения из Sheets')
-    return empty
+    // НЕ отдаём пустую историю: «заказов нет» и «Sheets не ответил» выглядели бы для
+    // покупателя одинаково, и покупатель с десятью заказами увидел бы пустой ЛК как
+    // штатное состояние. Пробрасываем — эндпойнт превратит это в 500, алерт и явную
+    // ошибку на экране.
+    logger.error({ chatId, error: e?.message }, 'getOrderHistoryByChatId: ошибка чтения из Sheets')
+    throw e
   }
 }
 
@@ -579,13 +602,18 @@ export async function advanceOrderStatusInSheet(orderId: string, next: OrderCust
     const auth = getAuth()
     const api = google.sheets({ version: 'v4', auth })
 
-    // один запрос вместо двух: колонка с номерами заказов и колонка статусов
+    // один запрос вместо трёх: номера заказов, способ доставки и текущие статусы
     const res = await api.spreadsheets.values.batchGet({
       spreadsheetId,
-      ranges: [`${ORDERS_SHEET}!A:A`, `${ORDERS_SHEET}!${ORDER_STATUS_COL}:${ORDER_STATUS_COL}`],
+      ranges: [
+        `${ORDERS_SHEET}!A:A`,
+        `${ORDERS_SHEET}!${DELIVERY_METHOD_COL}:${DELIVERY_METHOD_COL}`,
+        `${ORDERS_SHEET}!${ORDER_STATUS_COL}:${ORDER_STATUS_COL}`,
+      ],
     })
     const idRows = res.data.valueRanges?.[0]?.values || []
-    const statusRows = res.data.valueRanges?.[1]?.values || []
+    const deliveryRows = res.data.valueRanges?.[1]?.values || []
+    const statusRows = res.data.valueRanges?.[2]?.values || []
 
     let rowNumber = -1
     for (let i = 1; i < idRows.length; i++) {
@@ -596,9 +624,13 @@ export async function advanceOrderStatusInSheet(orderId: string, next: OrderCust
       return false
     }
 
+    // EMS не доезжает до «Уже у вас» — его конечная метка «Отправлен»
+    const deliveryMethod = deliveryRows[rowNumber - 1]?.[0] ?? ''
+    const label = labelForDelivery(next, deliveryMethod)
+
     const current = statusRows[rowNumber - 1]?.[0] ?? ''
-    if (statusRank(current) >= nextRank) {
-      logger.info({ orderId, current, next }, 'advanceOrderStatus: статус не двигается назад — пропускаем')
+    if (statusRank(current) >= statusRank(label)) {
+      logger.info({ orderId, current, next: label }, 'advanceOrderStatus: статус не двигается назад — пропускаем')
       return false
     }
 
@@ -606,14 +638,23 @@ export async function advanceOrderStatusInSheet(orderId: string, next: OrderCust
       spreadsheetId,
       range: `${ORDERS_SHEET}!${ORDER_STATUS_COL}${rowNumber}`,
       valueInputOption: 'RAW',
-      requestBody: { values: [[next]] },
+      requestBody: { values: [[label]] },
     })
-    logger.info({ orderId, from: current || '—', to: next, rowNumber }, 'advanceOrderStatus: статус обновлён')
+    logger.info({ orderId, from: current || '—', to: label, rowNumber }, 'advanceOrderStatus: статус обновлён')
     return true
   } catch (e: any) {
-    logger.warn({ orderId, next, error: e?.message }, 'advanceOrderStatus: ошибка записи в Sheets')
-    // статус — витрина для покупателя, а не деньги: алертить на каждый сбой не нужно,
-    // следующий вебхук или ночной синк дожмут
+    logger.error({ orderId, next, error: e?.message }, 'advanceOrderStatus: ошибка записи в Sheets')
+    // Молчать тут нельзя: при сбое Sheets статус просто застынет, покупатель будет
+    // видеть неправильную стадию, и заметить это без алерта невозможно — в отличие
+    // от заказа или оплаты, у статуса нет второго пути восстановления.
+    sendAlert(
+      `Статус заказа ${orderId} не обновлён на «${next}»: ${e?.message}`,
+      {
+        tag: 'orders', level: 'moderate',
+        hint: 'покупатель видит устаревший статус в ЛК; при частых срабатываниях — проверьте квоту Sheets',
+        code: 'ORDER_STATUS_WRITE_FAILED',
+      }
+    ).catch(() => {})
     return false
   }
 }
