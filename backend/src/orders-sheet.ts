@@ -56,6 +56,59 @@ export function labelForDelivery(status: OrderCustomerStatus, deliveryMethod: st
   return status
 }
 
+// ── Очередь записи статусов ───────────────────────────────────────────────────
+//
+// Устроена по образцу очереди amoCRM (amocrm-client.ts): один воркер, пауза между
+// задачами, ничего не выбрасывается — только выстраивается в линию.
+//
+// Зачем: у Google Sheets лимит ~60 операций записи в минуту, а одна простановка статуса
+// это batchGet + update, то есть два обращения. Менеджер, разгребающий дроп пачкой,
+// роняет на нас десятки вебхуков подряд — без паузы мы гарантированно ловим 429,
+// и статусы у части заказов просто не проставляются.
+//
+// Задержка тут ничего не стоит: статус — витрина, его никто не ждёт синхронно.
+const STATUS_WRITE_INTERVAL_MS = Number(process.env.ORDER_STATUS_WRITE_INTERVAL_MS ?? '1200')
+const STATUS_QUEUE_BACKLOG_ALERT = 50
+
+let statusChain: Promise<unknown> = Promise.resolve()
+let statusQueueDepth = 0
+let backlogAlerted = false
+
+function queueStatusWrite<T>(task: () => Promise<T>): Promise<T> {
+  statusQueueDepth++
+
+  // очередь растёт быстрее, чем разгребается — значит вебхуков штормит; сообщаем один раз
+  if (statusQueueDepth >= STATUS_QUEUE_BACKLOG_ALERT && !backlogAlerted) {
+    backlogAlerted = true
+    sendAlert(
+      `Очередь записи статусов заказов выросла до ${statusQueueDepth} — статусы в ЛК отстают от реальности`,
+      {
+        tag: 'orders', level: 'moderate',
+        hint: 'обычно это массовый перенос сделок в amoCRM; очередь разгребётся сама, проверьте что не сыплется 429 от Sheets',
+        code: 'ORDER_STATUS_QUEUE_BACKLOG',
+      }
+    ).catch(() => {})
+  }
+
+  const run = statusChain.then(async () => {
+    try {
+      return await task()
+    } finally {
+      statusQueueDepth--
+      if (statusQueueDepth === 0) backlogAlerted = false
+      await new Promise<void>(r => setTimeout(r, STATUS_WRITE_INTERVAL_MS))
+    }
+  })
+  // цепочку продолжаем «очищенной» — падение одной задачи не должно рвать очередь
+  statusChain = run.catch(() => {})
+  return run as Promise<T>
+}
+
+/** глубина очереди — для тестов и диагностики */
+export function statusQueueSize(): number {
+  return statusQueueDepth
+}
+
 const ORDER_ITEMS_HEADERS = [
   'order_id', 'slug', 'title', 'price', 'quantity', 'article', 'category', 'option'
 ]
@@ -594,9 +647,12 @@ export async function getOrderHistoryByChatId(chatId: string, limit = 20): Promi
 export async function advanceOrderStatusInSheet(orderId: string, next: OrderCustomerStatus): Promise<boolean> {
   const spreadsheetId = getSheetId()
   if (!spreadsheetId) return false
-  const nextRank = statusRank(next)
-  if (nextRank < 0) return false
+  if (statusRank(next) < 0) return false
+  // через очередь: вебхуки приходят пачками, а у Sheets лимит на запись
+  return queueStatusWrite(() => writeOrderStatus(spreadsheetId, orderId, next))
+}
 
+async function writeOrderStatus(spreadsheetId: string, orderId: string, next: OrderCustomerStatus): Promise<boolean> {
   try {
     await ensureOrderSheets()
     const auth = getAuth()
