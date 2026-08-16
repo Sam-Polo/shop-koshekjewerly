@@ -2338,38 +2338,29 @@ function authenticateAccount(initData: unknown): { ok: true; chatId: string } | 
   return { ok: true, chatId: result.userId }
 }
 
-// Есть ли у покупателя доступ к разделам ЛК и избранного (пока — только у админов).
-// Отдельный дешёвый эндпойнт: избранное живёт на клиенте и Sheets ему не нужен вовсе,
-// а мини-аппу надо решить, показывать список или заглушку «в разработке».
-// Ответ — исключительно про доступ, никаких данных заказа.
+// Доступен ли покупателю личный кабинет. Открыт всем, у кого initData прошёл проверку
+// подписи, то есть фактически это ответ «мы тебя опознали».
+// Отдельный дешёвый эндпойнт: в Sheets не ходит, поэтому мини-апп может выяснить это
+// до того, как решит грузить историю.
 app.post('/api/account/access', (req, res) => {
   const auth = authenticateAccount((req.body || {}).initData)
   if (!auth.ok) return res.status(auth.status).json(auth.body)
-  return res.json({ allowed: isAdminChatId(auth.chatId) })
+  return res.json({ allowed: true })
 })
 
 // личный кабинет мини-аппа: история заказов покупателя.
 //
 // Контракт намеренно отличается от /api/orders/my (тот бот-онли и принимает chatId
 // параметром — боту можно, он знает настоящий chat_id от самого Telegram).
-// Здесь chat_id ВЫВОДИТСЯ ИЗ ПОДПИСАННОГО initData и никогда не принимается от клиента.
-//
-// ГЕЙТ (временный): историю отдаём только админам из ADMIN_CHAT_IDS, пока раздел
-// не открыт всем. Подпись initData уже проверяется, так что гейт держится
-// исключительно на продуктовой готовности, а не на безопасности.
+// Здесь chat_id ВЫВОДИТСЯ ИЗ ПОДПИСАННОГО initData и никогда не принимается от клиента —
+// именно поэтому эндпойнт можно было открыть всем, не раздавая чужие ПДн.
 app.post('/api/account/orders', async (req, res) => {
   try {
     const auth = authenticateAccount((req.body || {}).initData)
     if (!auth.ok) return res.status(auth.status).json(auth.body)
-    const chatId = auth.chatId
 
-    if (!isAdminChatId(chatId)) {
-      // 200, а не 403: для мини-аппа это штатное состояние «раздел ещё не открыт»
-      return res.json({ gated: true, orders: [] })
-    }
-
-    const { orders, totalOrders, firstOrderAt } = await getOrderHistoryByChatId(chatId, 20)
-    return res.json({ gated: false, orders, totalOrders, firstOrderAt })
+    const { orders, totalOrders, firstOrderAt } = await getOrderHistoryByChatId(auth.chatId, 20)
+    return res.json({ orders, totalOrders, firstOrderAt })
   } catch (e: any) {
     logger.error({ error: e?.message }, 'ошибка получения истории заказов для ЛК')
     sendAlert(`Ошибка истории заказов в ЛК: ${e?.message}`, {

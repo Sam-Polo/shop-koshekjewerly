@@ -2488,12 +2488,10 @@ const ThumbnailButton = ({
   )
 }
 
-// Заглушка для разделов, ещё не открытых обычным покупателям.
-// Показывается, пока не снят гейт ADMIN_CHAT_IDS на бэкенде.
-const ScreenStub = ({ title }: { title: string }) => (
+const ScreenStub = ({ title, text }: { title: string; text: string }) => (
   <div className="screen-stub">
-    <p className="screen-stub__title">{title} в разработке</p>
-    <p className="screen-stub__text">Скоро будет готово 🤍</p>
+    <p className="screen-stub__title">{title}</p>
+    <p className="screen-stub__text">{text}</p>
   </div>
 )
 
@@ -2515,9 +2513,24 @@ const AccountScreen = ({
   if (gate === 'unknown' || gate === 'checking') {
     return <p className="screen-loading">Загрузка...</p>
   }
-  // ошибку проверки доступа не отличаем от отказа: показываем ту же заглушку,
-  // чтобы покупатель не упирался в непонятную ошибку в разделе, которого ещё нет
-  if (gate !== 'allowed') return <ScreenStub title="Личный кабинет" />
+  // 'denied' = мини-апп открыт без initData: в MAX или вне мессенджера. Опознать
+  // покупателя нечем, и это не ошибка — так что говорим прямо, а не «попробуйте позже»
+  if (gate === 'denied') {
+    return (
+      <ScreenStub
+        title="Кабинет доступен в Telegram"
+        text="Откройте магазин в Telegram, чтобы увидеть свои заказы 🤍"
+      />
+    )
+  }
+  if (gate !== 'allowed') {
+    return (
+      <ScreenStub
+        title="Не удалось открыть кабинет"
+        text="Что-то пошло не так. Попробуйте зайти чуть позже 🤍"
+      />
+    )
+  }
 
   if (ordersState === 'loading' || ordersState === 'idle') {
     return <p className="screen-loading">Загружаем историю заказов...</p>
@@ -2600,24 +2613,19 @@ const AccountScreen = ({
   )
 }
 
+// Избранное целиком клиентское (CloudStorage/localStorage), бэкенд для него не нужен —
+// поэтому ни проверки доступа, ни initData тут нет, и в MAX раздел работает так же.
 const FavoritesScreen = ({
-  gate,
   products,
   favorites,
   onSelect,
   onToggleFavorite,
 }: {
-  gate: 'unknown' | 'checking' | 'allowed' | 'denied' | 'error'
   products: Product[]
   favorites: string[]
   onSelect: (product: Product) => void
   onToggleFavorite: (slug: string) => void
 }) => {
-  if (gate === 'unknown' || gate === 'checking') {
-    return <p className="screen-loading">Загрузка...</p>
-  }
-  if (gate !== 'allowed') return <ScreenStub title="Избранное" />
-
   // избранное хранит только слаги: товар мог закончиться или уехать из каталога,
   // поэтому резолвим по актуальному списку и молча пропускаем исчезнувшие
   const items = favorites
@@ -3001,9 +3009,8 @@ export default function App() {
     }
   }
 
-  // Разделы ЛК и избранного пока открыты только админам. Проверку делает бэкенд —
-  // здесь она нужна лишь чтобы выбрать, что рисовать: содержимое или заглушку.
-  // Ходим один раз за сессию, результат переиспользуют оба экрана.
+  // Опознал ли нас бэкенд по подписи initData. Нужно только личному кабинету:
+  // избранное клиентское и работает без бэкенда вовсе. Ходим один раз за сессию.
   const checkGate = () => {
     if (gate !== 'unknown' && gate !== 'error') return
     // без initData покупателя не опознать (MAX или запуск вне мессенджера) — заглушка
@@ -3032,7 +3039,6 @@ export default function App() {
 
   const openFavorites = () => {
     setActiveScreen('favorites')
-    checkGate()
   }
 
   // историю тянем при каждом заходе в ЛК: с прошлого раза заказ мог оплатиться или уехать
@@ -3413,7 +3419,6 @@ export default function App() {
                 />
               ) : (
                 <FavoritesScreen
-                  gate={gate}
                   products={products}
                   favorites={favorites}
                   onSelect={setSelectedProduct}
