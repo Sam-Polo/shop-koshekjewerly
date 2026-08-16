@@ -276,6 +276,7 @@ export async function appendOrderToSheet(order: Order): Promise<void> {
         requestBody: { values: itemsRows }
       })
     }
+    invalidateOrdersSnapshot()
     logger.info({ orderId: order.orderId, items: itemsRows.length }, 'заказ записан в Google Sheets')
   } catch (e: any) {
     logger.warn({ orderId: order.orderId, error: e?.message }, 'не удалось записать заказ в Google Sheets')
@@ -311,6 +312,7 @@ export async function updateOrderStatusInSheet(orderId: string, status: string, 
       valueInputOption: 'RAW',
       requestBody: { values: [[toIso(updatedAtMs), status]] }
     })
+    invalidateOrdersSnapshot()
     logger.info({ orderId, status, rowNumber }, 'статус заказа обновлён в Google Sheets')
   } catch (e: any) {
     logger.error({ orderId, status, error: e?.message }, 'не удалось обновить статус заказа в Google Sheets')
@@ -522,6 +524,66 @@ export function isOrderShipped(deliveryMethod: string, cdekTrack: string, adminN
   return adminNote.includes('shipped_notified')
 }
 
+// ── Снимок листов заказов ─────────────────────────────────────────────────────
+//
+// Заказы ВСЕХ покупателей лежат в одном листе, поэтому один снимок обслуживает всех:
+// было два чтения на каждое открытие ЛК, стало два чтения на TTL — независимо от того,
+// десять человек смотрят кабинет или тысяча.
+//
+// Это не про скорость кабинета. Квота Sheets одна на весь проект и делится с импортом
+// каталога, записью заказов и списанием остатков: трафик ЛК способен её выжечь и
+// остановить обработку заказов. Вот от чего защищаемся.
+//
+// Снимок сбрасывается при любой записи в заказы (invalidateOrdersSnapshot), поэтому
+// свежий заказ и новый статус видны сразу, а не через TTL.
+type OrdersSnapshot = { orderRows: string[][]; itemRows: string[][]; loadedAt: number }
+
+const SNAPSHOT_TTL_MS = Number(process.env.ORDERS_SNAPSHOT_TTL_MS ?? '60000')
+let ordersSnapshot: OrdersSnapshot | null = null
+let snapshotLoading: Promise<OrdersSnapshot> | null = null
+
+/** сбросить снимок — вызывается после каждой записи в лист заказов */
+export function invalidateOrdersSnapshot(): void {
+  ordersSnapshot = null
+}
+
+async function getOrdersSnapshot(spreadsheetId: string): Promise<OrdersSnapshot> {
+  const fresh = ordersSnapshot && Date.now() - ordersSnapshot.loadedAt < SNAPSHOT_TTL_MS
+  if (fresh) return ordersSnapshot!
+
+  // дедупликация параллельных загрузок: десять открытий ЛК в одну секунду не должны
+  // превратиться в десять чтений листа — все ждут одну и ту же загрузку
+  if (snapshotLoading) return snapshotLoading
+
+  snapshotLoading = (async () => {
+    const auth = getAuth()
+    const api = google.sheets({ version: 'v4', auth })
+    const [ordersRes, itemsRes] = await Promise.all([
+      api.spreadsheets.values.get({ spreadsheetId, range: `${ORDERS_SHEET}!A:AC` }),
+      api.spreadsheets.values.get({ spreadsheetId, range: `${ORDER_ITEMS_SHEET}!A:H` }),
+    ])
+    return {
+      orderRows: (ordersRes.data.values || []) as string[][],
+      itemRows: (itemsRes.data.values || []) as string[][],
+      loadedAt: Date.now(),
+    }
+  })()
+
+  try {
+    const loaded = await snapshotLoading
+    ordersSnapshot = loaded
+    logger.info(
+      { orders: loaded.orderRows.length, items: loaded.itemRows.length },
+      'ordersSnapshot: снимок листов заказов обновлён'
+    )
+    return loaded
+  } finally {
+    // и при успехе, и при ошибке: иначе упавшая загрузка навсегда залипла бы
+    // и все последующие запросы получали бы одну и ту же ошибку
+    snapshotLoading = null
+  }
+}
+
 export type OrderHistoryResult = {
   orders: OrderHistoryEntry[]
   /** всего оплаченных заказов — по ВСЕМ строкам, не по отданной странице */
@@ -542,23 +604,16 @@ export type OrderHistoryResult = {
  * покупателю они не «заказы».
  *
  * ВНИМАНИЕ: два полных чтения листов на вызов, фильтрация линейным сканом. Пока ЛК
- * открыт только админам (гейт в эндпойнте) — это несколько запросов в день. Перед
- * открытием на всех пользователей обязателен кэш, иначе выжжем квоту Sheets API.
+ * открыт только админам (гейт в эндпойнте) — это несколько запросов в день. Читает
+ * общий снимок листов (см. getOrdersSnapshot), поэтому число открытий ЛК на количество
+ * обращений к Sheets больше не влияет.
  */
 export async function getOrderHistoryByChatId(chatId: string, limit = 20): Promise<OrderHistoryResult> {
   const spreadsheetId = getSheetId()
   // не сконфигурирован лист — это поломка окружения, а не «нет заказов»
   if (!spreadsheetId) throw new Error('IMPORT_SHEET_ID not set')
   try {
-    const auth = getAuth()
-    const api = google.sheets({ version: 'v4', auth })
-    const [ordersRes, itemsRes] = await Promise.all([
-      api.spreadsheets.values.get({ spreadsheetId, range: `${ORDERS_SHEET}!A:AC` }),
-      api.spreadsheets.values.get({ spreadsheetId, range: `${ORDER_ITEMS_SHEET}!A:H` }),
-    ])
-
-    const orderRows = ordersRes.data.values || []
-    const itemRows = itemsRes.data.values || []
+    const { orderRows, itemRows } = await getOrdersSnapshot(spreadsheetId)
 
     // сначала отбираем свои заказы, только потом собираем позиции — чтобы не строить
     // индекс по всему листу order_items ради двух-трёх заказов
@@ -696,6 +751,7 @@ async function writeOrderStatus(spreadsheetId: string, orderId: string, next: Or
       valueInputOption: 'RAW',
       requestBody: { values: [[label]] },
     })
+    invalidateOrdersSnapshot()
     logger.info({ orderId, from: current || '—', to: label, rowNumber }, 'advanceOrderStatus: статус обновлён')
     return true
   } catch (e: any) {
@@ -739,6 +795,7 @@ export async function updateCdekInfoInSheet(orderId: string, cdekUuid: string, c
       valueInputOption: 'RAW',
       requestBody: { values: [[cdekUuid, cdekTrackNumber ?? '']] }
     })
+    invalidateOrdersSnapshot()
     logger.info({ orderId, cdekUuid, cdekTrackNumber, rowNumber }, 'CDEK info обновлён в Google Sheets')
   } catch (e: any) {
     logger.warn({ orderId, error: e?.message }, 'updateCdekInfoInSheet: ошибка')
@@ -770,6 +827,7 @@ export async function updatePochtaInfoInSheet(orderId: string, shpi: string): Pr
       valueInputOption: 'RAW',
       requestBody: { values: [[shpi]] }
     })
+    invalidateOrdersSnapshot()
     logger.info({ orderId, shpi, rowNumber }, 'Pochta ШПИ обновлён в Google Sheets')
   } catch (e: any) {
     logger.warn({ orderId, error: e?.message }, 'updatePochtaInfoInSheet: ошибка')
@@ -799,6 +857,7 @@ export async function updateOrderAdminNoteInSheet(orderId: string, note: string)
       valueInputOption: 'RAW',
       requestBody: { values: [[note]] }
     })
+    invalidateOrdersSnapshot()
     logger.info({ orderId, rowNumber }, 'admin_note обновлён в Google Sheets')
   } catch (e: any) {
     logger.warn({ orderId, error: e?.message }, 'updateOrderAdminNoteInSheet: ошибка')
