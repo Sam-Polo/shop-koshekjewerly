@@ -17,6 +17,7 @@ import { calculateTariff as calculatePochtaTariff, triggerPochtaOrderAsync, down
 import { uploadBufferToS3 } from './s3.js';
 import { triggerAmoCrmAsync, updateAmoCrmLeadTrack, updateAmoCrmLeadBarcode, createAmoCrmLead, syncCdekToLead } from './amocrm.js';
 import { buildPaymentForm, buildReceipt, verifyResultSignature, queryOrderState } from './robokassa.js';
+import { validateTelegramInitData } from './telegram-init-data.js';
 import { fetchPromocodesFromSheet, loadPromocodes, findPromocode, validatePromocode, listPromocodes, saveCertificatePromocode, registerPromocodeUse } from './promocodes.js';
 import { getCachedOrdersSettings } from './settings.js';
 import { getCachedFaq, invalidateFaqCache } from './faq.js';
@@ -2303,41 +2304,64 @@ app.get('/api/orders/my', async (req, res) => {
   }
 })
 
+// Аутентификация запросов личного кабинета по подписи initData.
+//
+// ВАЖНО: применяется ТОЛЬКО к эндпойнтам ЛК, а не к POST /api/orders. Там подмена
+// chat_id почти безобидна (платит сам подделыватель), зато ошибка в проверке остановила
+// бы приём заказов на проде. Расширять валидацию на создание заказа — отдельным шагом,
+// после того как она обкатается на кабинете.
+//
+// MAX не подписывает initData по схеме Telegram, поэтому кабинет там недоступен: фронт
+// и так показывает заглушку, потому что WebApp.initData в MAX пустой.
+function authenticateAccount(initData: unknown): { ok: true; chatId: string } | { ok: false; status: number; body: any } {
+  if (!initData || typeof initData !== 'string') {
+    return { ok: false, status: 400, body: { error: 'init_data_required' } }
+  }
+
+  const botToken = process.env.TG_BOT_TOKEN ?? ''
+  const result = validateTelegramInitData(initData, botToken)
+
+  if (!result.ok) {
+    if (result.reason === 'no_token') {
+      // поломка окружения, а не попытка обхода — молча отдавать 401 нельзя,
+      // иначе ЛК «не работает» без единой подсказки почему
+      logger.error('ЛК: TG_BOT_TOKEN не задан, подпись initData проверить нечем')
+      sendAlert('ЛК недоступен: TG_BOT_TOKEN не задан, подпись initData не проверить', {
+        tag: 'account', level: 'high', hint: 'проставьте TG_BOT_TOKEN в env Render', code: 'ACCOUNT_NO_BOT_TOKEN',
+      }).catch(() => {})
+      return { ok: false, status: 500, body: { error: 'server_misconfigured' } }
+    }
+    logger.warn({ reason: result.reason }, 'ЛК: initData не прошёл проверку подписи')
+    return { ok: false, status: 401, body: { error: 'unauthorized', reason: result.reason } }
+  }
+
+  return { ok: true, chatId: result.userId }
+}
+
 // Есть ли у покупателя доступ к разделам ЛК и избранного (пока — только у админов).
 // Отдельный дешёвый эндпойнт: избранное живёт на клиенте и Sheets ему не нужен вовсе,
 // а мини-аппу надо решить, показывать список или заглушку «в разработке».
 // Ответ — исключительно про доступ, никаких данных заказа.
 app.post('/api/account/access', (req, res) => {
-  const { initData } = req.body || {}
-  if (!initData || typeof initData !== 'string') {
-    return res.status(400).json({ error: 'init_data_required' })
-  }
-  const { id: chatId } = extractUserFromInitData(initData)
-  return res.json({ allowed: isAdminChatId(chatId) })
+  const auth = authenticateAccount((req.body || {}).initData)
+  if (!auth.ok) return res.status(auth.status).json(auth.body)
+  return res.json({ allowed: isAdminChatId(auth.chatId) })
 })
 
 // личный кабинет мини-аппа: история заказов покупателя.
 //
 // Контракт намеренно отличается от /api/orders/my (тот бот-онли и принимает chatId
 // параметром — боту можно, он знает настоящий chat_id от самого Telegram).
-// Здесь chat_id ВЫВОДИТСЯ НА СЕРВЕРЕ из initData и никогда не принимается от клиента:
-// когда появится проверка подписи initData, эндпойнт станет безопасным без правок
-// контракта и без единой правки фронта.
+// Здесь chat_id ВЫВОДИТСЯ ИЗ ПОДПИСАННОГО initData и никогда не принимается от клиента.
 //
-// ВРЕМЕННЫЙ ГЕЙТ: пока подпись initData не проверяется (см. extractUserFromInitData),
-// историю отдаём ТОЛЬКО админам из ADMIN_CHAT_IDS. Иначе любой мог бы подставить
-// произвольный chat_id и выгрузить чужие ПДн — chat_id в Telegram последовательные,
-// то есть это не точечная атака, а дамп клиентской базы перебором.
-// Гейт снимаем только вместе с валидацией подписи (и кэшем поверх Sheets).
+// ГЕЙТ (временный): историю отдаём только админам из ADMIN_CHAT_IDS, пока раздел
+// не открыт всем. Подпись initData уже проверяется, так что гейт держится
+// исключительно на продуктовой готовности, а не на безопасности.
 app.post('/api/account/orders', async (req, res) => {
   try {
-    const { initData } = req.body || {}
-    if (!initData || typeof initData !== 'string') {
-      return res.status(400).json({ error: 'init_data_required' })
-    }
-
-    const { id: chatId } = extractUserFromInitData(initData)
-    if (!chatId) return res.status(401).json({ error: 'unauthorized' })
+    const auth = authenticateAccount((req.body || {}).initData)
+    if (!auth.ok) return res.status(auth.status).json(auth.body)
+    const chatId = auth.chatId
 
     if (!isAdminChatId(chatId)) {
       // 200, а не 403: для мини-аппа это штатное состояние «раздел ещё не открыт»
