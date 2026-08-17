@@ -949,7 +949,6 @@ button, input, select, textarea { font-family: inherit; }
 .feedback-form { padding: 32px 24px 24px; }
 .feedback-form__title { margin: 0 0 10px; font-size: 24px; font-weight: 400; font-family: 'Forum', serif; }
 .feedback-form__intro { margin: 0 0 22px; font-size: 15px; line-height: 1.55; color: #777; }
-.feedback-form__categories { margin-bottom: 18px; }
 .feedback-form__textarea { margin-top: 0; min-height: 130px; }
 .feedback-form__order { margin: 10px 0 0; font-size: 13px; color: #999; }
 .feedback-form__submit { margin-top: 18px; }
@@ -957,6 +956,37 @@ button, input, select, textarea { font-family: inherit; }
    в канал и ждали ответа, которого не будет */
 .feedback-form__note { margin: 14px 0 0; font-size: 13px; line-height: 1.5; color: #999; text-align: center; }
 .feedback-form__note .manager-link { color: #d480e0; text-decoration: underline; cursor: pointer; }
+
+/* Чипсы категорий — «хайрлайн»: прямые углы, волосяная рамка, ни одной заливки.
+   Выбор показывает ОДНА величина: рамка и текст уходят в фирменный красный.
+   Чёрного здесь нет намеренно — чистый чёрный на прозрачности даёт на белом
+   нейтральный серый, а рядом с розовым фоном приложения серый читается грязью.
+   Поэтому и линия, и текст в покое с лиловым подтоном; #e7d8ec — та же рамка,
+   что у карточек ПВЗ и блока обратной связи в ЛК.
+
+   Осознанно НЕ переиспользует .product-options, хотя разметка похожая: у чипсов
+   размеров радиус осмыслен (короткое «17» становится ровным кругом, и в ряду
+   с «40 см» они стоят на одной линии). Прямые углы это сломали бы. */
+.feedback-categories { width: 100%; margin-bottom: 18px; }
+.feedback-categories__label { display: block; font-size: 13px; color: #8d8290; margin-bottom: 12px; letter-spacing: .01em; }
+.feedback-categories__list { display: flex; flex-wrap: wrap; gap: 9px; }
+.feedback-categories__value {
+  padding: 11px 17px;
+  background: none;
+  border: 1px solid #e7d8ec;
+  border-radius: 0;
+  font-family: inherit;
+  font-size: 13px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  line-height: 1;
+  color: #9a8d99;
+  cursor: pointer;
+  transition: color .2s, border-color .2s;
+  -webkit-tap-highlight-color: transparent;
+}
+.feedback-categories__value:hover { border-color: #d6c0da; color: #6f6270; }
+.feedback-categories__value.is-active { border-color: #b01e4a; color: #a01a43; }
 
 .feedback-thanks { padding: 44px 24px 32px; text-align: center; }
 .feedback-thanks__icon { font-size: 52px; line-height: 1; margin-bottom: 18px; }

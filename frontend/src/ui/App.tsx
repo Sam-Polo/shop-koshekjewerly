@@ -1256,14 +1256,14 @@ const FeedbackModal = ({ orderId, onClose }: { orderId?: string; onClose: () => 
               Мы&nbsp;читаем всё и&nbsp;правда меняем магазин по&nbsp;вашим просьбам.
             </p>
 
-            <div className="product-options feedback-form__categories">
-              <span className="product-options__label">О чём напишете?</span>
-              <div className="product-options__list">
+            <div className="feedback-categories">
+              <span className="feedback-categories__label">О чём напишете?</span>
+              <div className="feedback-categories__list">
                 {FEEDBACK_CATEGORIES.map(item => (
                   <button
                     key={item.id}
                     type="button"
-                    className={`product-options__value ${category === item.id ? 'is-active' : ''}`}
+                    className={`feedback-categories__value ${category === item.id ? 'is-active' : ''}`}
                     onClick={() => setCategory(item.id)}
                   >
                     {item.label}
