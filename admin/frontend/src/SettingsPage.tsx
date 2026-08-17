@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { api, removeToken } from './api'
 import type { AdminPage } from './BasesPage'
+import { DEFAULT_RULES } from './rules-default'
 import './App.css'
 
 type BannerStyle = 'pink' | 'gold' | 'neutral'
@@ -96,6 +97,8 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
   const [rulesText, setRulesText] = useState('')
   const [rulesLoading, setRulesLoading] = useState(true)
   const [rulesSaving, setRulesSaving] = useState(false)
+  // в таблице пусто и в поле показан текст по умолчанию — его ещё никто не сохранял
+  const [rulesIsDefault, setRulesIsDefault] = useState(false)
 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
 
@@ -186,7 +189,12 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
     try {
       setRulesLoading(true)
       const data = await api.getRules()
-      setRulesText(typeof data.text === 'string' ? data.text : '')
+      const saved = typeof data.text === 'string' ? data.text.trim() : ''
+      // В таблице пусто — подставляем текст по умолчанию прямо в поле, а не в
+      // placeholder: placeholder нельзя править, а начинать редактирование
+      // менеджер должен именно с него.
+      setRulesText(saved || DEFAULT_RULES)
+      setRulesIsDefault(!saved)
     } catch (err: any) {
       showToast(err.message || 'Ошибка загрузки правил', 'error')
     } finally {
@@ -198,6 +206,7 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
     try {
       setRulesSaving(true)
       await api.updateRules(rulesText.trim())
+      setRulesIsDefault(false)
       showToast('Правила сохранены', 'success')
     } catch (err: any) {
       showToast(err.message || 'Ошибка сохранения правил', 'error')
@@ -772,23 +781,46 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
                 пустая строка — новый абзац.
               </p>
 
+              {rulesIsDefault && (
+                <p className="settings-hint" style={{ color: '#b8860b' }}>
+                  В таблице пока пусто, показан текст по умолчанию — тот же, что видит
+                  покупатель. Отредактируйте его и нажмите «Сохранить», чтобы он попал в таблицу.
+                </p>
+              )}
+
               <textarea
                 className="settings-textarea"
                 rows={20}
                 placeholder={'## Правила использования украшений\n\nТекст...\n\n• пункт списка'}
                 value={rulesText}
                 maxLength={20000}
-                onChange={e => setRulesText(e.target.value)}
+                onChange={e => {
+                  setRulesText(e.target.value)
+                  setRulesIsDefault(false)
+                }}
                 style={{ fontFamily: 'ui-monospace, Menlo, Consolas, monospace', fontSize: '0.85rem' }}
               />
-              <p className="settings-hint" style={{ textAlign: 'right' }}>
-                {rulesText.length} / 20000
-              </p>
+              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', justifyContent: 'space-between' }}>
+                <button
+                  type="button"
+                  className="nav-btn"
+                  onClick={() => {
+                    setRulesText(DEFAULT_RULES)
+                    setRulesIsDefault(false)
+                  }}
+                  disabled={rulesText === DEFAULT_RULES}
+                  title="Подставить исходный текст правил в поле"
+                >
+                  Вернуть текст по умолчанию
+                </button>
+                <span className="settings-hint">{rulesText.length} / 20000</span>
+              </div>
 
               <button
                 className="settings-save-btn"
                 onClick={handleSaveRules}
                 disabled={rulesSaving}
+                style={{ marginTop: '1rem' }}
               >
                 {rulesSaving ? 'Сохранение...' : 'Сохранить правила'}
               </button>
