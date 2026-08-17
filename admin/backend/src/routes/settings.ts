@@ -6,7 +6,9 @@ import {
   fetchBannerSettingsFromSheet,
   saveBannerSettingsToSheet,
   fetchFaqFromSheet,
-  saveFaqToSheet
+  saveFaqToSheet,
+  fetchRulesFromSheet,
+  saveRulesToSheet
 } from '../settings-utils.js'
 import pino from 'pino'
 import axios from 'axios'
@@ -254,6 +256,50 @@ router.put('/faq', async (req, res) => {
   } catch (error: any) {
     logger.error({ error: error?.message }, 'ошибка сохранения FAQ')
     return res.status(500).json({ error: error?.message || 'Ошибка сохранения FAQ' })
+  }
+})
+
+// получение правил использования (обязательный экран перед оплатой)
+router.get('/rules', async (_req, res) => {
+  try {
+    const sheetId = process.env.GOOGLE_SHEET_ID
+    if (!sheetId) {
+      return res.status(500).json({ error: 'GOOGLE_SHEET_ID not configured' })
+    }
+    const text = await fetchRulesFromSheet(sheetId)
+    return res.json({ text })
+  } catch (error: any) {
+    logger.error({ error: error?.message }, 'ошибка загрузки правил использования')
+    return res.status(500).json({ error: error?.message || 'Ошибка загрузки правил' })
+  }
+})
+
+// сохранение правил использования
+router.put('/rules', async (req, res) => {
+  try {
+    const sheetId = process.env.GOOGLE_SHEET_ID
+    if (!sheetId) {
+      return res.status(500).json({ error: 'GOOGLE_SHEET_ID not configured' })
+    }
+
+    const { text } = req.body
+    if (typeof text !== 'string') {
+      return res.status(400).json({ error: 'text must be a string' })
+    }
+    // предел ячейки Google Sheets — 50 000 символов; берём с запасом
+    if (text.length > 20000) {
+      return res.status(400).json({ error: 'text max 20000 chars' })
+    }
+
+    logger.info({ length: text.length }, 'сохранение правил использования')
+    await saveRulesToSheet(sheetId, text.trim())
+
+    await triggerBackendImport()
+
+    return res.json({ success: true })
+  } catch (error: any) {
+    logger.error({ error: error?.message }, 'ошибка сохранения правил использования')
+    return res.status(500).json({ error: error?.message || 'Ошибка сохранения правил' })
   }
 })
 

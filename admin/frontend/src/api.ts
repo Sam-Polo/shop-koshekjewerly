@@ -246,6 +246,19 @@ export const api = {
     })
   },
 
+  // Правила использования (обязательный экран перед оплатой в мини-аппе)
+  async getRules() {
+    return fetchWithAuth('/api/settings/rules')
+  },
+
+  async updateRules(text: string) {
+    return fetchWithAuth('/api/settings/rules', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text })
+    })
+  },
+
   // категории
   async getCategories() {
     return fetchWithAuth('/api/categories')

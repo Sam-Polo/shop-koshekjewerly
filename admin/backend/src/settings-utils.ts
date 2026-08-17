@@ -297,6 +297,62 @@ async function ensureFaqSheet(sheets: ReturnType<typeof google.sheets>, sheetId:
   }
 }
 
+// ── Правила использования и гарантия ─────────────────────────────────────────
+// Обязательный экран перед оплатой в мини-аппе. Весь документ лежит ЦЕЛИКОМ в
+// одной ячейке `rules!A2`: пустые строки — часть разметки (делят текст на абзацы),
+// а Sheets схлопывает пустые строки при чтении диапазона, и разметка бы поехала.
+async function ensureRulesSheet(sheets: ReturnType<typeof google.sheets>, sheetId: string): Promise<void> {
+  const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId })
+  const sheetExists = spreadsheet.data.sheets?.some(s => s.properties?.title === 'rules')
+  if (!sheetExists) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: sheetId,
+      requestBody: { requests: [{ addSheet: { properties: { title: 'rules' } } }] }
+    })
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: sheetId,
+      range: 'rules!A1',
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: [['text']] }
+    })
+  }
+}
+
+export async function fetchRulesFromSheet(sheetId: string): Promise<string> {
+  const auth = getAuthFromEnv()
+  const sheets = google.sheets({ version: 'v4', auth })
+  try {
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId })
+    const sheetExists = spreadsheet.data.sheets?.some(s => s.properties?.title === 'rules')
+    if (!sheetExists) return ''
+
+    const res = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: 'rules!A2' })
+    return String(res.data.values?.[0]?.[0] ?? '').trim()
+  } catch (error: any) {
+    logger.error({ error: error?.message }, 'ошибка чтения правил использования')
+    return ''
+  }
+}
+
+export async function saveRulesToSheet(sheetId: string, text: string): Promise<void> {
+  const auth = getAuthFromEnv()
+  const sheets = google.sheets({ version: 'v4', auth })
+  try {
+    await ensureRulesSheet(sheets, sheetId)
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: sheetId,
+      range: 'rules!A2',
+      // RAW: текст правил не должен интерпретироваться Sheets как формула
+      valueInputOption: 'RAW',
+      requestBody: { values: [[text]] }
+    })
+    logger.info({ length: text.length }, 'правила использования сохранены')
+  } catch (error: any) {
+    logger.error({ error: error?.message }, 'ошибка сохранения правил использования')
+    throw error
+  }
+}
+
 export async function fetchFaqFromSheet(sheetId: string): Promise<FaqItem[]> {
   const auth = getAuthFromEnv()
   const sheets = google.sheets({ version: 'v4', auth })

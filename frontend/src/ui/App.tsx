@@ -1171,6 +1171,143 @@ const PaymentRedirectModal = ({
   )
 }
 
+// ── Правила использования и гарантия ────────────────────────────────────────
+// Обязательный экран между оформлением заказа и переходом к оплате.
+//
+// Текст редактируется из админки (лист `rules` → GET /api/rules). Захардкоженный
+// текст ниже — не «заглушка на время», а рабочий фолбэк: экран обязательный,
+// поэтому при недоступном бэкенде его нельзя ни пропустить, ни показать пустым.
+//
+// Разметка (её же понимает админка): `## ` — заголовок, `### ` — подзаголовок,
+// `• ` — пункт списка, пустая строка — граница абзаца.
+const DEFAULT_RULES = `## Правила использования украшений
+
+Чтобы украшение как можно дольше сохраняло свой первоначальный вид, пожалуйста, соблюдайте рекомендации по уходу:
+
+• Берегите украшения от воды и влаги. Не мочите и не погружайте их в воду. Снимайте украшения перед душем, ванной, посещением бассейна, купанием в море или океане.
+• Надевайте украшения на сухую кожу. Перед надеванием убедитесь, что на коже нет обильного слоя крема или других жирных средств. Парфюм рекомендуется наносить заранее и дать ему полностью высохнуть.
+• Снимайте украшения перед сном. Не рекомендуется спать в украшениях, чтобы избежать лишней нагрузки, трения и повреждения деталей.
+• Храните украшения правильно. После использования убирайте их в коробочку, которая входит в комплект. Это поможет защитить украшение от пыли, влаги, трения и механических повреждений.
+• Украшения не предназначены для детей младше 14 лет. Не передавайте и не оставляйте украшения в доступе для детей младше 14 лет.
+
+## Гарантийные условия
+
+Мы внимательно проверяем каждое украшение перед отправкой. Если с украшением возникла проблема по причинам, не зависящим от покупателя, мы обязательно поможем её решить.
+
+### Что считается гарантийным случаем
+
+К гарантийным случаям относятся:
+
+• украшение пришло с производственным дефектом или другим недостатком, возникшим до передачи заказа покупателю;
+• украшение порвалось или от него оторвалась деталь при обычном использовании, если повреждение произошло по причинам, не зависящим от покупателя.
+
+В течение первых 3 месяцев с момента покупки доставка украшения к нам и обратно осуществляется за наш счёт, а выявленный гарантийный дефект устраняется бесплатно — мы выполняем ремонт или, если ремонт невозможен, производим замену украшения/детали.
+
+После истечения 3 месяцев доставка украшения осуществляется за счёт покупателя. Ремонт или замена в случае подтверждённого гарантийного случая остаются бесплатными.
+
+### Что не является гарантийным случаем
+
+Гарантия не распространяется на повреждения, возникшие в результате:
+
+• укусов или других повреждений, нанесённых домашними животными;
+• несоблюдения рекомендаций по использованию и уходу за украшением;
+• использования украшения ребёнком младше 14 лет;
+• механических повреждений, возникших по вине покупателя или в результате неправильной эксплуатации.
+
+Если вы сомневаетесь, относится ли возникшая ситуация к гарантийному случаю, пожалуйста, свяжитесь с нами. Мы обязательно рассмотрим ситуацию индивидуально и постараемся найти лучшее решение.`
+
+/** строки размеченного текста → блоки для отрисовки (соседние пункты списка склеиваются) */
+type RulesBlock =
+  | { kind: 'h2' | 'h3' | 'p'; text: string }
+  | { kind: 'ul'; items: string[] }
+
+const parseRules = (raw: string): RulesBlock[] => {
+  const blocks: RulesBlock[] = []
+  for (const line of raw.split('\n')) {
+    const text = line.trim()
+    if (!text) continue
+    if (text.startsWith('### ')) {
+      blocks.push({ kind: 'h3', text: text.slice(4).trim() })
+    } else if (text.startsWith('## ')) {
+      blocks.push({ kind: 'h2', text: text.slice(3).trim() })
+    } else if (text.startsWith('• ') || text.startsWith('- ')) {
+      const item = text.slice(2).trim()
+      const last = blocks[blocks.length - 1]
+      // подряд идущие пункты — один список, иначе каждый стал бы отдельным <ul>
+      if (last && last.kind === 'ul') last.items.push(item)
+      else blocks.push({ kind: 'ul', items: [item] })
+    } else {
+      blocks.push({ kind: 'p', text })
+    }
+  }
+  return blocks
+}
+
+const RulesModal = ({ onAccept, onCancel }: { onAccept: () => void; onCancel: () => void }) => {
+  const [text, setText] = useState(DEFAULT_RULES)
+  const [acknowledged, setAcknowledged] = useState(false)
+
+  useEffect(() => {
+    const apiUrl = import.meta.env.VITE_API_URL || ''
+    // без ретраев: текст по умолчанию уже показан, экран работает и без ответа
+    fetch(`${apiUrl}/api/rules`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => {
+        if (typeof data?.text === 'string' && data.text.trim()) setText(data.text)
+      })
+      .catch(() => {}) // недоступен бэкенд — остаёмся на тексте по умолчанию
+  }, [])
+
+  const blocks = parseRules(text)
+
+  return (
+    <div className="modal-overlay">
+      {/* клик по подложке НЕ закрывает: экран обязательный, случайный тап мимо
+          не должен выкидывать покупателя из оплаченного пути */}
+      <div className="modal-content modal-content--rules">
+        <div className="rules">
+          <div className="rules__scroll">
+            {blocks.map((block, i) => {
+              if (block.kind === 'h2') return <h2 key={i} className="rules__h2">{block.text}</h2>
+              if (block.kind === 'h3') return <h3 key={i} className="rules__h3">{block.text}</h3>
+              if (block.kind === 'ul') return (
+                <ul key={i} className="rules__list">
+                  {block.items.map((item, j) => <li key={j}>{item}</li>)}
+                </ul>
+              )
+              return <p key={i} className="rules__p">{block.text}</p>
+            })}
+          </div>
+
+          {/* Галочка внизу под текстом: чтобы до неё добраться, покупатель так или
+              иначе прокручивает документ. Отдельной блокировки по скроллу нет. */}
+          <div className="rules__footer">
+            <label className="rules__consent">
+              <input
+                type="checkbox"
+                checked={acknowledged}
+                onChange={e => setAcknowledged(e.target.checked)}
+              />
+              <span>Ознакомлен с рекомендациями и правилами использования изделий</span>
+            </label>
+
+            <button
+              className="btn btn--primary rules__submit"
+              onClick={onAccept}
+              disabled={!acknowledged}
+            >
+              Перейти к оплате
+            </button>
+            <button className="btn-text rules__back" onClick={onCancel}>
+              Вернуться к заказу
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Обратная связь ──────────────────────────────────────────────────────────
 // Пожелания, отзывы и мелкие поломки — всё, с чем не хочется дёргать менеджера в ЛС.
 // Форма односторонняя: ответа на неё не будет, поэтому под кнопкой отправки стоит
@@ -2879,6 +3016,8 @@ export default function App() {
   const [orderId, setOrderId] = useState<string | null>(null)
   const [paymentStatus, setPaymentStatus] = useState<'success' | 'fail' | null>(null)
   const [paymentRedirectOpen, setPaymentRedirectOpen] = useState(false)
+  // обязательный экран правил между оформлением заказа и переходом к оплате
+  const [rulesOpen, setRulesOpen] = useState(false)
   const [pendingPaymentUrl, setPendingPaymentUrl] = useState<string | null>(null)
   const [telegramRequiredOpen, setTelegramRequiredOpen] = useState(false)
   const [ordersClosed, setOrdersClosed] = useState(false)
@@ -3288,12 +3427,27 @@ export default function App() {
     setCheckoutOpen(true)
   }
 
+  // правила приняты → информационное окно перехода к оплате
+  const handleRulesAccept = () => {
+    setRulesOpen(false)
+    setPaymentRedirectOpen(true)
+  }
+
+  // уход с экрана правил равнозначен отмене оплаты: возвращаем к оформлению
+  const handleRulesCancel = () => {
+    setRulesOpen(false)
+    setPendingPaymentUrl(null)
+    setCheckoutOpen(true)
+  }
+
   useEffect(() => {
     const handleBackButtonClick = () => {
       if (telegramRequiredOpen) {
         setTelegramRequiredOpen(false)
       } else if (paymentRedirectOpen) {
         handlePaymentCancel()
+      } else if (rulesOpen) {
+        handleRulesCancel()
       } else if (checkoutOpen) {
         setCheckoutOpen(false)
         setDeliveryRegionOpen(true)
@@ -3316,14 +3470,14 @@ export default function App() {
       }
     }
 
-    if (selectedProduct || cartOpen || aboutModalOpen || feedbackModalOpen || selectedCategory || activeScreen || checkoutOpen || deliveryRegionOpen || paymentRedirectOpen || telegramRequiredOpen) {
+    if (selectedProduct || cartOpen || aboutModalOpen || feedbackModalOpen || selectedCategory || activeScreen || checkoutOpen || deliveryRegionOpen || rulesOpen || paymentRedirectOpen || telegramRequiredOpen) {
       WebApp.BackButton.show()
       WebApp.BackButton.onClick(handleBackButtonClick)
     } else {
       WebApp.BackButton.hide()
     }
 
-    if (selectedProduct || cartOpen || aboutModalOpen || feedbackModalOpen || checkoutOpen || deliveryRegionOpen || paymentRedirectOpen || telegramRequiredOpen) {
+    if (selectedProduct || cartOpen || aboutModalOpen || feedbackModalOpen || checkoutOpen || deliveryRegionOpen || rulesOpen || paymentRedirectOpen || telegramRequiredOpen) {
       document.body.style.overflow = 'hidden'
     } else {
       document.body.style.overflow = 'unset'
@@ -3333,7 +3487,7 @@ export default function App() {
       WebApp.BackButton.offClick(handleBackButtonClick)
       document.body.style.overflow = 'unset'
     }
-  }, [selectedProduct, cartOpen, aboutModalOpen, feedbackModalOpen, selectedCategory, activeScreen, checkoutOpen, deliveryRegionOpen, paymentRedirectOpen, telegramRequiredOpen])
+  }, [selectedProduct, cartOpen, aboutModalOpen, feedbackModalOpen, selectedCategory, activeScreen, checkoutOpen, deliveryRegionOpen, rulesOpen, paymentRedirectOpen, telegramRequiredOpen])
 
   // проверяем наличие валидного initData от платформы (Telegram или MAX)
   const hasValidInitData = (): boolean => {
@@ -3475,11 +3629,18 @@ export default function App() {
       // если форму собрать не удалось
       const paymentUrl = buildPayPageUrl(result.payment) || result.paymentUrl
 
-      // если есть URL оплаты, показываем информационное окно перед редиректом
+      // Есть URL оплаты — сначала обязательный экран правил, и только после
+      // галочки информационное окно перехода к оплате.
+      //
+      // Заказ к этому моменту уже создан: экран вставлен ПОСЛЕ POST /api/orders
+      // намеренно, чтобы не трогать поток оплаты (холодный старт Render на 10–30 с
+      // остаётся там же, где был — на кнопке «Оформить заказ», а не между чтением
+      // правил и оплатой). Ушедший с этого экрана оставляет pending-заказ ровно так
+      // же, как ушедший с окна оплаты сейчас, — отдельного класса проблем не создаётся.
       if (paymentUrl) {
         setPendingPaymentUrl(paymentUrl)
         setCheckoutOpen(false)
-        setPaymentRedirectOpen(true)
+        setRulesOpen(true)
       } else {
         // если оплата не требуется (на всякий случай fallback)
         setOrderId(result.orderId || null)
@@ -3864,6 +4025,10 @@ export default function App() {
             />
           )}
           
+          {rulesOpen && (
+            <RulesModal onAccept={handleRulesAccept} onCancel={handleRulesCancel} />
+          )}
+
           {paymentRedirectOpen && (
             <PaymentRedirectModal
               onConfirm={handlePaymentConfirm}

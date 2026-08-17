@@ -21,6 +21,7 @@ import { validateTelegramInitData } from './telegram-init-data.js';
 import { fetchPromocodesFromSheet, loadPromocodes, findPromocode, validatePromocode, listPromocodes, saveCertificatePromocode, registerPromocodeUse } from './promocodes.js';
 import { getCachedOrdersSettings } from './settings.js';
 import { getCachedFaq, invalidateFaqCache } from './faq.js';
+import { getCachedRules, invalidateRulesCache } from './rules.js';
 import { getCachedCategories } from './categories.js';
 import { loadPendingNotifications, addPendingNotification, claimPendingNotifications } from './pending-notifications.js';
 import { handleTildaOrder } from './tilda-webhook.js';
@@ -433,6 +434,21 @@ app.get('/api/faq', async (_req, res) => {
   } catch (e: any) {
     logger.warn({ error: e?.message }, 'ошибка получения FAQ')
     res.json({ items: [] })
+  }
+});
+
+// Правила использования и гарантия — обязательный экран перед оплатой.
+// Пустой текст = мини-апп покажет свой текст по умолчанию: экран обязательный,
+// пропустить его из-за недоступных Sheets нельзя.
+app.get('/api/rules', async (_req, res) => {
+  try {
+    const sheetId = process.env.IMPORT_SHEET_ID
+    if (!sheetId) return res.json({ text: '' })
+    const text = await getCachedRules(sheetId)
+    res.json({ text })
+  } catch (e: any) {
+    logger.warn({ error: e?.message }, 'ошибка получения правил использования')
+    res.json({ text: '' })
   }
 });
 
@@ -2521,6 +2537,7 @@ app.post('/admin/import/sheets', async (req, res) => {
     await importConstructor();
     await importOrdersSettings();
     invalidateFaqCache(); // FAQ перечитается из Sheets при следующем запросе
+    invalidateRulesCache(); // и правила использования тоже
     const count = listProducts().length;
     const promocodesCount = listPromocodes().length;
     clearTimeout(timeout);

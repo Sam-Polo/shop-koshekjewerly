@@ -92,6 +92,11 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
   const [faqLoading, setFaqLoading] = useState(true)
   const [faqSaving, setFaqSaving] = useState(false)
 
+  // --- Правила использования (обязательный экран перед оплатой) ---
+  const [rulesText, setRulesText] = useState('')
+  const [rulesLoading, setRulesLoading] = useState(true)
+  const [rulesSaving, setRulesSaving] = useState(false)
+
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
 
   const showToast = (message: string, type: 'success' | 'error') => {
@@ -103,6 +108,7 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
     loadBanner()
     loadOrders()
     loadFaq()
+    loadRules()
   }, [])
 
   const loadBanner = async () => {
@@ -173,6 +179,30 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
       showToast(err.message || 'Ошибка сохранения FAQ', 'error')
     } finally {
       setFaqSaving(false)
+    }
+  }
+
+  const loadRules = async () => {
+    try {
+      setRulesLoading(true)
+      const data = await api.getRules()
+      setRulesText(typeof data.text === 'string' ? data.text : '')
+    } catch (err: any) {
+      showToast(err.message || 'Ошибка загрузки правил', 'error')
+    } finally {
+      setRulesLoading(false)
+    }
+  }
+
+  const handleSaveRules = async () => {
+    try {
+      setRulesSaving(true)
+      await api.updateRules(rulesText.trim())
+      showToast('Правила сохранены', 'success')
+    } catch (err: any) {
+      showToast(err.message || 'Ошибка сохранения правил', 'error')
+    } finally {
+      setRulesSaving(false)
     }
   }
 
@@ -719,6 +749,48 @@ function SettingsPage({ onNavigate }: { onNavigate?: (page: AdminPage) => void }
                 disabled={faqSaving}
               >
                 {faqSaving ? 'Сохранение...' : 'Сохранить FAQ'}
+              </button>
+            </div>
+          )}
+        </section>
+
+        {/* ── Правила использования (экран перед оплатой) ─── */}
+        <section className="settings-section">
+          <h2 className="settings-section__title">Правила использования и гарантия</h2>
+          {rulesLoading ? (
+            <div className="settings-loading">Загрузка...</div>
+          ) : (
+            <div className="settings-card">
+              <p className="settings-hint">
+                Обязательный экран между оформлением заказа и переходом к оплате: покупатель
+                не может оплатить, пока не поставит галочку «Ознакомлен». Если поле пустое —
+                мини-апп показывает стандартный текст, экран не пропускается никогда.
+              </p>
+              <p className="settings-hint">
+                Разметка: <code>##</code> в начале строки — заголовок раздела,
+                <code>###</code> — подзаголовок, <code>•</code> — пункт списка,
+                пустая строка — новый абзац.
+              </p>
+
+              <textarea
+                className="settings-textarea"
+                rows={20}
+                placeholder={'## Правила использования украшений\n\nТекст...\n\n• пункт списка'}
+                value={rulesText}
+                maxLength={20000}
+                onChange={e => setRulesText(e.target.value)}
+                style={{ fontFamily: 'ui-monospace, Menlo, Consolas, monospace', fontSize: '0.85rem' }}
+              />
+              <p className="settings-hint" style={{ textAlign: 'right' }}>
+                {rulesText.length} / 20000
+              </p>
+
+              <button
+                className="settings-save-btn"
+                onClick={handleSaveRules}
+                disabled={rulesSaving}
+              >
+                {rulesSaving ? 'Сохранение...' : 'Сохранить правила'}
               </button>
             </div>
           )}
