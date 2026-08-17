@@ -2642,6 +2642,18 @@ const ThumbnailButton = ({
   )
 }
 
+// та же схема, что у грида товаров (gridVariants/itemVariants в App()): контейнер
+// придерживает детей до начала анимации (stagger), карточки въезжают снизу по одной.
+// Отдельные константы, а не переиспользование тех — AccountScreen объявлен вне App()
+const historyGridVariants = {
+  hidden: { opacity: 0 },
+  visible: { opacity: 1, transition: { when: 'beforeChildren', staggerChildren: 0.08 } },
+}
+const historyItemVariants = {
+  hidden: { y: 16, opacity: 0 },
+  visible: { y: 0, opacity: 1 },
+}
+
 const ScreenStub = ({ title, text }: { title: string; text: string }) => (
   <div className="screen-stub">
     <p className="screen-stub__title">{title}</p>
@@ -2712,9 +2724,14 @@ const AccountScreen = ({
       {orders.length === 0 ? (
         <p className="screen-empty">Здесь появятся ваши заказы 🤍</p>
       ) : (
-    <div className="order-history">
+    <motion.div
+      className="order-history"
+      variants={historyGridVariants}
+      initial="hidden"
+      animate="visible"
+    >
       {orders.map(order => (
-        <div key={order.orderId} className="order-history__card">
+        <motion.div key={order.orderId} className="order-history__card" variants={historyItemVariants}>
           <div className="order-history__head">
             <span className="order-history__id">{order.orderId}</span>
             <span className="order-history__date">{formatOrderDate(order.createdAt)}</span>
@@ -2751,9 +2768,9 @@ const AccountScreen = ({
               Отследить: {order.trackNumber}
             </a>
           )}
-        </div>
+        </motion.div>
       ))}
-    </div>
+    </motion.div>
       )}
 
       {/* Гейт не нужен: до сюда доходят только те, чей initData бэкенд уже проверил,
