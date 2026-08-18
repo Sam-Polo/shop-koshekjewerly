@@ -2400,6 +2400,13 @@ app.post('/api/account/orders', async (req, res) => {
     if (!auth.ok) return res.status(auth.status).json(auth.body)
 
     const { orders, totalOrders, firstOrderAt } = await getOrderHistoryByChatId(auth.chatId, 20)
+    // Положительный след: без него «в канале алертов тихо» невозможно отличить от
+    // «кабинет никто не открывал». Считается по этой строке и количество открытий,
+    // и доля покупателей, у которых история пустая.
+    logger.info(
+      { chatId: auth.chatId, shown: orders.length, totalOrders },
+      'ЛК: история заказов отдана'
+    )
     return res.json({ orders, totalOrders, firstOrderAt })
   } catch (e: any) {
     logger.error({ error: e?.message }, 'ошибка получения истории заказов для ЛК')
