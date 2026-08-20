@@ -606,6 +606,8 @@ button, input, select, textarea { font-family: inherit; }
 .order-history__status--packing { color: #8a6a1f; background: rgba(191, 146, 67, 0.14); }
 .order-history__status--transit { color: var(--fav-color); background: rgba(176, 30, 74, 0.10); }
 .order-history__status--delivered { color: #4a6b28; background: rgba(94, 102, 35, 0.14); }
+/* возврат: приглушённый, без тревожного красного — покупатель и так знает, что не забрал */
+.order-history__status--returned { color: #7a5c52; background: rgba(122, 92, 82, 0.12); }
 .order-history__items { display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid #efefef; }
 .order-history__item { display: flex; justify-content: space-between; gap: 12px; font-size: 15px; }
 .order-history__item-title { flex: 1; }

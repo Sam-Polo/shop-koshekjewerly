@@ -137,6 +137,22 @@ describe('статусы заказа для ЛК', () => {
     expect(statusRank('Отправлен')).toBeLessThan(statusRank('Уже у вас'))
   })
 
+  it('«Не вручен - возврат» конечный и равен по рангу «Уже у вас»', () => {
+    expect(statusRank('Не вручен - возврат')).toBe(statusRank('Уже у вас'))
+    expect(statusRank('В пути')).toBeLessThan(statusRank('Не вручен - возврат'))
+  })
+
+  it('возврат не перебивается последующим DELIVERED (вручение отправителю)', () => {
+    // невручённая посылка едет обратно, СДЭК шлёт DELIVERED уже про отправителя —
+    // покупатель не должен прочитать, что заказ у него
+    const current = 'Не вручен - возврат'
+    expect(statusRank('Уже у вас')).not.toBeGreaterThan(statusRank(current))
+  })
+
+  it('доставленный заказ не переписывается возвратом', () => {
+    expect(statusRank('Не вручен - возврат')).not.toBeGreaterThan(statusRank('Уже у вас'))
+  })
+
   it('EMS: «В пути» показывается как «Отправлен», остальные статусы не трогаются', () => {
     expect(labelForDelivery('В пути', 'ems')).toBe('Отправлен')
     expect(labelForDelivery('Принят', 'ems')).toBe('Принят')

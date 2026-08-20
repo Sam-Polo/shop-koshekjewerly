@@ -10,7 +10,7 @@ import rateLimit from 'express-rate-limit';
 import { fetchProductsFromSheet, decreaseStockInSheet } from './sheets.js';
 import { listProducts, upsertProducts, decreaseProductStock, getProductCategories } from './store.js';
 import { createOrder, getOrder, updateOrderStatus, listOrders, restoreOrder, type Order, type Platform, type DeliveryMethod } from './orders.js';
-import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId, getOrderHistoryByChatId, advanceOrderStatusInSheet, statusRank, listPendingOrdersFromSheet, updateCdekInfoInSheet, updatePochtaInfoInSheet } from './orders-sheet.js'
+import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId, getOrderHistoryByChatId, advanceOrderStatusInSheet, statusRank, listPendingOrdersFromSheet, updateCdekInfoInSheet, updatePochtaInfoInSheet, type OrderCustomerStatus } from './orders-sheet.js'
 import { sendAlert } from './alerts.js';
 import { searchCities, getPickupPoints, calculateDelivery, triggerCdekOrderAsync, getCdekUuidByTrack, downloadCdekBarcode } from './cdek.js';
 import { calculateTariff as calculatePochtaTariff, triggerPochtaOrderAsync, downloadF7p, getCountries as getPochtaCountries, createPochtaOrder, createBatch, getShpiFromBatch, checkRequiredPochtaEnv, pochtaFetch, _batchShipmentsPath } from './pochta.js';
@@ -2114,34 +2114,22 @@ app.post('/api/cdek/webhook', express.json(), (req, res) => {
   // например если заказ оплачивался ещё до появления колонки order_status.
   // «Уже у вас» ставится ТОЛЬКО отсюда: это единственное подтверждение доставки
   // фактическими данными перевозчика, а не движением сделки руками менеджера.
-  if (orderNumber.startsWith('ORD-') && (statusCode === 'RECEIVED_AT_SENDER_CITY' || statusCode === 'DELIVERED')) {
+  // NOT_DELIVERED — СДЭК не смог вручить: покупатель не забрал из ПВЗ за срок хранения,
+  // отказался или не вышел на связь. Дальше посылка обычно едет обратно.
+  const CDEK_STATUS_TO_ORDER_STATUS: Record<string, OrderCustomerStatus> = {
+    RECEIVED_AT_SENDER_CITY: 'В пути',
+    DELIVERED: 'Уже у вас',
+    NOT_DELIVERED: 'Не вручен - возврат',
+  }
+  const nextStatus = CDEK_STATUS_TO_ORDER_STATUS[statusCode]
+  if (orderNumber.startsWith('ORD-') && nextStatus) {
     void (async () => {
-      const next = statusCode === 'DELIVERED' ? 'Уже у вас' : 'В пути'
       try {
-        await advanceOrderStatusInSheet(orderNumber, next)
+        await advanceOrderStatusInSheet(orderNumber, nextStatus)
       } catch (e: any) {
         logger.warn({ orderNumber, statusCode, error: e?.message }, 'CDEK webhook: не удалось обновить статус заказа')
       }
     })()
-  }
-
-  // ── Задание 4: посылка не вручена ───────────────────────────────────────────
-  // NOT_DELIVERED — СДЭК не смог вручить: покупатель не забрал из ПВЗ за срок хранения,
-  // отказался или не вышел на связь. Дальше посылка обычно едет обратно.
-  //
-  // Статус покупателю НЕ меняем: в согласованном наборе (Принят / В сборке / В пути /
-  // Уже у вас) для этого случая метки нет, а придумывать пятую молча — не дело.
-  // Но менеджеру знать надо: это событие требует человека (связаться, оформить возврат),
-  // а до сих пор оно проходило совсем незаметно — только строкой в логах.
-  if (orderNumber.startsWith('ORD-') && statusCode === 'NOT_DELIVERED') {
-    sendAlert(
-      `📦 Заказ ${orderNumber} не вручён (трек ${cdekNumber}). Скорее всего поедет обратно — нужно связаться с покупателем.`,
-      {
-        tag: 'cdek', level: 'moderate',
-        hint: 'покупатель не забрал из ПВЗ, отказался или не вышел на связь; в ЛК у него по-прежнему «В пути»',
-        code: 'CDEK_NOT_DELIVERED',
-      }
-    ).catch(() => {})
   }
 
   // ── Задание 2: синхронизация трека/штрихкода в amoCRM ───────────────────────
@@ -2536,7 +2524,7 @@ app.post('/api/admin/order-status', async (req, res) => {
     return res.status(400).json({ error: 'order_id_required' })
   }
   if (statusRank(status) < 0) {
-    return res.status(400).json({ error: 'unknown_status', allowed: ['Принят', 'В сборке', 'В пути', 'Отправлен', 'Уже у вас'] })
+    return res.status(400).json({ error: 'unknown_status', allowed: ['Принят', 'В сборке', 'В пути', 'Отправлен', 'Уже у вас', 'Не вручен - возврат'] })
   }
   const changed = await advanceOrderStatusInSheet(orderId, status)
   return res.json({ ok: true, orderId, status, changed })
