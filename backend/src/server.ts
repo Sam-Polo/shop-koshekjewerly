@@ -27,6 +27,8 @@ import { loadPendingNotifications, addPendingNotification, claimPendingNotificat
 import { handleTildaOrder } from './tilda-webhook.js';
 import { handleAmoCrmWebhook } from './amocrm-webhook.js';
 import { syncRecentAmoCrmLeads } from './amocrm-sync.js';
+import { sweepMissingBarcodes } from './barcode-sweep.js';
+import { startCdekWebhookWatchdog } from './cdek-webhook-watchdog.js';
 import {
   fetchBasesFromSheet,
   fetchPendantsFromSheet,
@@ -2225,7 +2227,10 @@ app.post('/internal/sync-amo', async (req, res) => {
   }
   try {
     const result = await syncRecentAmoCrmLeads(hours)
-    res.json({ ok: true, ...result })
+    // страховка по штрихкодам — тем же ночным прогоном: отдельный вызов из бота
+    // потребовал бы деплоя бота, а ловим мы ту же категорию потерь
+    const barcodes = await sweepMissingBarcodes()
+    res.json({ ok: true, ...result, barcodes })
   } catch (e: any) {
     logger.error({ err: e?.message }, 'sync-amo: failed')
     sendAlert(
@@ -3127,6 +3132,10 @@ app.listen(port, async () => {
     }, 60 * 1000)
     logger.info({ staleMinutes: botHeartbeatStaleMs / 60000 }, 'сторож heartbeat бота настроен')
   }
+
+  // подписка на вебхуки СДЭК — единственный триггер уведомлений об отправке,
+  // статусов в ЛК и штрихкодов в тильдиных лидах; её пропажа не видна никак
+  startCdekWebhookWatchdog()
 
   // пишем в лог всегда: нужен для разбора банов по IP на стороне внешних API
   const egressIp = await detectEgressIp()
