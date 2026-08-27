@@ -1,38 +1,33 @@
 /**
- * Управление подпиской CDEK webhook (разовая операция).
+ * Управление подпиской CDEK webhook (ручная операция).
  *
  *   npx tsx src/scripts/register-cdek-webhook.ts list            # показать текущие подписки
  *   npx tsx src/scripts/register-cdek-webhook.ts register        # подписаться на ORDER_STATUS
  *   npx tsx src/scripts/register-cdek-webhook.ts delete <uuid>   # удалить подписку
  *
- * URL подписки = BACKEND_URL + /api/cdek/webhook (+ ?token=CDEK_WEBHOOK_SECRET если задан).
+ * URL подписки строит cdek-webhook-watchdog.ts — там же, где его проверяет сторож,
+ * чтобы ручная регистрация и автоматическая проверка не разъехались (например
+ * по токену: подписка с чужим токеном молча получает 403 на каждый вебхук).
+ *
  * Аккаунт CDEK тот же, что у бота → словит и Тильдины заказы.
  */
 
 import 'dotenv/config'
 import { cdekFetch } from '../cdek.js'
-
-const BACKEND_URL = (process.env.BACKEND_URL ?? 'https://shop-koshekjewerly.onrender.com').replace(/\/$/, '')
-
-function webhookUrl(): string {
-  const secret = process.env.CDEK_WEBHOOK_SECRET
-  return `${BACKEND_URL}/api/cdek/webhook${secret ? `?token=${encodeURIComponent(secret)}` : ''}`
-}
+import { cdekWebhookUrl, listCdekWebhooks, registerCdekWebhook } from '../cdek-webhook-watchdog.js'
 
 async function main() {
   const cmd = process.argv[2] ?? 'list'
 
   if (cmd === 'list') {
-    const data = await cdekFetch('GET', '/webhooks')
-    console.log(JSON.stringify(data, null, 2))
+    console.log(JSON.stringify(await listCdekWebhooks(), null, 2))
     return
   }
 
   if (cmd === 'register') {
-    const url = webhookUrl()
-    console.log(`Регистрирую подписку ORDER_STATUS → ${url}`)
-    const data = await cdekFetch('POST', '/webhooks', { url, type: 'ORDER_STATUS' })
-    console.log('Готово:', JSON.stringify(data, null, 2))
+    console.log(`Регистрирую подписку ORDER_STATUS → ${cdekWebhookUrl()}`)
+    const uuid = await registerCdekWebhook()
+    console.log('Готово, uuid:', uuid)
     return
   }
 
