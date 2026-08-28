@@ -22,11 +22,12 @@ async function notifyManagerChannelIssue(detail: string): Promise<void> {
     'Бот не может отправлять уведомления об ошибках, потому что чат для алертов не найден.\n\n' +
     `Причина: ${detail}\n\n` +
     'Что делать: попросите разработчика обновить настройку ERROR_CHANNEL_CHAT_ID в конфиге бота.'
+  // silent: сам алерт не должен порождать алерт о своей неудаче — это петля
   await tgFetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ chat_id: MANAGER_CHAT_ID, text })
-  }).catch(() => {})
+  }, { silent: true }).catch(() => {})
 }
 
 // анти-флуд: дедуп одинаковых сообщений в скользящем окне
@@ -79,7 +80,7 @@ async function _rawSend(text: string): Promise<void> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ chat_id: CHANNEL_CHAT_ID, text, parse_mode: 'HTML' })
-  })
+  }, { silent: true })
   if (!resp.ok) {
     const result = await resp.json().catch(() => ({})) as any
     const description: string = result?.description ?? ''

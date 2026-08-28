@@ -4,8 +4,26 @@ import { InputFile } from 'grammy';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { setDefaultResultOrder } from 'node:dns';
-import { tgFetch } from './proxy.js'
+import { tgFetch, setTgFailureReporter } from './proxy.js'
 import { sendAlert } from './alerts.js';
+
+// Сообщение в Telegram не ушло после всех повторов — оно потеряно окончательно.
+// Раньше это оседало только в failed-tg-notifications.json на VDS, куда никто не
+// смотрит: 25.08.2026 так молча пропало уведомление покупателю.
+// Регистрируем здесь, а не импортом внутри proxy.ts — иначе цикл импортов с alerts.ts.
+setTgFailureReporter(({ method, chatId, preview, status, error }) => {
+  sendAlert(
+    `Telegram: ${method} не доставлен после всех повторов` +
+    `${chatId ? ` (chat ${chatId})` : ''}: ${error ?? `HTTP ${status}`}` +
+    `${preview ? `\nТекст: ${preview.slice(0, 200)}` : ''}`,
+    {
+      tag: 'tg-delivery',
+      level: 'high',
+      hint: 'сообщение потеряно — при необходимости отправьте вручную; подробности в failed-tg-notifications.json на VDS',
+      code: 'TG_SEND_FAILED_FINAL',
+    }
+  ).catch(() => {})
+});
 import { userChatIds, loadUserChatIds, saveUserChatIds, addUserChatId } from './user-store.js'
 
 // предпочитаем ipv4: помогает избежать зависаний на ipv6 у некоторых хостингов
