@@ -292,7 +292,10 @@ async function sendMessage(
   media?: MediaAttachment,
   buttonText?: string,
   buttonUrl?: string,
-  buttonMode: 'web_app' | 'url' = 'web_app'
+  buttonMode: 'web_app' | 'url' = 'web_app',
+  // рассылка ведёт свой счёт отправленным/неудачным и алертит сама
+  // (BROADCAST_HIGH_FAILURE_RATE) — там алерт на каждого получателя лишний
+  opts: { silent?: boolean } = {}
 ): Promise<SendMessageResult> {
   try {
     const hasText = typeof text === 'string' && text.trim().length > 0
@@ -325,8 +328,8 @@ async function sendMessage(
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
-      })
-      
+      }, opts)
+
       const result = await response.json().catch(() => ({}))
       
       if (!response.ok || !result.ok) {
@@ -348,7 +351,7 @@ async function sendMessage(
           text,
           ...(replyMarkup ? { reply_markup: replyMarkup } : {})
         })
-      })
+      }, opts)
       
       const result = await response.json().catch(() => ({}))
       
@@ -395,7 +398,9 @@ async function startBroadcast(ctx: any, chatId: string | number, data: Broadcast
       // пропускаем самого менеджера
       if (String(userId) === String(chatId)) continue
       
-      const result = await sendMessage(userId, data.messageText, data.media, buttonText, buttonUrl)
+      // silent: неудачные получатели считаются ниже и попадают в итог рассылки,
+      // алерт на каждого из ~16 тысяч был бы шумом
+      const result = await sendMessage(userId, data.messageText, data.media, buttonText, buttonUrl, 'web_app', { silent: true })
       if (result.success) {
         sent++
       } else {
