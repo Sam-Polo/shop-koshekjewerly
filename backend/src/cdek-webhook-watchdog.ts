@@ -8,19 +8,20 @@ const logger = pino()
 //
 // Вебхук СДЭКа — единственный триггер сразу трёх вещей: уведомления покупателю
 // об отправке, статуса заказа в ЛК и дозаполнения трек-ссылки/штрихкода в
-// тильдиных лидах. Если подписка пропадает, всё это умирает МОЛЧА: нет вебхука
-// — не запускается обработчик — некому алертить.
+// тильдиных лидах. Пропажа подписки не видна никак: нет вебхука — не запускается
+// обработчик — некому алертить.
 //
-// История: 25.08.2026 подписка исчезла впервые, заметили через двое суток и
-// случайно. 26.08 восстановили руками — и она пропала СНОВА в течение шести
-// часов. То есть это не разовый сбой, а повторяющийся: скорее всего СДЭК сам
-// снимает подписку после серии неудачных доставок, а доставки не удаются,
-// потому что Render на free-tier засыпает и холодный старт занимает ~20 с —
-// дольше, чем СДЭК готов ждать ответа.
+// История. 25.08.2026 подписка исчезла впервые (заметили через двое суток,
+// случайно). 26.08 восстановили руками — пропала снова за шесть часов. 27.08
+// сторож перерегистрировал её восемь раз подряд, и каждый раз она исчезала в
+// пределах получаса, пока не сработал суточный лимит. А 28.08 в 09:58, когда
+// лимит освободился и была сделана ОДНА регистрация, подписка прожила больше
+// десяти часов подряд.
 //
-// Поэтому сторож не просто наблюдает, а ВОССТАНАВЛИВАЕТ подписку сам: пока
-// первопричина (засыпание Render) не устранена, ручное восстановление означает
-// часы неработающих уведомлений между проверками.
+// Отсюда рабочая версия: частая перерегистрация делала хуже, а не лучше — каждый
+// POST заводит новую сущность, и в этой чехарде подписка не удерживалась.
+// Поэтому сторож теперь осторожен: перепроверяет пропажу вторым запросом, лечит
+// редко и убеждается, что регистрация действительно закрепилась.
 
 function backendBase(): string {
   return (process.env.BACKEND_URL ?? 'https://shop-koshekjewerly.onrender.com').replace(/\/$/, '')
@@ -42,10 +43,21 @@ export async function registerCdekWebhook(): Promise<string | null> {
   return (data?.entity?.uuid as string) ?? null
 }
 
-// Самолечение ограничено по частоте: если подписку сносит снова и снова, значит
-// проблема не в ней, и бесконечно перерегистрировать — только мешать разбору.
-const MAX_HEALS_PER_DAY = Number(process.env.CDEK_WEBHOOK_MAX_HEALS_PER_DAY ?? 8)
+// Лимит самолечений. Живёт в памяти, а Render на free-tier перезапускается часто —
+// значит лимит слабее, чем кажется, и это ещё одна причина держать его низким.
+const MAX_HEALS_PER_DAY = Number(process.env.CDEK_WEBHOOK_MAX_HEALS_PER_DAY ?? 4)
+// Пауза перед повторной проверкой: разовый пустой ответ СДЭКа не повод заводить
+// новую подписку поверх существующей.
+const RECHECK_DELAY_MS = Number(process.env.CDEK_WEBHOOK_RECHECK_DELAY_MS ?? 20_000)
+// Пока состояние не меняется, повторять один и тот же critical незачем.
+const FLAPPING_COOLDOWN_MS = Number(process.env.CDEK_WEBHOOK_FLAPPING_COOLDOWN_MS ?? 6 * 60 * 60 * 1000)
+
 const healTimestamps: number[] = []
+let flappingAlertedAt = 0
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(r => setTimeout(r, ms))
+}
 
 function healsLastDay(): number {
   const cutoff = Date.now() - 86400_000
@@ -53,14 +65,32 @@ function healsLastDay(): number {
   return healTimestamps.length
 }
 
-/** Только для тестов: обнуляет счётчик автовосстановлений. */
-export function _resetForTests(): void { healTimestamps.length = 0 }
+/** Только для тестов: обнуляет счётчики. */
+export function _resetForTests(): void {
+  healTimestamps.length = 0
+  flappingAlertedAt = 0
+}
 
 export type WebhookCheck = { ok: boolean; healed: boolean; total: number; reason?: string }
 
+/** Ищет нашу подписку в списке; если не нашлась — объясняет, что вместо неё. */
+function findOurs(list: any[]): { found: boolean; reason: string } {
+  const want = cdekWebhookUrl()
+  if (list.some((w: any) => w?.type === 'ORDER_STATUS' && w?.url === want)) {
+    return { found: true, reason: '' }
+  }
+  const foreign = list.filter((w: any) => w?.type === 'ORDER_STATUS')
+  return {
+    found: false,
+    reason: foreign.length > 0
+      ? `подписка ORDER_STATUS ведёт не на нас: ${foreign.map((w: any) => w?.url).join(', ')}`
+      : `подписок ORDER_STATUS нет (всего подписок: ${list.length})`,
+  }
+}
+
 /**
- * Проверяет подписку ORDER_STATUS на наш URL и восстанавливает её, если пропала.
- * Никогда не бросает: сторож не должен ронять старт сервера.
+ * Проверяет подписку ORDER_STATUS на наш URL и восстанавливает её, если она
+ * действительно пропала. Никогда не бросает: сторож не должен ронять сервер.
  */
 export async function verifyCdekWebhookSubscription(): Promise<WebhookCheck> {
   let list: any[]
@@ -72,49 +102,73 @@ export async function verifyCdekWebhookSubscription(): Promise<WebhookCheck> {
     return { ok: false, healed: false, total: 0, reason: `запрос не прошёл: ${e?.message}` }
   }
 
-  const want = cdekWebhookUrl()
-  const ours = list.filter((w: any) => w?.type === 'ORDER_STATUS' && w?.url === want)
-  if (ours.length > 0) {
+  if (findOurs(list).found) {
     logger.info({ total: list.length }, 'cdek-webhook-watchdog: подписка на месте')
     return { ok: true, healed: false, total: list.length }
   }
 
-  const foreign = list.filter((w: any) => w?.type === 'ORDER_STATUS')
-  const reason = foreign.length > 0
-    ? `подписка ORDER_STATUS ведёт не на нас: ${foreign.map((w: any) => w?.url).join(', ')}`
-    : `подписок ORDER_STATUS нет (всего подписок: ${list.length})`
+  // Перепроверяем перед тем, как что-то создавать: лишняя подписка поверх живой
+  // хуже, чем лишние 20 секунд ожидания.
+  await sleep(RECHECK_DELAY_MS)
+  try {
+    list = await listCdekWebhooks()
+  } catch (e: any) {
+    logger.warn({ err: e?.message }, 'cdek-webhook-watchdog: перепроверка не прошла')
+    return { ok: false, healed: false, total: 0, reason: `перепроверка не прошла: ${e?.message}` }
+  }
+  const check = findOurs(list)
+  if (check.found) {
+    logger.info('cdek-webhook-watchdog: подписка нашлась при перепроверке, ложная тревога')
+    return { ok: true, healed: false, total: list.length }
+  }
 
+  const reason = check.reason
   const healsToday = healsLastDay()
   if (healsToday >= MAX_HEALS_PER_DAY) {
-    sendAlert(
-      `СДЭК: подписка на вебхуки пропала снова (${reason}). Восстанавливать перестал — ` +
-      `за сутки это уже ${healsToday}-й раз, лечим симптом вместо причины.`,
-      {
-        tag: 'cdek',
-        level: 'critical',
-        hint: 'СДЭК снимает подписку из-за неудачных доставок — проверьте, не засыпает ли Render (холодный старт ~20 с дольше таймаута СДЭКа)',
-        code: 'CDEK_WEBHOOK_SUBSCRIPTION_FLAPPING',
-      }
-    ).catch(() => {})
+    const now = Date.now()
+    if (now - flappingAlertedAt >= FLAPPING_COOLDOWN_MS) {
+      flappingAlertedAt = now
+      sendAlert(
+        `СДЭК: подписка на вебхуки пропадает раз за разом (${reason}). За сутки уже ${healsToday} ` +
+        `восстановлений — перерегистрировать перестал: чаще делать только хуже. Пока её нет, ` +
+        `не приходят статусы отправлений; штрихкоды подберёт ночной свип, но уведомления ` +
+        `покупателям и статусы в ЛК теряются.`,
+        {
+          tag: 'cdek',
+          level: 'critical',
+          hint: 'нужен разбор со стороны СДЭК: кто и почему снимает подписку на общем аккаунте (там же интеграция Тильды)',
+          code: 'CDEK_WEBHOOK_SUBSCRIPTION_FLAPPING',
+        }
+      ).catch(() => {})
+    }
     return { ok: false, healed: false, total: list.length, reason }
   }
 
   try {
     const uuid = await registerCdekWebhook()
     healTimestamps.push(Date.now())
-    logger.warn({ uuid, reason }, 'cdek-webhook-watchdog: подписка восстановлена автоматически')
+
+    // Убеждаемся, что регистрация закрепилась: СДЭК отвечает SUCCESSFUL на CREATE,
+    // но нас интересует не ответ, а состояние.
+    await sleep(RECHECK_DELAY_MS)
+    const after = await listCdekWebhooks().catch(() => [] as any[])
+    const stuck = findOurs(after).found
+
+    logger.warn({ uuid, reason, stuck }, 'cdek-webhook-watchdog: подписка восстановлена')
     sendAlert(
-      `СДЭК: подписка на вебхуки пропала (${reason}) — восстановил автоматически, uuid ${uuid}. ` +
-      `Пока её не было, не приходили статусы отправлений: уведомления покупателям, ` +
-      `статус в ЛК и штрихкоды в тильдиных лидах.`,
+      `СДЭК: подписка на вебхуки пропала (${reason}) — восстановил, uuid ${uuid}` +
+      `${stuck ? '' : ' ⚠️ но в списке она так и не появилась'}. Пока её не было, не приходили ` +
+      `статусы отправлений: уведомления покупателям, статус в ЛК и штрихкоды в тильдиных лидах.`,
       {
         tag: 'cdek',
-        level: 'high',
-        hint: 'разово — ок; если повторяется, ищите причину неудачных доставок вебхука (засыпание Render)',
+        level: stuck ? 'high' : 'critical',
+        hint: stuck
+          ? 'разово — ок; повторяется — разбираться со стороны СДЭК, аккаунт общий с Тильдой'
+          : 'СДЭК принял регистрацию, но подписки в списке нет — вопрос к поддержке СДЭК',
         code: 'CDEK_WEBHOOK_SUBSCRIPTION_HEALED',
       }
     ).catch(() => {})
-    return { ok: true, healed: true, total: list.length, reason }
+    return { ok: stuck, healed: true, total: list.length, reason }
   } catch (e: any) {
     sendAlert(
       `СДЭК: подписки на вебхуки нет (${reason}), и восстановить не удалось: ${e?.message}`,
