@@ -2247,8 +2247,15 @@ app.post('/internal/sync-amo', async (req, res) => {
 // и выгружает сюда пачкой раз в 30с. Здесь только запись в лист: если этот
 // эндпоинт лежит, регистрация всё равно состоялась, бот повторит выгрузку.
 app.post('/internal/event-registrations', express.json({ limit: '1mb' }), async (req, res) => {
+  // Fail-closed, в отличие от соседних /internal/*: BOT_API_SECRET в проде
+  // осознанно не задан, а этот эндпоинт ПИШЕТ в таблицу — открытым его
+  // оставлять нельзя. Токен бота есть у обеих сторон всегда (тот же приём,
+  // что в /api/orders/:id/send-tracking), секрет — дополнительный вариант.
   const secret = process.env.BOT_API_SECRET
-  if (secret && req.query.secret !== secret) {
+  const botToken = process.env.TG_BOT_TOKEN
+  const bySecret = !!secret && req.query.secret === secret
+  const byToken = !!botToken && req.headers.authorization === `Bearer ${botToken}`
+  if (!bySecret && !byToken) {
     res.status(401).json({ error: 'unauthorized' }); return
   }
 

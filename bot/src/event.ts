@@ -435,9 +435,14 @@ export async function flushRegistrations(): Promise<void> {
   try {
     const secret = process.env.BOT_API_SECRET
     const url = `${BACKEND_URL}/internal/event-registrations${secret ? `?secret=${encodeURIComponent(secret)}` : ''}`
+    // Bearer с токеном бота — основной способ авторизации: BOT_API_SECRET
+    // в проде не задан, а эндпоинт пишет в таблицу и открытым быть не должен
     const resp = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.TG_BOT_TOKEN ?? ''}`,
+      },
       body: JSON.stringify({ rows: batch }),
       signal: abortCtrl.signal,
     })
