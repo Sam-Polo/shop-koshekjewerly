@@ -936,8 +936,13 @@ async function handleStart(ctx: any) {
 // в последовательной очереди апдейтов.
 let greetingFileId: string | null = null
 
+const GREETING_CAPTION_DEFAULT = 'Нажми на кнопку, чтоб перейти в каталог 👇🏽'
+// Временная подпись, пока идёт регистрация на шоурум — переключается сама
+// вместе с /event_mode, отдельного деплоя на возврат не нужно.
+const GREETING_CAPTION_EVENT = 'Нажми на кнопку, чтобы перейти в каталог или записаться в шоурум 👇🏽'
+
 async function sendGreetingPhoto(ctx: any, kb: InlineKeyboard): Promise<void> {
-  const caption = 'Нажми на кнопку, чтоб перейти в каталог 👇🏽'
+  const caption = eventModeOn() ? GREETING_CAPTION_EVENT : GREETING_CAPTION_DEFAULT
   if (greetingFileId) {
     try {
       await ctx.replyWithPhoto(greetingFileId, { caption, reply_markup: kb })
@@ -956,7 +961,7 @@ async function sendGreetingPhoto(ctx: any, kb: InlineKeyboard): Promise<void> {
   } catch (e: any) {
     // разовый сбой загрузки фото — не оставляем юзера ни с чем
     console.warn('[start] не удалось отправить фото-приветствие, отдаю текст:', e?.message)
-    await ctx.reply('Добро пожаловать в KOSHEK JEWERLY 🐾\nНажми на кнопку, чтоб перейти в каталог 👇🏽', {
+    await ctx.reply(`Добро пожаловать в KOSHEK JEWERLY 🐾\n${caption}`, {
       reply_markup: kb,
     }).catch(() => {})
   }
