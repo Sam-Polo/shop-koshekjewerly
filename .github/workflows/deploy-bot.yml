@@ -53,6 +53,11 @@ jobs:
             bot/node_modules/ "$TARGET/node_modules/"
           rsync -azv -e "ssh -i ~/.ssh/id_ed25519" \
             bot/package.json bot/package-lock.json "$TARGET/"
+          # картинки (приветствие, баннер шоурума) — раньше заливались руками,
+          # из-за чего новый ассет молча не доезжал до VDS. --delete не ставим:
+          # на сервере могут лежать картинки, которых нет в репо
+          rsync -azv -e "ssh -i ~/.ssh/id_ed25519" \
+            bot/assets/ "$TARGET/assets/"
           ssh -i ~/.ssh/id_ed25519 root@${{ secrets.SSH_HOST_BOT }} \
             "mkdir -p /opt/bot/scripts"
           rsync -azv -e "ssh -i ~/.ssh/id_ed25519" \

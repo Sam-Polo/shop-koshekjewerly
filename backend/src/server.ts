@@ -29,6 +29,7 @@ import { handleAmoCrmWebhook } from './amocrm-webhook.js';
 import { syncRecentAmoCrmLeads } from './amocrm-sync.js';
 import { sweepMissingBarcodes } from './barcode-sweep.js';
 import { startCdekWebhookWatchdog } from './cdek-webhook-watchdog.js';
+import { upsertEventRegistrations, type EventRegistrationRow } from './event-sheet.js';
 import {
   fetchBasesFromSheet,
   fetchPendantsFromSheet,
@@ -2238,6 +2239,61 @@ app.post('/internal/sync-amo', async (req, res) => {
       { tag: 'amocrm', level: 'moderate', code: 'AMOCRM_SYNC_ENDPOINT_FAILED' }
     ).catch(() => {})
     res.status(500).json({ error: e?.message ?? 'sync_failed' })
+  }
+})
+
+// ── Регистрации на офлайн-шоурум ──────────────────────────────────────────
+// Бот копит гостей у себя (event-registrations.json на VDS — источник истины)
+// и выгружает сюда пачкой раз в 30с. Здесь только запись в лист: если этот
+// эндпоинт лежит, регистрация всё равно состоялась, бот повторит выгрузку.
+app.post('/internal/event-registrations', express.json({ limit: '1mb' }), async (req, res) => {
+  const secret = process.env.BOT_API_SECRET
+  if (secret && req.query.secret !== secret) {
+    res.status(401).json({ error: 'unauthorized' }); return
+  }
+
+  const rawRows = Array.isArray(req.body?.rows) ? req.body.rows : null
+  if (!rawRows) { res.status(400).json({ error: 'rows_required' }); return }
+  if (rawRows.length > 500) { res.status(400).json({ error: 'too_many_rows' }); return }
+
+  const rows: EventRegistrationRow[] = []
+  for (const r of rawRows) {
+    const chatId = Number(r?.chatId)
+    const visitDate = String(r?.visitDate ?? '')
+    if (!Number.isInteger(chatId) || chatId === 0) continue
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(visitDate)) continue
+    rows.push({
+      chatId,
+      name: String(r?.name ?? '').slice(0, 200),
+      username: String(r?.username ?? '').replace('@', '').slice(0, 64),
+      visitDate,
+      registeredAt: String(r?.registeredAt ?? '').slice(0, 40),
+    })
+  }
+
+  if (rows.length !== rawRows.length) {
+    // бот прислал мусор — это баг, а не пользовательский ввод: гость,
+    // отфильтрованный здесь, никогда не попадёт в таблицу
+    logger.warn({ got: rawRows.length, valid: rows.length }, 'event-registrations: часть строк отброшена')
+    sendAlert(`Регистрации на шоурум: отброшено ${rawRows.length - rows.length} из ${rawRows.length} строк как невалидные`, {
+      tag: 'event', level: 'high',
+      hint: 'бот прислал строки без chat_id или с некорректной датой — эти гости в таблицу не попадут',
+      code: 'EVENT_ROWS_INVALID',
+    }).catch(() => {})
+  }
+
+  try {
+    const result = await upsertEventRegistrations(rows)
+    logger.info(result, 'event-registrations: выгружено в лист')
+    res.json({ ok: true, ...result })
+  } catch (e: any) {
+    logger.error({ err: e?.message }, 'event-registrations: запись в лист не удалась')
+    sendAlert(`Регистрации на шоурум не записались в Google Sheets: ${e?.message}`, {
+      tag: 'event', level: 'high',
+      hint: 'сами регистрации целы у бота на VDS, он повторит выгрузку — проверьте квоту Sheets и доступ сервисного аккаунта',
+      code: 'EVENT_SHEET_WRITE_FAILED',
+    }).catch(() => {})
+    res.status(502).json({ error: e?.message ?? 'sheet_write_failed' })
   }
 })
 

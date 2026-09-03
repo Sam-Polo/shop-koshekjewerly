@@ -25,6 +25,16 @@ setTgFailureReporter(({ method, chatId, preview, status, error }) => {
   ).catch(() => {})
 });
 import { userChatIds, loadUserChatIds, saveUserChatIds, addUserChatId } from './user-store.js'
+import {
+  loadEventState, loadEventDrafts, getMode as getEventMode, setMode as setEventMode,
+  setCapacity as setEventCapacity, getCapacity as getEventCapacity,
+  registrationCount, deleteDraft as deleteEventDraft, getDraft as getEventDraft, flushDrafts,
+} from './event-store.js'
+import {
+  CB as EVENT_CB, SHOWROOM_BUTTON_TEXT, showOffer, resumeDraft,
+  handleRegisterClick, handleEditDateClick, handleDayClick, handleDraftMessage,
+  startEventFlusher, buildStatsText, buildCsvFile, buildFindText,
+} from './event.js'
 
 // предпочитаем ipv4: помогает избежать зависаний на ipv6 у некоторых хостингов
 setDefaultResultOrder('ipv4first');
@@ -70,6 +80,10 @@ const GETUPDATES_TIMEOUT = Number(process.env.GETUPDATES_TIMEOUT ?? 10)
 // Таймаут на исходящие TG API вызовы (sendMessage/reply/...). grammY-дефолт ~500с:
 // зависший вызов морозит последовательную очередь до срабатывания handler-watchdog (150с).
 const API_CALL_TIMEOUT_MS = Number(process.env.BOT_API_TIMEOUT_MS ?? 30_000)
+// Повторы при 429 (Telegram просит подождать). Держим короткими: пауза здесь
+// стоит всей последовательной очереди апдейтов.
+const RATE_LIMIT_RETRIES = Number(process.env.BOT_RATE_LIMIT_RETRIES ?? 2)
+const RATE_LIMIT_MAX_WAIT_S = Number(process.env.BOT_RATE_LIMIT_MAX_WAIT_S ?? 10)
 let lastSuccessfulPollAt = Date.now()
 let inFlightSince: number | null = null
 let inFlightInfo = ''
@@ -84,17 +98,40 @@ bot.api.config.use(async (prev, method, payload, signal) => {
   if (method !== 'getUpdates') {
     // Все НЕ-getUpdates вызовы (sendMessage, reply, sendPhoto, ...) — жёсткий таймаут.
     // Без него зависший TG API морозит последовательную очередь grammY до дефолта (~500с) → watchdog-рестарт.
-    const ac = new AbortController()
-    const timer = setTimeout(() => ac.abort(), API_CALL_TIMEOUT_MS)
-    if (signal) {
-      if (signal.aborted) ac.abort()
-      else signal.addEventListener('abort', () => ac.abort())
+    const callOnce = async () => {
+      const ac = new AbortController()
+      const timer = setTimeout(() => ac.abort(), API_CALL_TIMEOUT_MS)
+      if (signal) {
+        if (signal.aborted) ac.abort()
+        else signal.addEventListener('abort', () => ac.abort())
+      }
+      try {
+        return await prev(method, payload, ac.signal as any)
+      } finally {
+        clearTimeout(timer)
+      }
     }
-    try {
-      return await prev(method, payload, ac.signal as any)
-    } finally {
-      clearTimeout(timer)
+
+    // 429 Too Many Requests: Telegram сам говорит, сколько ждать. Без повтора
+    // сообщение просто теряется в bot.catch — на анонсе, когда сотня человек
+    // регистрируется одновременно, это молча пропавшие ответы людям.
+    // Ждём только короткие паузы: длинные заморозили бы последовательную
+    // очередь апдейтов сильнее, чем стоит одно сообщение.
+    let res = await callOnce()
+    for (let attempt = 0; attempt < RATE_LIMIT_RETRIES; attempt++) {
+      const r = res as any
+      if (r?.ok !== false || r?.error_code !== 429) break
+      const retryAfter = Number(r?.parameters?.retry_after ?? 1)
+      if (!Number.isFinite(retryAfter) || retryAfter > RATE_LIMIT_MAX_WAIT_S) {
+        console.warn(`[api] 429 на ${method}, ждать ${retryAfter}с — слишком долго, не повторяю`)
+        break
+      }
+      console.warn(`[api] 429 на ${method}, повтор через ${retryAfter}с`)
+      await new Promise(resolve => setTimeout(resolve, retryAfter * 1000))
+      bumpWatchdog()
+      res = await callOnce()
     }
+    return res
   }
   const p = { ...(payload as any), timeout: GETUPDATES_TIMEOUT }
 
@@ -202,6 +239,29 @@ const __dirname = path.dirname(__filename);
 
 // инициализируем список при запуске
 loadUserChatIds()
+// регистрации на шоурум. Повреждённый журнал НЕ роняет процесс (бот обслуживает
+// заказы и треки, рестарт-луп остановил бы магазин), но и не переписывается
+// молча: файл отодвигается в сторону, а в канал уходит критический алерт.
+{
+  const { corruptedBackup } = loadEventState()
+  if (corruptedBackup) {
+    sendAlert(
+      `Журнал регистраций на шоурум был повреждён и отложен в ${corruptedBackup}. ` +
+      'Бот стартовал с ПУСТЫМ списком гостей — новые регистрации пишутся в новый файл.',
+      {
+        tag: 'event',
+        level: 'critical',
+        hint: 'восстановите список из отложенного файла или из листа showroom_2026_09 — там уже лежат все выгруженные гости',
+        code: 'EVENT_STORE_CORRUPT',
+      }
+    ).catch(() => {})
+  }
+}
+loadEventDrafts()
+
+function eventModeOn(): boolean {
+  return getEventMode() === 'on'
+}
 
 // проверка что пользователь - менеджер
 function isManager(chatId: string | number | undefined, username?: string): boolean {
@@ -587,6 +647,11 @@ bot.command('cancel', async (ctx) => {
     testOrderDrafts.delete(chatId!)
     wasCancelled = true
   }
+  // незавершённая регистрация на шоурум — /cancel доступен всем, не только менеджерам
+  if (chatId && getEventDraft(chatId)) {
+    deleteEventDraft(chatId)
+    wasCancelled = true
+  }
   if (wasCancelled) {
     await ctx.reply('❌ Действие отменено.')
   }
@@ -605,6 +670,106 @@ bot.command('users', async (ctx) => {
   const usersCount = userChatIds.size
   await ctx.reply(`👥 Всего пользователей: <b>${usersCount}</b>`, { parse_mode: 'HTML' })
 });
+
+// ── Мониторинг регистраций на шоурум (только для менеджеров) ─────────────
+
+bot.command('event_stats', async (ctx) => {
+  if (!isManager(ctx.from?.id, ctx.from?.username)) {
+    await ctx.reply('❌ У вас нет доступа к этой команде.')
+    return
+  }
+  await ctx.reply(buildStatsText(), { parse_mode: 'HTML' })
+})
+
+// Список отдаём файлом, а не сообщением: 400 гостей не влезут в лимит 4096
+// символов, а резать список на части — терять данные глазами менеджера.
+bot.command('event_list', async (ctx) => {
+  if (!isManager(ctx.from?.id, ctx.from?.username)) {
+    await ctx.reply('❌ У вас нет доступа к этой команде.')
+    return
+  }
+  if (registrationCount() === 0) {
+    await ctx.reply('Пока никто не записался.')
+    return
+  }
+  await ctx.replyWithDocument(buildCsvFile(), {
+    caption: `🐆 Гости шоурума: ${registrationCount()} из ${getEventCapacity()}`,
+  })
+})
+
+bot.command('event_find', async (ctx) => {
+  if (!isManager(ctx.from?.id, ctx.from?.username)) {
+    await ctx.reply('❌ У вас нет доступа к этой команде.')
+    return
+  }
+  const query = (ctx.match || '').trim()
+  if (!query) {
+    await ctx.reply('Использование: /event_find <имя, @ник или chat_id>')
+    return
+  }
+  await ctx.reply(buildFindText(query), { parse_mode: 'HTML' })
+})
+
+// Возврат к обычному /start после мероприятия — без деплоя. Состояние
+// переживает рестарт: лежит в том же файле, что и регистрации.
+bot.command('event_mode', async (ctx) => {
+  if (!isManager(ctx.from?.id, ctx.from?.username)) {
+    await ctx.reply('❌ У вас нет доступа к этой команде.')
+    return
+  }
+  const arg = (ctx.match || '').trim().toLowerCase()
+  if (arg !== 'on' && arg !== 'off') {
+    await ctx.reply(
+      `Сейчас режим приглашения: <b>${eventModeOn() ? 'включён' : 'выключен'}</b>\n\n` +
+      'Использование: /event_mode on — новые пользователи видят приглашение\n' +
+      '/event_mode off — вернуть обычный /start для всех',
+      { parse_mode: 'HTML' }
+    )
+    return
+  }
+  try {
+    setEventMode(arg)
+  } catch (e: any) {
+    sendAlert(`Не удалось сохранить режим мероприятия: ${e?.message}`, {
+      tag: 'event', level: 'high', code: 'EVENT_MODE_SAVE_FAILED',
+    }).catch(() => {})
+    await ctx.reply(`❌ Не удалось сохранить: ${e?.message}`)
+    return
+  }
+  await ctx.reply(arg === 'on'
+    ? '✅ Приглашение включено: новые пользователи по /start видят регистрацию.'
+    : '✅ Приглашение выключено: у всех обычный /start, кнопки шоурума нет.')
+})
+
+bot.command('event_limit', async (ctx) => {
+  if (!isManager(ctx.from?.id, ctx.from?.username)) {
+    await ctx.reply('❌ У вас нет доступа к этой команде.')
+    return
+  }
+  const raw = (ctx.match || '').trim()
+  if (!raw) {
+    await ctx.reply(`Сейчас лимит: <b>${getEventCapacity()}</b>, записано ${registrationCount()}.\n\nИспользование: /event_limit 500`, { parse_mode: 'HTML' })
+    return
+  }
+  const next = Number(raw)
+  if (!Number.isInteger(next) || next < 1 || next > 100000) {
+    await ctx.reply('❌ Нужно целое число от 1 до 100000.')
+    return
+  }
+  if (next < registrationCount()) {
+    await ctx.reply(`⚠️ Уже записано ${registrationCount()} — лимит ниже этого числа никого не выгонит, просто закроет запись.`)
+  }
+  try {
+    setEventCapacity(next)
+  } catch (e: any) {
+    sendAlert(`Не удалось сохранить лимит мероприятия: ${e?.message}`, {
+      tag: 'event', level: 'high', code: 'EVENT_LIMIT_SAVE_FAILED',
+    }).catch(() => {})
+    await ctx.reply(`❌ Не удалось сохранить: ${e?.message}`)
+    return
+  }
+  await ctx.reply(`✅ Лимит: <b>${next}</b>. Записано ${registrationCount()}.`, { parse_mode: 'HTML' })
+})
 
 bot.command('test_order', async (ctx) => {
   const chatId = ctx.from?.id
@@ -676,6 +841,9 @@ bot.command('channel_post', async (ctx) => {
 async function handleStart(ctx: any) {
   // сохраняем chat_id пользователя для рассылки
   const chatId = ctx.from?.id
+  // «Новый» = бота ещё ни разу не видел. Считаем ДО addUserChatId, иначе
+  // новый пользователь становится старым в этой же строке.
+  const isNewUser = !!chatId && !userChatIds.has(chatId)
   if (chatId) {
     addUserChatId(chatId)
   }
@@ -736,49 +904,89 @@ async function handleStart(ctx: any) {
     return
   }
   
+  // ── Временный режим: приглашение на офлайн-шоурум ───────────────────────
+  // Приоритет у регистрации: новый пользователь видит приглашение вместо
+  // каталога. Выключается /event_mode off — без деплоя.
+  if (chatId && eventModeOn()) {
+    // бросил форму и вернулся по /start — продолжаем с прерванного шага
+    if (await resumeDraft(ctx)) return
+    if (isNewUser) {
+      await showOffer(ctx)
+      return
+    }
+  }
+
   // обычное приветствие
   const kb = new InlineKeyboard().webApp('KOSHEK JEWERLY🐾', WEBAPP_URL);
+  if (eventModeOn()) kb.row().text(SHOWROOM_BUTTON_TEXT, EVENT_CB.offer)
+  await sendGreetingPhoto(ctx, kb)
+
+  // Отложенные уведомления (заказ или трек, не дошедшие при "chat not found").
+  // БЕЗ await: grammY обрабатывает апдейты последовательно, а Render просыпается
+  // до 30с. На анонсе сотня одновременных /start превратила бы 12-секундный
+  // таймаут в часы полностью замороженного бота. Ответ пользователю уже ушёл.
+  // Новым пользователям запрос не нужен вообще — заказов у них ещё не было.
+  if (chatId && !isNewUser && BACKEND_URL && token) {
+    void claimPendingNotifications(ctx, chatId)
+  }
+}
+
+// Приветственное фото. file_id кэшируем: иначе картинка заново заливается
+// с VDS в Telegram на КАЖДЫЙ /start — на анонсе это сотни лишних загрузок
+// в последовательной очереди апдейтов.
+let greetingFileId: string | null = null
+
+async function sendGreetingPhoto(ctx: any, kb: InlineKeyboard): Promise<void> {
+  const caption = 'Нажми на кнопку, чтоб перейти в каталог 👇🏽'
+  if (greetingFileId) {
+    try {
+      await ctx.replyWithPhoto(greetingFileId, { caption, reply_markup: kb })
+      return
+    } catch (e: any) {
+      console.warn('[start] приветствие по file_id не отправилось, перезагружаю:', e?.message)
+      greetingFileId = null
+    }
+  }
+
   const photoPath = path.join(__dirname, '..', 'assets', 'bot-greeting.jpg');
   try {
-    await ctx.replyWithPhoto(new InputFile(photoPath), {
-      caption: 'Нажми на кнопку, чтоб перейти в каталог 👇🏽',
-      reply_markup: kb,
-    });
+    const msg = await ctx.replyWithPhoto(new InputFile(photoPath), { caption, reply_markup: kb });
+    const photos = msg?.photo
+    if (Array.isArray(photos) && photos.length > 0) greetingFileId = photos[photos.length - 1].file_id
   } catch (e: any) {
-    // загрузка фото через прокси может разово упасть — не оставляем юзера ни с чем
+    // разовый сбой загрузки фото — не оставляем юзера ни с чем
     console.warn('[start] не удалось отправить фото-приветствие, отдаю текст:', e?.message)
     await ctx.reply('Добро пожаловать в KOSHEK JEWERLY 🐾\nНажми на кнопку, чтоб перейти в каталог 👇🏽', {
       reply_markup: kb,
     }).catch(() => {})
   }
+}
 
-  // отправляем отложенные уведомления (заказ или трек, которые не дошли при "chat not found")
-  if (chatId && BACKEND_URL && token) {
-    const abortCtrl = new AbortController()
-    const abortTimer = setTimeout(() => abortCtrl.abort(), 12_000)
-    try {
-      const resp = await fetch(`${BACKEND_URL}/api/claim-pending-notifications`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ chatId }),
-        signal: abortCtrl.signal,
-      })
-      const data = await resp.json() as { notifications?: Array<{ message: string; type: string }> }
-      clearTimeout(abortTimer)
-      for (const notif of data.notifications ?? []) {
-        await ctx.reply(notif.message, { parse_mode: 'HTML' }).catch(() => {})
-      }
-    } catch (e: any) {
-      clearTimeout(abortTimer)
-      if (e?.name === 'AbortError') {
-        sendAlert(`/start claim-pending: бэкенд не ответил за 12с (chatId=${chatId})`, {
-          tag: 'claim_pending',
-          level: 'low',
-        }).catch(() => {})
-      }
+async function claimPendingNotifications(ctx: any, chatId: number): Promise<void> {
+  const abortCtrl = new AbortController()
+  const abortTimer = setTimeout(() => abortCtrl.abort(), 12_000)
+  try {
+    const resp = await fetch(`${BACKEND_URL}/api/claim-pending-notifications`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({ chatId }),
+      signal: abortCtrl.signal,
+    })
+    const data = await resp.json() as { notifications?: Array<{ message: string; type: string }> }
+    clearTimeout(abortTimer)
+    for (const notif of data.notifications ?? []) {
+      await ctx.reply(notif.message, { parse_mode: 'HTML' }).catch(() => {})
+    }
+  } catch (e: any) {
+    clearTimeout(abortTimer)
+    if (e?.name === 'AbortError') {
+      sendAlert(`/start claim-pending: бэкенд не ответил за 12с (chatId=${chatId})`, {
+        tag: 'claim_pending',
+        level: 'low',
+      }).catch(() => {})
     }
   }
 }
@@ -859,7 +1067,13 @@ function getHelpMessage(): string {
     '/channel_post — отправить пост в канал\n' +
     '/users — показать количество пользователей\n' +
     '/test_order — тестовый заказ без оплаты\n' +
-    '/cancel — отменить текущую операцию'
+    '/cancel — отменить текущую операцию\n\n' +
+    '🐆 Шоурум (временное мероприятие):\n' +
+    '/event_stats — сколько записалось, по датам, статус выгрузки\n' +
+    '/event_list — весь список гостей файлом (CSV)\n' +
+    '/event_find <имя|@ник> — найти гостя\n' +
+    '/event_limit <N> — изменить лимит мест\n' +
+    '/event_mode on|off — включить/выключить приглашение в /start'
   )
 }
 
@@ -951,6 +1165,43 @@ bot.command('test_message_order_send', async (ctx) => {
   // Сообщение 3: Отправлен (отбивка)
   await ctx.reply('— Сообщение 3: Отправлен (отбивка) —')
   await ctx.reply(sub(shippedTemplate), { parse_mode: 'HTML' })
+})
+
+// ── Кнопки регистрации на шоурум ─────────────────────────────────────────
+// Каждый хэндлер отвечает на callback сразу: без answerCallbackQuery у человека
+// крутится часик до таймаута Telegram.
+
+bot.callbackQuery(EVENT_CB.offer, async (ctx) => {
+  await ctx.answerCallbackQuery()
+  if (!eventModeOn()) {
+    await ctx.reply('Регистрация на шоурум завершена 🐆')
+    return
+  }
+  await showOffer(ctx)
+})
+
+bot.callbackQuery(EVENT_CB.register, async (ctx) => {
+  if (!eventModeOn()) {
+    await ctx.answerCallbackQuery('Регистрация завершена')
+    return
+  }
+  await handleRegisterClick(ctx)
+})
+
+bot.callbackQuery(EVENT_CB.editDate, async (ctx) => {
+  if (!eventModeOn()) {
+    await ctx.answerCallbackQuery('Регистрация завершена')
+    return
+  }
+  await handleEditDateClick(ctx)
+})
+
+bot.callbackQuery(/^evt:day:(.+)$/, async (ctx) => {
+  if (!eventModeOn()) {
+    await ctx.answerCallbackQuery('Регистрация завершена')
+    return
+  }
+  await handleDayClick(ctx, ctx.match![1])
 })
 
 // обработка callback_query (кнопки)
@@ -1354,6 +1605,13 @@ bot.on('message', async (ctx) => {
     return
   }
   
+  // ── Шаг регистрации на шоурум ───────────────────────────────────────────
+  // Идёт ПОСЛЕ менеджерских состояний: у менеджера может быть свой черновик
+  // регистрации, и он не должен перехватывать текст рассылки или поста.
+  if (ctx.chat?.type === 'private' && eventModeOn()) {
+    if (await handleDraftMessage(ctx, ctx.message.text)) return
+  }
+
   // обычное сообщение — только в личке, в группах/каналах молчим
   if (ctx.chat?.type === 'private') {
     await ctx.reply('используй /start чтобы открыть мини‑приложение')
@@ -1500,6 +1758,10 @@ async function syncPendingUsers() {
 setInterval(syncPendingUsers, 10 * 60 * 1000)
 syncPendingUsers()
 
+// ── Выгрузка регистраций на шоурум в Google Sheets ────────────────────────
+// В самой регистрации сети нет: строки уезжают отсюда пачкой, раз в 30с.
+startEventFlusher()
+
 // настраиваем команды бота (появятся в меню)
 bot.api.setMyCommands([
   { command: 'start', description: 'Открыть каталог' },
@@ -1583,6 +1845,19 @@ process.on('uncaughtException', (err) => {
   console.error('[uncaughtException]', err)
   sendAlert(`uncaughtException: ${err?.message ?? String(err)}`, { tag: 'process', level: 'critical', hint: 'непойманное исключение — процесс мог упасть или нестабилен', code: 'UNCAUGHT_EXCEPTION' }).catch(() => {})
 })
+
+// PM2 при рестарте (в т.ч. на деплое) шлёт SIGINT. Записи гостей сохраняются
+// синхронно и в опасности не находятся, а вот черновики формы и свежие chat_id
+// пишутся с debounce 2с — без этого сброса их потеряли бы те, кто как раз
+// заполнял регистрацию в момент перезапуска.
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.once(signal, () => {
+    console.log(`[bot] получен ${signal} — досохраняю состояние и выхожу`)
+    try { flushDrafts() } catch { /* уже залогировано внутри */ }
+    try { saveUserChatIds() } catch { /* уже залогировано внутри */ }
+    process.exit(0)
+  })
+}
 
 process.on('unhandledRejection', (reason) => {
   const msg = reason instanceof Error ? reason.message : String(reason)

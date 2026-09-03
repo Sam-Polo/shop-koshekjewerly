@@ -22,6 +22,12 @@ if [ -f "$BOT_DIR/failed-tg-notifications.json" ]; then
   backed_up=$((backed_up + 1))
 fi
 
+# список гостей шоурума — единственная копия на VDS, в Sheets уезжает с задержкой
+if [ -f "$BOT_DIR/event-registrations.json" ]; then
+  cp "$BOT_DIR/event-registrations.json" "$BACKUP_DIR/event-registrations-$DATE.json"
+  backed_up=$((backed_up + 1))
+fi
+
 # удаляем старые бэкапы — главная защита от переполнения диска
 find "$BACKUP_DIR" -maxdepth 1 -name "*.json" -mtime +$RETAIN_DAYS -delete
 
