@@ -3,7 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { sendAlert } from './alerts.js'
 import { sendOfferPost } from './event.js'
-import { getRegistration } from './event-store.js'
+import { getRegistration, registrationCount, getCapacity } from './event-store.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -102,6 +102,23 @@ const PACE_MS = Number(process.env.EVENT_BROADCAST_PACE_MS ?? 60)
 const SAVE_EVERY = 100
 /** Как часто докладывать менеджеру, что рассылка жива */
 const REPORT_EVERY = Number(process.env.EVENT_BROADCAST_REPORT_EVERY ?? 1000)
+/**
+ * Сколько на самом деле стоит один получатель: пауза ПЛЮС сетевой запрос в
+ * Telegram (~150мс из Амстердама). Считать по одной паузе — занизить время
+ * втрое: на 16 тысячах это разница между «16 минут» и «часом».
+ */
+const ASSUMED_RTT_MS = 150
+
+export function estimateMinutes(count: number): number {
+  return Math.max(1, Math.round((count * (PACE_MS + ASSUMED_RTT_MS)) / 60_000))
+}
+
+function formatEta(p: BroadcastProgress): string {
+  if (p.processed === 0) return ''
+  const perItem = (Date.now() - p.startedAt) / p.processed
+  const leftMin = Math.round(((p.total - p.processed) * perItem) / 60_000)
+  return leftMin > 0 ? `, осталось ~${leftMin} мин` : ''
+}
 
 export type BroadcastProgress = BroadcastStats & {
   total: number
@@ -224,7 +241,11 @@ async function runLoop(api: any, targets: number[], reportTo: number): Promise<v
     }
     if (p.processed % REPORT_EVERY === 0) {
       const pct = Math.round((p.processed / p.total) * 100)
-      api.sendMessage(reportTo, `📤 Рассылка: ${p.processed} из ${p.total} (${pct}%)\nДоставлено ${p.sent}, заблокировали ${p.blocked}, ошибок ${p.failed}`).catch(() => {})
+      api.sendMessage(reportTo,
+        `📤 Рассылка: ${p.processed} из ${p.total} (${pct}%${formatEta(p)})\n` +
+        `Доставлено ${p.sent}, заблокировали ${p.blocked}, ошибок ${p.failed}\n` +
+        `Записалось за это время: ${registrationCount()} из ${getCapacity()}`
+      ).catch(() => {})
     }
 
     await new Promise(resolve => setTimeout(resolve, PACE_MS))

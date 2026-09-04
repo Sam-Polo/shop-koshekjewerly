@@ -37,7 +37,7 @@ import {
 } from './event.js'
 import {
   loadBroadcastState, selectTargets, startBroadcastDetached, requestBroadcastStop,
-  isBroadcastRunning, currentProgress, notifiedCount,
+  isBroadcastRunning, currentProgress, notifiedCount, estimateMinutes,
 } from './event-broadcast.js'
 
 // предпочитаем ipv4: помогает избежать зависаний на ipv6 у некоторых хостингов
@@ -774,7 +774,21 @@ bot.command('event_broadcast', async (ctx) => {
     return
   }
 
-  const { targets, registered, alreadyNotified } = selectTargets(userChatIds)
+  // Волна: /event_broadcast 2000 отправит только первым 2000. Мест 400, а в базе
+  // тысячи — сплошной залп гарантированно упрётся в «мест нет» у большинства.
+  // Волнами видно конверсию и можно остановиться.
+  const waveArg = (ctx.match || '').trim()
+  let wave = 0
+  if (waveArg) {
+    wave = Number(waveArg)
+    if (!Number.isInteger(wave) || wave < 1) {
+      await ctx.reply('❌ Размер волны — целое число больше нуля.\nНапример: /event_broadcast 2000\nБез числа — рассылка всем.')
+      return
+    }
+  }
+
+  const { targets: allTargets, registered, alreadyNotified } = selectTargets(userChatIds)
+  const targets = wave > 0 ? allTargets.slice(0, wave) : allTargets
 
   if (targets.length === 0) {
     await ctx.reply(
@@ -807,14 +821,19 @@ bot.command('event_broadcast', async (ctx) => {
     return
   }
 
-  const minutes = Math.max(1, Math.round((targets.length * 60) / 60_000))
+  const free = getEventCapacity() - registrationCount()
   await ctx.reply(
     '📤 <b>Рассылка приглашения</b>\n\n' +
-    `Получателей: <b>${targets.length}</b>\n` +
+    `Получателей сейчас: <b>${targets.length}</b>` +
+    (wave > 0 ? ` (волна из ${allTargets.length} доступных)\n` : '\n') +
     `Пропускаем уже записавшихся: ${registered}\n` +
     `Пропускаем уже получивших: ${alreadyNotified}\n` +
     `Всего в базе: ${userChatIds.size}\n\n` +
-    `Займёт примерно ${minutes} мин. Бот продолжит отвечать на регистрации всё это время.`,
+    `Свободных мест: <b>${free}</b> из ${getEventCapacity()}\n` +
+    (free < targets.length / 10
+      ? '⚠️ Мест заметно меньше, чем получателей — большинство упрётся в «регистрация закрыта». Стоит поднять лимит (/event_limit) или слать волной поменьше.\n'
+      : '') +
+    `\nЗаймёт примерно ${estimateMinutes(targets.length)} мин. Бот продолжит отвечать на регистрации всё это время.`,
     {
       parse_mode: 'HTML',
       reply_markup: new InlineKeyboard()
@@ -1204,7 +1223,7 @@ function getHelpMessage(): string {
     '/event_stats — сколько записалось, по датам, статус выгрузки\n' +
     '/event_list — весь список гостей файлом (CSV)\n' +
     '/event_find <имя|@ник> — найти гостя\n' +
-    '/event_broadcast — разослать приглашение (всем, кроме записавшихся)\n' +
+    '/event_broadcast [N] — разослать приглашение (кроме записавшихся; N — размер волны)\n' +
     '/event_broadcast_stop — остановить рассылку\n' +
     '/event_limit <N> — изменить лимит мест\n' +
     '/event_mode on|off — включить/выключить приглашение в /start'
