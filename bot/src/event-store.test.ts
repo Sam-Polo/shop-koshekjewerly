@@ -267,7 +267,9 @@ describe('CSV', () => {
   it('ник отдаётся с собакой, chat_id как есть', () => {
     register(111, { name: 'Аня Котова', username: 'anya', visitDate: '2026-09-24' })
     const row = buildCsv().split('\r\n')[1]
-    expect(row).toBe('Аня Котова;@anya;111;2026-09-24;' + getRegistration(111)!.registeredAt + ';нет')
+    // в файле для менеджера дата человеческая, внутри системы остаётся ISO
+    expect(row).toBe('Аня Котова;@anya;111;24.09.2026;' + getRegistration(111)!.registeredAt + ';нет')
+    expect(getRegistration(111)!.visitDate).toBe('2026-09-24')
   })
 
   it('пустой ник не превращается в одинокую собаку', () => {

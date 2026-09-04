@@ -350,6 +350,15 @@ export function countRegisteredSince(sinceMs: number): number {
   return n
 }
 
+/**
+ * Дата визита для человека: ДД.ММ.ГГГГ. Внутри системы она везде остаётся ISO
+ * (`YYYY-MM-DD`) — по ней сортируют и будут выбирать гостей для напоминания.
+ */
+export function formatVisitDate(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : iso
+}
+
 function csvCell(value: string): string {
   // Разделитель — точка с запятой (русский Excel), поэтому экранируем и её.
   // Ведущие =+-@ обезвреживаем апострофом: иначе имя вроде "=cmd" Excel
@@ -376,7 +385,7 @@ export function buildCsv(): string {
       csvCell(r.name),
       csvUsername(r.username),
       csvCell(String(r.chatId)),
-      csvCell(r.visitDate),
+      csvCell(formatVisitDate(r.visitDate)),
       csvCell(r.registeredAt),
       csvCell(r.synced ? 'да' : 'нет'),
     ].join(';'))

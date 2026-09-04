@@ -31,6 +31,27 @@ const HEADERS = ['name', 'username', 'chat_id', 'visit_date', 'registered_at', '
 const COL_CHAT_ID = 2
 const COL_VISIT_DATE = 3
 
+/**
+ * В листе дата визита показывается менеджеру как ДД.ММ.ГГГГ; внутри системы
+ * она везде остаётся ISO (`YYYY-MM-DD`) — по ней сортируют и будут выбирать
+ * гостей для напоминания накануне.
+ */
+function toSheetDate(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : iso
+}
+
+/**
+ * Обратное преобразование для сверки с тем, что уже лежит в листе.
+ * Понимает оба формата: строки, записанные до перехода на ДД.ММ.ГГГГ, не должны
+ * выглядеть «изменившимися» и переписываться на каждой выгрузке.
+ */
+function fromSheetDate(value: string): string {
+  const ru = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(value)
+  if (ru) return `${ru[3]}-${ru[2]}-${ru[1]}`
+  return value
+}
+
 function getAuth() {
   const filePath = process.env.GOOGLE_SA_FILE
   const raw = process.env.GOOGLE_SA_JSON
@@ -82,7 +103,7 @@ function toRow(r: EventRegistrationRow): string[] {
     r.name,
     r.username ? `@${r.username}` : '',
     String(r.chatId),
-    r.visitDate,
+    toSheetDate(r.visitDate),
     r.registeredAt,
     '', // reminded_at
   ]
@@ -117,7 +138,7 @@ export async function upsertEventRegistrations(rows: EventRegistrationRow[]): Pr
     const chatId = String(row[COL_CHAT_ID] ?? '').trim()
     if (!chatId) return
     rowByChatId.set(chatId, i + 2)
-    dateByChatId.set(chatId, String(row[COL_VISIT_DATE] ?? '').trim())
+    dateByChatId.set(chatId, fromSheetDate(String(row[COL_VISIT_DATE] ?? '').trim()))
   })
 
   const toAppend: string[][] = []
@@ -143,7 +164,7 @@ export async function upsertEventRegistrations(rows: EventRegistrationRow[]): Pr
       result.skipped++
       continue
     }
-    toUpdate.push({ range: `${SHEET_NAME}!D${existingRow}`, values: [[r.visitDate]] })
+    toUpdate.push({ range: `${SHEET_NAME}!D${existingRow}`, values: [[toSheetDate(r.visitDate)]] })
     dateByChatId.set(key, r.visitDate)
     result.updated++
   }
