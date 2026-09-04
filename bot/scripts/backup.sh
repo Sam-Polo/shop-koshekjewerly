@@ -28,6 +28,12 @@ if [ -f "$BOT_DIR/event-registrations.json" ]; then
   backed_up=$((backed_up + 1))
 fi
 
+# кому уже уходило приглашение — без этого файла повтор рассылки задвоит пост
+if [ -f "$BOT_DIR/event-broadcast.json" ]; then
+  cp "$BOT_DIR/event-broadcast.json" "$BACKUP_DIR/event-broadcast-$DATE.json"
+  backed_up=$((backed_up + 1))
+fi
+
 # удаляем старые бэкапы — главная защита от переполнения диска
 find "$BACKUP_DIR" -maxdepth 1 -name "*.json" -mtime +$RETAIN_DAYS -delete
 

@@ -33,8 +33,12 @@ import {
 import {
   CB as EVENT_CB, SHOWROOM_BUTTON_TEXT, showOffer, resumeDraft,
   handleRegisterClick, handleEditDateClick, handleDayClick, handleDraftMessage,
-  startEventFlusher, buildStatsText, buildCsvFile, buildFindText,
+  startEventFlusher, buildStatsText, buildCsvFile, buildFindText, sendOfferPost,
 } from './event.js'
+import {
+  loadBroadcastState, selectTargets, startBroadcastDetached, requestBroadcastStop,
+  isBroadcastRunning, currentProgress, notifiedCount,
+} from './event-broadcast.js'
 
 // предпочитаем ipv4: помогает избежать зависаний на ipv6 у некоторых хостингов
 setDefaultResultOrder('ipv4first');
@@ -258,6 +262,7 @@ loadUserChatIds()
   }
 }
 loadEventDrafts()
+loadBroadcastState()
 
 function eventModeOn(): boolean {
   return getEventMode() === 'on'
@@ -678,7 +683,14 @@ bot.command('event_stats', async (ctx) => {
     await ctx.reply('❌ У вас нет доступа к этой команде.')
     return
   }
-  await ctx.reply(buildStatsText(), { parse_mode: 'HTML' })
+  // Секцию про рассылку клеим здесь, а не внутри buildStatsText: иначе event.ts
+  // и event-broadcast.ts начали бы импортировать друг друга по кругу.
+  const running = currentProgress()
+  const broadcastLine = running
+    ? `📤 Рассылка идёт: ${running.processed} из ${running.total} (доставлено ${running.sent}, заблокировали ${running.blocked}, ошибок ${running.failed})`
+    : `📤 Приглашение получили: ${notifiedCount()}`
+
+  await ctx.reply(`${buildStatsText()}\n${broadcastLine}`, { parse_mode: 'HTML' })
 })
 
 // Список отдаём файлом, а не сообщением: 400 гостей не влезут в лимит 4096
@@ -739,6 +751,121 @@ bot.command('event_mode', async (ctx) => {
   await ctx.reply(arg === 'on'
     ? '✅ Приглашение включено: новые пользователи по /start видят регистрацию.'
     : '✅ Приглашение выключено: у всех обычный /start, кнопки шоурума нет.')
+})
+
+// ── Рассылка приглашения на шоурум ───────────────────────────────────────
+// Пост тот же, что видят новые пользователи по /start, с той же callback-кнопкой
+// «Зарегистрироваться». Обычный /broadcast так не умеет — см. event-broadcast.ts.
+
+// chatId менеджера → список получателей, подтверждённый превью
+const eventBroadcastDrafts = new Map<number, number[]>()
+
+bot.command('event_broadcast', async (ctx) => {
+  const chatId = ctx.from?.id
+  if (!isManager(chatId, ctx.from?.username)) {
+    await ctx.reply('❌ У вас нет доступа к этой команде.')
+    return
+  }
+  if (!chatId) return
+
+  if (isBroadcastRunning()) {
+    const p = currentProgress()!
+    await ctx.reply(`⏳ Рассылка уже идёт: ${p.processed} из ${p.total}.\nОстановить — /event_broadcast_stop`)
+    return
+  }
+
+  const { targets, registered, alreadyNotified } = selectTargets(userChatIds)
+
+  if (targets.length === 0) {
+    await ctx.reply(
+      'Отправлять некому 🐆\n\n' +
+      `Всего пользователей: ${userChatIds.size}\n` +
+      `Уже записаны: ${registered}\n` +
+      `Уже получали приглашение: ${alreadyNotified}`
+    )
+    return
+  }
+
+  eventBroadcastDrafts.set(chatId, targets)
+
+  // Показываем ровно то, что уйдёт людям — через ту же функцию, что и рассылка.
+  // Через showOffer нельзя: менеджеру, который сам записан (а он наверняка
+  // тестировал форму), она покажет «ты уже записан» вместо поста.
+  // Побочно превью прогревает кэш file_id баннера: картинка грузится с VDS
+  // один раз, а не на каждого получателя.
+  await ctx.reply('👀 Так будет выглядеть пост:')
+  try {
+    await sendOfferPost(bot.api, chatId)
+  } catch (e: any) {
+    await ctx.reply(`❌ Не удалось отправить превью: ${e?.message}\nРассылку не начинаю — сначала разберитесь с постом.`)
+    eventBroadcastDrafts.delete(chatId)
+    sendAlert(`Превью рассылки приглашений не отправилось: ${e?.message}`, {
+      tag: 'event-broadcast', level: 'high',
+      hint: 'проверьте баннер assets/showroom-banner.png на VDS — рассылка бы упала на первом же получателе',
+      code: 'EVENT_BROADCAST_PREVIEW_FAILED',
+    }).catch(() => {})
+    return
+  }
+
+  const minutes = Math.max(1, Math.round((targets.length * 60) / 60_000))
+  await ctx.reply(
+    '📤 <b>Рассылка приглашения</b>\n\n' +
+    `Получателей: <b>${targets.length}</b>\n` +
+    `Пропускаем уже записавшихся: ${registered}\n` +
+    `Пропускаем уже получивших: ${alreadyNotified}\n` +
+    `Всего в базе: ${userChatIds.size}\n\n` +
+    `Займёт примерно ${minutes} мин. Бот продолжит отвечать на регистрации всё это время.`,
+    {
+      parse_mode: 'HTML',
+      reply_markup: new InlineKeyboard()
+        .text('🚀 Начать рассылку', 'evtbc:go')
+        .text('⛔ Отмена', 'evtbc:no'),
+    }
+  )
+})
+
+bot.callbackQuery(['evtbc:go', 'evtbc:no'], async (ctx) => {
+  const chatId = ctx.from?.id
+  if (!isManager(chatId, ctx.from?.username)) {
+    await ctx.answerCallbackQuery('⛔ У вас нет доступа')
+    return
+  }
+  if (!chatId) return
+
+  const targets = eventBroadcastDrafts.get(chatId)
+  eventBroadcastDrafts.delete(chatId)
+
+  if (ctx.callbackQuery.data === 'evtbc:no') {
+    await ctx.answerCallbackQuery('Отменено')
+    await ctx.reply('❌ Рассылка отменена.')
+    return
+  }
+
+  if (!targets) {
+    await ctx.answerCallbackQuery('Список устарел')
+    await ctx.reply('❌ Список получателей не найден — запусти /event_broadcast заново.')
+    return
+  }
+  if (isBroadcastRunning()) {
+    await ctx.answerCallbackQuery('Уже идёт')
+    return
+  }
+
+  await ctx.answerCallbackQuery('Поехали')
+  await ctx.reply(`🚀 Начинаю рассылку по ${targets.length} получателям.\nОстановить — /event_broadcast_stop`)
+  startBroadcastDetached(bot.api, targets, chatId)
+})
+
+bot.command('event_broadcast_stop', async (ctx) => {
+  if (!isManager(ctx.from?.id, ctx.from?.username)) {
+    await ctx.reply('❌ У вас нет доступа к этой команде.')
+    return
+  }
+  if (requestBroadcastStop()) {
+    await ctx.reply('⏹ Останавливаю рассылку — доотправлю текущего получателя и подведу итог.')
+  } else {
+    await ctx.reply('Сейчас рассылка не идёт.')
+  }
 })
 
 bot.command('event_limit', async (ctx) => {
@@ -1077,6 +1204,8 @@ function getHelpMessage(): string {
     '/event_stats — сколько записалось, по датам, статус выгрузки\n' +
     '/event_list — весь список гостей файлом (CSV)\n' +
     '/event_find <имя|@ник> — найти гостя\n' +
+    '/event_broadcast — разослать приглашение (всем, кроме записавшихся)\n' +
+    '/event_broadcast_stop — остановить рассылку\n' +
     '/event_limit <N> — изменить лимит мест\n' +
     '/event_mode on|off — включить/выключить приглашение в /start'
   )

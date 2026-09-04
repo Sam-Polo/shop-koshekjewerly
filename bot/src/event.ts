@@ -152,8 +152,35 @@ function escapeHtml(text: string): string {
 let bannerFileId: string | null = null
 let bannerMissingAlerted = false
 
+function cacheBannerFileId(msg: any): void {
+  const photos = msg?.photo
+  if (Array.isArray(photos) && photos.length > 0) {
+    bannerFileId = photos[photos.length - 1].file_id
+    console.log('[event] file_id баннера закэширован')
+  }
+}
+
+function offerPostOptions() {
+  return { caption: OFFER_TEXT, parse_mode: 'HTML' as const, reply_markup: offerKeyboard() }
+}
+
+/**
+ * Тот же пост-приглашение, но в произвольный чат — для рассылки.
+ * Ошибку НЕ глотает: рассылка сама считает недоставленных и разбирает причину.
+ * Кэш file_id общий с `/start`, поэтому картинка грузится с VDS один раз
+ * на весь прогон, а не 16 тысяч раз.
+ */
+export async function sendOfferPost(api: any, chatId: number): Promise<void> {
+  if (bannerFileId) {
+    await api.sendPhoto(chatId, bannerFileId, offerPostOptions())
+    return
+  }
+  const msg = await api.sendPhoto(chatId, new InputFile(BANNER_PATH), offerPostOptions())
+  cacheBannerFileId(msg)
+}
+
 async function sendOfferMessage(ctx: any): Promise<void> {
-  const opts = { caption: OFFER_TEXT, parse_mode: 'HTML' as const, reply_markup: offerKeyboard() }
+  const opts = offerPostOptions()
 
   if (bannerFileId) {
     try {
@@ -167,12 +194,7 @@ async function sendOfferMessage(ctx: any): Promise<void> {
   }
 
   try {
-    const msg = await ctx.replyWithPhoto(new InputFile(BANNER_PATH), opts)
-    const photos = msg?.photo
-    if (Array.isArray(photos) && photos.length > 0) {
-      bannerFileId = photos[photos.length - 1].file_id
-      console.log('[event] file_id баннера закэширован')
-    }
+    cacheBannerFileId(await ctx.replyWithPhoto(new InputFile(BANNER_PATH), opts))
   } catch (e: any) {
     // Картинки нет или Telegram её не принял — человек всё равно должен
     // увидеть приглашение и кнопку, но молчать об этом нельзя.
