@@ -7,6 +7,21 @@ const CDEK_BASE = (process.env.CDEK_BASE_URL ?? 'https://api.cdek.ru/v2').replac
 const FROM_CITY_CODE = Number(process.env.CDEK_FROM_CITY_CODE ?? 44)
 const TARIFF_CODE = 136
 
+// Страны, куда мы реально возим СДЭКом. Тариф 136 внутрироссийский, и на части
+// направлений отправление не создаётся ВООБЩЕ: СДЭК принимает заявку (HTTP 200,
+// uuid выдан), а через секунду переводит её в INVALID — покупатель остаётся без
+// посылки уже после оплаты, и узнаём мы об этом постфактум.
+//
+// Список составлен по 433 боевым заказам, а не по догадке:
+//   RU (424), BY (5), KZ (2), KG (1) — все доехали, трек присвоен;
+//   UZ — err_result_service_empty «по данному направлению тариф недоступен»;
+//   AM — international.restriction, нужны таможенные документы (СТ-1 и т.п.).
+//
+// Список разрешающий, а не запрещающий: незнакомую страну лучше не предлагать
+// вовсе, чем сорвать заказ после оплаты. Международку возит EMS Почты России —
+// в мини-аппе это отдельный способ доставки, так что покупатель не остаётся ни с чем.
+const CDEK_COUNTRIES = new Set(['RU', 'BY', 'KZ', 'KG'])
+
 // ── Token cache ───────────────────────────────────────────────────────────────
 
 let _cachedToken: string | null = null
@@ -91,12 +106,17 @@ export async function searchCities(query: string): Promise<CdekCity[]> {
   const params = new URLSearchParams({ name: query, lang: 'rus', size: '10' })
   const data = await cdekFetch('GET', `/location/suggest/cities?${params}`) as any[]
   if (!Array.isArray(data)) return []
-  return data.map((c: any) => {
-    const parts = ((c.full_name as string) ?? '').split(', ')
-    const city = parts[0] ?? ''
-    const region = parts.length >= 3 ? parts[1] : undefined
-    return { code: c.code as number, city, region, country_code: c.country_code as string | undefined }
-  })
+  return data
+    .map((c: any) => {
+      const parts = ((c.full_name as string) ?? '').split(', ')
+      const city = parts[0] ?? ''
+      const region = parts.length >= 3 ? parts[1] : undefined
+      return { code: c.code as number, city, region, country_code: c.country_code as string | undefined }
+    })
+    // Страну без кода не отбрасываем: поле может не прийти, а молча спрятать
+    // российский город — хуже, чем показать лишний. Отсекаем только те страны,
+    // про которые точно знаем, что туда не доедет (см. CDEK_COUNTRIES).
+    .filter(c => !c.country_code || CDEK_COUNTRIES.has(c.country_code))
 }
 
 // ── Pickup points (ПВЗ) ───────────────────────────────────────────────────────

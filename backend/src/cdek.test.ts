@@ -102,6 +102,31 @@ describe('searchCities', () => {
     const cities = await cdek.searchCities('X')
     expect(cities).toEqual([])
   })
+
+  // Тариф 136 в Ереван и Ташкент не работает: заявка уходит в INVALID уже после
+  // оплаты. Не предлагаем такие города вовсе — международку возит EMS.
+  it('прячет страны, куда СДЭК не довезёт', async () => {
+    vi.stubGlobal('fetch', mockFetch([
+      { ok: true, body: TOKEN_RESP },
+      { ok: true, body: [
+        { code: 44, full_name: 'Москва, Россия', country_code: 'RU' },
+        { code: 1106, full_name: 'Ереван, Армения', country_code: 'AM' },
+        { code: 1128, full_name: 'Ташкент, Узбекистан', country_code: 'UZ' },
+        { code: 3, full_name: 'Минск, Беларусь', country_code: 'BY' },
+      ] },
+    ]))
+    const cities = await cdek.searchCities('а')
+    expect(cities.map(c => c.city)).toEqual(['Москва', 'Минск'])
+  })
+
+  it('город без кода страны не прячет — поле может не прийти', async () => {
+    vi.stubGlobal('fetch', mockFetch([
+      { ok: true, body: TOKEN_RESP },
+      { ok: true, body: [{ code: 44, full_name: 'Москва' }] },
+    ]))
+    const cities = await cdek.searchCities('Мос')
+    expect(cities.map(c => c.city)).toEqual(['Москва'])
+  })
 })
 
 describe('getPickupPoints', () => {
