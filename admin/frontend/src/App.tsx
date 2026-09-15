@@ -2062,10 +2062,23 @@ function ProductFormModal({
               <input
                 type="number"
                 min="0"
-                value={formData.stock || ''}
+                // именно ?? , а не || : ноль — валидное значение, и при `||` он рисовался
+                // пустым полем, неотличимым от «не ограничен»
+                value={formData.stock ?? ''}
                 onChange={(e) => handleChange('stock', e.target.value ? parseInt(e.target.value) : undefined)}
-                placeholder="Количество товара в наличии"
+                placeholder="Пусто = не ограничен"
               />
+              {/* пустая ячейка и ноль ведут себя по-разному, а на вид раньше были одинаковы */}
+              {formData.stock === undefined ? (
+                <small style={{ color: '#b26a00' }}>
+                  Поле пустое — остаток <b>не ограничен</b>: товар не уйдёт в «нет в наличии» сам.
+                  Чтобы скрыть товар из продажи, поставь 0.
+                </small>
+              ) : formData.stock === 0 ? (
+                <small style={{ color: '#666' }}>
+                  0 — в мини-аппе товар показывается как «Временно нет в наличии»
+                </small>
+              ) : null}
             </div>
           </div>
 
