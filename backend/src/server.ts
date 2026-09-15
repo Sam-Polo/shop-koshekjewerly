@@ -13,7 +13,7 @@ import { createOrder, getOrder, updateOrderStatus, listOrders, restoreOrder, typ
 import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId, getOrderHistoryByChatId, advanceOrderStatusInSheet, statusRank, listPendingOrdersFromSheet, updateCdekInfoInSheet, updatePochtaInfoInSheet, type OrderCustomerStatus } from './orders-sheet.js'
 import { sendAlert } from './alerts.js';
 import { searchCities, getPickupPoints, calculateDelivery, triggerCdekOrderAsync, getCdekUuidByTrack, downloadCdekBarcode } from './cdek.js';
-import { calculateTariff as calculatePochtaTariff, triggerPochtaOrderAsync, downloadF7p, getCountries as getPochtaCountries, createPochtaOrder, createBatch, getShpiFromBatch, checkRequiredPochtaEnv, pochtaFetch, _batchShipmentsPath } from './pochta.js';
+import { calculateTariff as calculatePochtaTariff, triggerPochtaOrderAsync, downloadF7p, downloadF103, checkinBatch, getCountries as getPochtaCountries, createPochtaOrder, createBatch, getShpiFromBatch, checkRequiredPochtaEnv, pochtaFetch, _batchShipmentsPath } from './pochta.js';
 import { uploadBufferToS3 } from './s3.js';
 import { triggerAmoCrmAsync, updateAmoCrmLeadTrack, updateAmoCrmLeadBarcode, createAmoCrmLead, syncCdekToLead } from './amocrm.js';
 import { buildPaymentForm, buildReceipt, verifyResultSignature, queryOrderState } from './robokassa.js';
@@ -1445,9 +1445,25 @@ export async function processPaidOrder(
     logger.info({ orderId, certPromocode }, 'электронный сертификат: отправление не создаётся')
   } else if (order.orderData.deliveryMethod === 'ems') {
     // fire-and-forget: создаём международное EMS-отправление и отправляем трек покупателю
-    triggerPochtaOrderAsync(order, async (shpi, batchName, pochtaOrderId) => {
+    triggerPochtaOrderAsync(order, async (shpi, batchName, pochtaOrderId, checkedIn) => {
       updatePochtaInfoInSheet(orderId, shpi).catch(() => {})
       const trackingUrl = `https://www.pochta.ru/tracking#${shpi}`
+
+      // ф.103 (партионный реестр) — его несут на почту, без него партию не примут.
+      // Доступен только после успешного checkin, поэтому при checkedIn=false даже
+      // не пробуем: причина уже отправлена алертом POCHTA_CHECKIN_FAILED.
+      let f103Url: string | null = null
+      if (checkedIn) {
+        try {
+          const pdf = await downloadF103(batchName)
+          f103Url = await uploadBufferToS3(`pochta-labels/f103-${batchName}.pdf`, pdf, 'application/pdf')
+        } catch (e: any) {
+          sendAlert(
+            `Pochta: checkin партии ${batchName} прошёл, но ф.103 не скачался (заказ ${orderId}): ${e?.message}`,
+            { tag: 'pochta', level: 'high', hint: 'распечатайте ф.103 в ЛК Почты вручную', code: 'POCHTA_F103_FAILED' }
+          ).catch(() => {})
+        }
+      }
 
       if (amoCrmLeadId) {
         updateAmoCrmLeadTrack(amoCrmLeadId, shpi, trackingUrl).catch((e: any) => {
@@ -1456,10 +1472,9 @@ export async function processPaidOrder(
             { tag: 'amocrm', level: 'low', code: 'AMOCRM_TRACK_UPDATE_FAILED' }
           ).catch(() => {})
         })
-        // ярлык берётся по id заказа Почты (не по ШПИ); файл в S3 кладём под этим id.
-        // ВНИМАНИЕ: пока онлайн-баланс аккаунта не пополнен, для мелкого пакета
-        // (POCHTA_MAIL_TYPE=SMALL_PACKET, текущий прод) формы отдают 403 и этот вызов
-        // штатно падает. См. docs/integrations/pochta-ems.md.
+        // Бандл CN22 + адресный ярлык по id заказа Почты (не по ШПИ) — то, что клеится
+        // на посылку. От checkin не зависит, работает сам по себе. Партионный реестр
+        // ф.103 — отдельный документ, он уходит менеджеру ссылкой ниже.
         // Уровень high: без ярлыка менеджеру нечего печатать и посылку не примут на почте
         // (именно на low этот сбой месяц оставался незамеченным, июль–август 2026).
         updateAmoCrmLeadBarcode(amoCrmLeadId, String(pochtaOrderId), downloadF7p, 'pochta-labels').catch((e: any) => {
@@ -1493,8 +1508,13 @@ export async function processPaidOrder(
         : (process.env.TG_ORDERS_CHANNEL_ID || process.env.TG_MANAGER_CHAT_ID)
       if (mgrChatId) {
         const sendMgr = order.platform === 'max' ? sendMaxMessage : sendTelegramMessage
+        // ф.103 обязателен при сдаче партии — если его нет, менеджер должен знать сразу,
+        // а не узнавать об этом от сотрудника почты на стойке.
+        const f103Line = f103Url
+          ? `\n\n📄 Ф.103 (распечатать и взять на почту):\n${f103Url}`
+          : `\n\n⚠️ Ф.103 не сформирован — партию на почте не примут, разбирайтесь до отправки`
         sendMgr(mgrChatId,
-          `📦 EMS Почта России, ШПИ по заказу <code>${escapeHtml(orderId)}</code>:\n<code>${shpi}</code>\n${trackingUrl}`
+          `📦 EMS Почта России, ШПИ по заказу <code>${escapeHtml(orderId)}</code>:\n<code>${shpi}</code>\n${trackingUrl}${f103Line}`
         ).catch(() => {})
       }
     }).catch((e: any) => {
@@ -3023,6 +3043,24 @@ app.post('/api/pochta/test', express.json(), async (req, res) => {
         steps.batchRaw = JSON.stringify(raw).slice(0, 1500)
       } catch (e: any) { steps.batchRaw = 'ERR: ' + e?.message }
       return res.status(200).json({ ok: false, error: 'ШПИ не присвоен за 15с', steps })
+    }
+
+    // checkin по флагу tryCheckin — ВНИМАНИЕ: успешный checkin СПИСЫВАЕТ деньги
+    // с онлайн-баланса (стоимость пересылки), поэтому по умолчанию выключен.
+    if (b.tryCheckin === true) {
+      try {
+        const ci = await checkinBatch(batchName)
+        steps.checkin = { ok: ci.f103Sent, errorCode: ci.errorCode }
+        if (ci.f103Sent) {
+          try {
+            const pdf = await downloadF103(batchName)
+            const f103Url = await uploadBufferToS3(`pochta-labels/test-f103-${batchName}.pdf`, pdf, 'application/pdf')
+            steps.f103 = { ok: true, f103Url }
+          } catch (e: any) { steps.f103 = { ok: false, error: e?.message } }
+        }
+      } catch (e: any) { steps.checkin = { ok: false, error: e?.message } }
+    } else {
+      steps.checkin = { ok: false, skipped: true, reason: 'checkin списывает деньги с баланса; pass tryCheckin:true' }
     }
 
     // скачивание ярлыка Ф7п по флагу tryLabel — чтобы обычный прогон пайплайна не

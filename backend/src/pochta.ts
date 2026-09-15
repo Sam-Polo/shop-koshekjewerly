@@ -336,6 +336,71 @@ export function _batchShipmentsPath(batchName: string): string {
   return batchShipmentsPath(batchName)
 }
 
+// ── Checkin партии (присвоение номера списка) ─────────────────────────────────
+
+export interface PochtaCheckinResult {
+  /** сформирован ли ф.103 — единственный надёжный признак успеха */
+  f103Sent: boolean
+  /** код отказа Почты, если checkin не прошёл (напр. OFFLINE_BALANCE_FORBIDDEN) */
+  errorCode: string | null
+}
+
+/**
+ * Регистрирует партию к сдаче: POST /1.0/batch/{name}/checkin.
+ *
+ * ОБЯЗАТЕЛЬНЫЙ шаг, которого в пайплайне не было до 15.09.2026. Без него партии
+ * навсегда остаются в статусе CREATED, номер списка не присваивается, ф.103 не
+ * формируется (`1013 EMPTY_LIST_NUMBER`), и — главное — **отправление не
+ * зарегистрировано в системе отделения**: на пункте по ШПИ ничего не находят и
+ * отказывают в приёме со словами «у вас партионка».
+ *
+ * Отвечает HTTP 200 и в случае отказа тоже — успех определяется полем f103-sent,
+ * а не статусом ответа. Известный отказ: `OFFLINE_BALANCE_FORBIDDEN` (оплата
+ * партии не проходит; на аккаунте online-balance-enabled=true, но списание
+ * не выполняется — разбирается с техподдержкой Почты).
+ *
+ * Именно на этом шаге списываются деньги за пересылку.
+ */
+export async function checkinBatch(batchName: string): Promise<PochtaCheckinResult> {
+  const data = await pochtaFetch('POST', `/1.0/batch/${encodeURIComponent(batchName)}/checkin`) as any
+  return {
+    f103Sent: data?.['f103-sent'] === true,
+    errorCode: (data?.['error-code'] as string) ?? null,
+  }
+}
+
+/**
+ * Скачивает партионный реестр ф.103 (PDF) — документ, который несут на почту вместе
+ * с посылкой, чтобы отделение приняло партию.
+ *
+ * ВНИМАНИЕ к пути: `/1.0/forms/{batch-name}/f103pdf` — БЕЗ сегмента `batch`.
+ * Неверный путь `/1.0/forms/batch/{name}/f103pdf` не существует, но при
+ * `Accept: application/pdf` шлюз Почты отвечает на него ложным
+ * `403 UNAUTHORIZED` вместо 404 — на этом потеряли полтора месяца переписки
+ * с техподдержкой (см. docs/integrations/pochta-ems.md).
+ *
+ * Требует пройденного checkinBatch, иначе `1013 EMPTY_LIST_NUMBER`.
+ */
+export async function downloadF103(batchName: string): Promise<Buffer> {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 30_000)
+  try {
+    const resp = await fetch(`${POCHTA_BASE}/1.0/forms/${encodeURIComponent(batchName)}/f103pdf`, {
+      headers: { ...getAuthHeaders(), Accept: 'application/pdf' },
+      signal: ctrl.signal,
+    })
+    clearTimeout(timer)
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '')
+      throw new Error(`Pochta f103 HTTP ${resp.status}: ${text.slice(0, 200)}`)
+    }
+    return Buffer.from(await resp.arrayBuffer())
+  } catch (e) {
+    clearTimeout(timer)
+    throw e
+  }
+}
+
 // ── Печать ярлыка Ф7п (PDF) ─────────────────────────────────────────────────
 
 async function sleep(ms: number) {
@@ -380,7 +445,7 @@ const RETRY_DELAYS_MS = [2_000, 4_000]
  */
 export async function triggerPochtaOrderAsync(
   order: Order,
-  onTrackReady: (shpi: string, batchName: string, pochtaOrderId: number) => Promise<void>
+  onTrackReady: (shpi: string, batchName: string, pochtaOrderId: number, checkedIn: boolean) => Promise<void>
 ): Promise<void> {
   // обязательные env должны быть заданы — иначе отправление не создать
   if (!checkRequiredPochtaEnv()) return
@@ -444,8 +509,36 @@ export async function triggerPochtaOrderAsync(
     await sleep(5_000)
   }
 
+  // 4. checkin — регистрируем партию к сдаче и получаем номер списка.
+  // Без него отделение не видит отправление и не принимает его (см. checkinBatch).
+  // Не блокирует отправку трека покупателю: ШПИ уже есть, а проблема с checkin —
+  // операционная, её разгребает менеджер.
+  let checkedIn = false
+  try {
+    const res = await checkinBatch(batchName)
+    checkedIn = res.f103Sent
+    if (!checkedIn) {
+      sendAlert(
+        `Pochta: партия ${batchName} (заказ ${order.orderId}) не прошла checkin: ${res.errorCode ?? 'причина не указана'}. ` +
+        `Ф.103 не сформирован — на почте отправление не найдут и посылку не примут.`,
+        {
+          tag: 'pochta', level: 'high',
+          hint: res.errorCode === 'OFFLINE_BALANCE_FORBIDDEN'
+            ? 'проверьте онлайн-баланс аккаунта Почты — на checkin списывается стоимость пересылки'
+            : 'сдайте партию вручную в ЛК Почты',
+          code: 'POCHTA_CHECKIN_FAILED',
+        }
+      ).catch(() => {})
+    }
+  } catch (e: any) {
+    sendAlert(
+      `Pochta: checkin партии ${batchName} (заказ ${order.orderId}) упал с ошибкой: ${e?.message}`,
+      { tag: 'pochta', level: 'high', hint: 'сдайте партию вручную в ЛК Почты', code: 'POCHTA_CHECKIN_ERROR' }
+    ).catch(() => {})
+  }
+
   if (shpi) {
-    await onTrackReady(shpi, batchName, resultId).catch((e: any) => {
+    await onTrackReady(shpi, batchName, resultId, checkedIn).catch((e: any) => {
       sendAlert(
         `Pochta: ШПИ ${shpi} получен для ${order.orderId}, но onTrackReady упал: ${e?.message}`,
         { tag: 'pochta', level: 'moderate', code: 'POCHTA_TRACK_CALLBACK_FAILED' }

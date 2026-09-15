@@ -263,6 +263,44 @@ describe('createBatch', () => {
   })
 })
 
+describe('checkinBatch', () => {
+  it('reports success when f103 was sent', async () => {
+    vi.stubGlobal('fetch', mockFetch([{ ok: true, body: { 'f103-sent': true } }]))
+    const res = await pochta.checkinBatch('batch-1')
+    expect(res).toEqual({ f103Sent: true, errorCode: null })
+  })
+
+  // Почта отвечает HTTP 200 и при отказе — судить об успехе можно ТОЛЬКО по f103-sent
+  it('reports failure with error code on HTTP 200', async () => {
+    vi.stubGlobal('fetch', mockFetch([
+      { ok: true, body: { 'error-code': 'OFFLINE_BALANCE_FORBIDDEN', 'f103-sent': false } },
+    ]))
+    const res = await pochta.checkinBatch('batch-1')
+    expect(res).toEqual({ f103Sent: false, errorCode: 'OFFLINE_BALANCE_FORBIDDEN' })
+  })
+
+  it('posts to the batch checkin endpoint', async () => {
+    vi.stubGlobal('fetch', mockFetch([{ ok: true, body: { 'f103-sent': true } }]))
+    await pochta.checkinBatch('batch-1')
+    const calls = (fetch as any).mock.calls as [string, RequestInit][]
+    expect(calls[0][0]).toContain('/1.0/batch/batch-1/checkin')
+    expect(calls[0][1].method).toBe('POST')
+  })
+})
+
+describe('downloadF103', () => {
+  // Регрессия: путь БЕЗ сегмента "batch". Неверный /1.0/forms/batch/{n}/f103pdf
+  // не существует, но отдаёт ложный 403 UNAUTHORIZED вместо 404 — на этом потеряли
+  // полтора месяца переписки с техподдержкой.
+  it('uses /1.0/forms/{batch}/f103pdf without the batch segment', async () => {
+    vi.stubGlobal('fetch', mockFetch([{ ok: true, body: {} }]))
+    await pochta.downloadF103('batch-1')
+    const url = String(((fetch as any).mock.calls as [string, RequestInit][])[0][0])
+    expect(url).toContain('/1.0/forms/batch-1/f103pdf')
+    expect(url).not.toContain('/forms/batch/')
+  })
+})
+
 describe('getShpiFromBatch', () => {
   it('returns barcode (ШПИ) of first order', async () => {
     vi.stubGlobal('fetch', mockFetch([{ ok: true, body: BATCH_BACKLOG_RESP }]))
