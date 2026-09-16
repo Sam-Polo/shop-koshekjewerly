@@ -795,7 +795,7 @@ bot.command('event_broadcast', async (ctx) => {
       'Отправлять некому 🐆\n\n' +
       `Всего пользователей: ${userChatIds.size}\n` +
       `Уже записаны: ${registered}\n` +
-      `Уже получали приглашение: ${alreadyNotified}`
+      `Уже получали ЭТОТ пост: ${alreadyNotified}`
     )
     return
   }
@@ -827,7 +827,7 @@ bot.command('event_broadcast', async (ctx) => {
     `Получателей сейчас: <b>${targets.length}</b>` +
     (wave > 0 ? ` (волна из ${allTargets.length} доступных)\n` : '\n') +
     `Пропускаем уже записавшихся: ${registered}\n` +
-    `Пропускаем уже получивших: ${alreadyNotified}\n` +
+    `Пропускаем получивших ЭТОТ ЖЕ пост: ${alreadyNotified}\n` +
     `Всего в базе: ${userChatIds.size}\n\n` +
     `Свободных мест: <b>${free}</b> из ${getEventCapacity()}\n` +
     (free < targets.length / 10

@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { sendAlert } from './alerts.js'
-import { sendOfferPost } from './event.js'
+import { sendOfferPost, BROADCAST_TEXT } from './event.js'
 import { getRegistration, registrationCount, getCapacity } from './event-store.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -28,8 +28,16 @@ function broadcastFile(): string {
  */
 
 type BroadcastState = {
-  version: 1
-  /** кому приглашение уже уходило — защита от повторного залпа по всей базе */
+  version: 2
+  /**
+   * Какому ИМЕННО посту соответствует список ниже — отпечаток текста рассылки.
+   * Привязка к тексту, а не к человеку вообще: отметка «получил» должна защищать
+   * от повторного залпа ТЕМ ЖЕ постом (рестарт посреди рассылки, случайный
+   * второй запуск), но не мешать отправить СЛЕДУЮЩИЙ пост тем, кто не записался.
+   * Напоминание «7 дней до» адресовано как раз им.
+   */
+  campaignId: string
+  /** кому этот пост уже уходил */
   notified: number[]
   startedAt?: string
   finishedAt?: string
@@ -44,8 +52,19 @@ export type BroadcastStats = {
   failed: number
 }
 
+/** Короткий отпечаток текста поста: меняется текст — начинается новая рассылка */
+function campaignIdOf(text: string): string {
+  let h = 0
+  for (let i = 0; i < text.length; i++) h = (Math.imul(31, h) + text.charCodeAt(i)) | 0
+  return (h >>> 0).toString(36)
+}
+
+export function currentCampaignId(): string {
+  return campaignIdOf(BROADCAST_TEXT)
+}
+
 const notified = new Set<number>()
-let state: BroadcastState = { version: 1, notified: [] }
+let state: BroadcastState = { version: 2, campaignId: '', notified: [] }
 
 function writeAtomic(file: string, content: string): void {
   const tmp = `${file}.tmp`
@@ -54,23 +73,33 @@ function writeAtomic(file: string, content: string): void {
 }
 
 function save(): void {
+  state.campaignId = currentCampaignId()
   state.notified = Array.from(notified)
   writeAtomic(broadcastFile(), JSON.stringify(state))
 }
 
 export function loadBroadcastState(): void {
   notified.clear()
-  state = { version: 1, notified: [] }
+  const campaignId = currentCampaignId()
+  state = { version: 2, campaignId, notified: [] }
   try {
     const file = broadcastFile()
     if (!fs.existsSync(file)) return
     const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<BroadcastState>
     if (!parsed || typeof parsed !== 'object') return
+
+    // Текст поста изменился — это другая рассылка, и прошлые получатели снова
+    // в игре (кроме записавшихся: их отсекает selectTargets по регистрации).
+    if (parsed.campaignId !== campaignId) {
+      console.log(`[event-broadcast] текст поста изменился — список получивших (${parsed.notified?.length ?? 0}) не переносим, это новая рассылка`)
+      return
+    }
+
     for (const id of parsed.notified ?? []) {
       if (typeof id === 'number') notified.add(id)
     }
-    state = { version: 1, notified: Array.from(notified), startedAt: parsed.startedAt, finishedAt: parsed.finishedAt, lastStats: parsed.lastStats }
-    console.log(`[event-broadcast] загружено ${notified.size} уже оповещённых`)
+    state = { version: 2, campaignId, notified: Array.from(notified), startedAt: parsed.startedAt, finishedAt: parsed.finishedAt, lastStats: parsed.lastStats }
+    console.log(`[event-broadcast] загружено ${notified.size} уже получивших этот пост`)
   } catch (error: any) {
     // Потеря этого файла не трогает данные гостей — она лишь означает, что
     // повтор рассылки заденет тех, кто её уже получал. Поэтому ничего не роняем,
@@ -289,7 +318,7 @@ async function runLoop(api: any, targets: number[], reportTo: number): Promise<v
 /** Только для тестов */
 export function __resetBroadcastForTests(): void {
   notified.clear()
-  state = { version: 1, notified: [] }
+  state = { version: 2, campaignId: currentCampaignId(), notified: [] }
   progress = null
   stopRequested = false
 }

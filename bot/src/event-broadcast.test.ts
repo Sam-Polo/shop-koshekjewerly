@@ -51,6 +51,17 @@ async function waitForBroadcast(timeoutMs = 5000): Promise<void> {
   }
 }
 
+/**
+ * Делает вид, что лежащий на диске список получивших относится к ДРУГОМУ посту —
+ * ровно то, что происходит, когда менеджер меняет текст рассылки.
+ */
+function markStoredCampaignAsOther() {
+  const file = path.join(tmpDir, 'event-broadcast.json')
+  const stored = JSON.parse(fs.readFileSync(file, 'utf8'))
+  stored.campaignId = 'другой-пост'
+  fs.writeFileSync(file, JSON.stringify(stored), 'utf8')
+}
+
 function register(chatId: number) {
   addRegistration({
     chatId,
@@ -217,6 +228,35 @@ describe('устойчивость к рестарту', () => {
 
     expect(notifiedCount()).toBe(2)
     expect(selectTargets([111, 222, 333]).targets).toEqual([333])
+  })
+
+  it('новый текст поста = новая рассылка: получившие старый снова в списке', async () => {
+    const api = makeApi()
+    startBroadcastDetached(api, [111, 222], 999)
+    await waitForBroadcast()
+    expect(selectTargets([111, 222, 333]).targets).toEqual([333])
+
+    // Менеджер поменял текст (например, добавил отсчёт дней) и шлёт снова.
+    // Напоминание адресовано как раз тем, кто первый пост получил и не записался,
+    // поэтому список получивших от ПРОШЛОГО поста переноситься не должен.
+    markStoredCampaignAsOther()
+    __resetBroadcastForTests()
+    loadBroadcastState()
+
+    expect(selectTargets([111, 222, 333]).targets).toEqual([111, 222, 333])
+  })
+
+  it('записавшихся новый текст поста НЕ возвращает в рассылку', async () => {
+    const api = makeApi()
+    startBroadcastDetached(api, [111, 222], 999)
+    await waitForBroadcast()
+    register(111)
+
+    markStoredCampaignAsOther()
+    __resetBroadcastForTests()
+    loadBroadcastState()
+
+    expect(selectTargets([111, 222]).targets).toEqual([222])
   })
 
   it('битый файл состояния не роняет бота', () => {
