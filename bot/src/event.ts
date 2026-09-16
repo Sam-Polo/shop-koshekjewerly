@@ -52,7 +52,42 @@ function humanDate(date: string): string {
 
 // ─── Тексты ──────────────────────────────────────────────────────────────
 
+/**
+ * Приглашение, которое человек видит в боте: по /start (если он новый) и по
+ * кнопке «Koshek Show Room». Живёт неограниченно долго, пока включён режим
+ * мероприятия, поэтому в нём НЕТ отсчёта дней — новичок может прийти в любой
+ * день недели, и «7 дней до» у него будет враньём.
+ */
 export const OFFER_TEXT =
+  'КОШКИ, мы открываем двери своего временного шоурума в самом сердце Москвы, на Патриарших прудах\n' +
+  '\n' +
+  '🐆 <b>С 23 по 27 сентября мы будем ждать именно тебя в гости в наш кошачий шоурум</b> 🐆\n' +
+  '\n' +
+  'Время работы:\n' +
+  '23.09 - 26.09 с 11:00 до 21:00\n' +
+  '27.09 с 11:00 до 17:00\n' +
+  '\n' +
+  '🎈<b>Что за движ планируется ?</b>\n' +
+  '\n' +
+  '▫️ примерка всех наших хитов\n' +
+  '▪️ эксклюзивный дроп украшений, которых нет в продаже онлайн\n' +
+  '▫️ <b>KOSHEK MADE BAR</b>: возможность собрать персонализированное украшение прям на месте\n' +
+  '▪️ при покупке каждая кошечка крутит КОЛЕСО ФОРТУНЫ с щедрыми подарками\n' +
+  '\n' +
+  '🩷 <b>РЕГИСТРАЦИЯ ОБЯЗАТЕЛЬНА</b>\n' +
+  'Зачем ?\n' +
+  '\n' +
+  'Вход свободный, но для зарегистрированных кошек мы готовим сюрприз при посещении\n' +
+  '\n' +
+  'ДО ВСТРЕЧИ!🐆'
+
+/**
+ * Текст ТОЛЬКО для рассылки. Отделён от OFFER_TEXT намеренно: рассылка уходит
+ * в конкретный день, поэтому отсчёт в ней уместен, а в постоянном приглашении
+ * он бы протух на следующий день. Картинка и кнопка у обоих общие.
+ * Перед следующей рассылкой отсчёт надо обновить руками.
+ */
+export const BROADCAST_TEXT =
   '🩷 <b>7 ДНЕЙ ДО ГЛАВНОГО СОБЫТИЯ ОСЕНИ</b> 🩷\n' +
   '\n' +
   '<i>Шоурум на патриках 23-27 сентября.</i>\n' +
@@ -146,8 +181,10 @@ function cacheBannerFileId(msg: any): void {
   }
 }
 
-function offerPostOptions() {
-  return { caption: OFFER_TEXT, parse_mode: 'HTML' as const, reply_markup: offerKeyboard() }
+// Текст у рассылки и у приглашения в боте разный, а картинка и кнопка — общие:
+// нажатие ведёт в ту же воронку, с того же шага.
+function offerPostOptions(caption: string) {
+  return { caption, parse_mode: 'HTML' as const, reply_markup: offerKeyboard() }
 }
 
 /**
@@ -157,16 +194,17 @@ function offerPostOptions() {
  * на весь прогон, а не 16 тысяч раз.
  */
 export async function sendOfferPost(api: any, chatId: number): Promise<void> {
+  const opts = offerPostOptions(BROADCAST_TEXT)
   if (bannerFileId) {
-    await api.sendPhoto(chatId, bannerFileId, offerPostOptions())
+    await api.sendPhoto(chatId, bannerFileId, opts)
     return
   }
-  const msg = await api.sendPhoto(chatId, new InputFile(BANNER_PATH), offerPostOptions())
+  const msg = await api.sendPhoto(chatId, new InputFile(BANNER_PATH), opts)
   cacheBannerFileId(msg)
 }
 
 async function sendOfferMessage(ctx: any): Promise<void> {
-  const opts = offerPostOptions()
+  const opts = offerPostOptions(OFFER_TEXT)
 
   if (bannerFileId) {
     try {

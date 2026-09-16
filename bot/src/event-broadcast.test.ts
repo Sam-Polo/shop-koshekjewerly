@@ -15,7 +15,7 @@ import {
   startBroadcastDetached, isBroadcastRunning, requestBroadcastStop, wasNotified,
 } from './event-broadcast.js'
 import { __resetForTests, addRegistration } from './event-store.js'
-import { __resetEventRuntimeForTests } from './event.js'
+import { __resetEventRuntimeForTests, BROADCAST_TEXT, OFFER_TEXT } from './event.js'
 
 let tmpDir: string
 
@@ -112,6 +112,21 @@ describe('прогон рассылки', () => {
 
     expect(api.photoCalls).toEqual([111, 222, 333])
     expect(notifiedCount()).toBe(3)
+  })
+
+  it('уходит текст рассылки, а не постоянное приглашение из /start', async () => {
+    const api = makeApi()
+
+    startBroadcastDetached(api, [111], 999)
+    await waitForBroadcast()
+
+    // Тексты разведены намеренно: в рассылке отсчёт дней, в /start его быть не
+    // может — новичок приходит в любой день и увидел бы неправду.
+    const opts = api.sendPhoto.mock.calls[0][2] as any
+    expect(opts.caption).toBe(BROADCAST_TEXT)
+    expect(opts.caption).not.toBe(OFFER_TEXT)
+    // кнопка при этом та же самая — воронка общая
+    expect(opts.reply_markup.inline_keyboard.flat()[0].text).toBe('Зарегистрироваться 🐆')
   })
 
   it('картинка грузится с диска один раз, дальше по file_id', async () => {
