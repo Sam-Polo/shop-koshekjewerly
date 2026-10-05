@@ -26,6 +26,8 @@ import {
   setDraft,
   setMode,
   getMode,
+  getStoredMode,
+  isEventFeatureEnabled,
   unsyncedCount,
   updateVisitDate,
   DRAFT_TTL_MS,
@@ -139,10 +141,28 @@ describe('лимит мест', () => {
 })
 
 describe('режим приглашения', () => {
+  // В тестах EVENT_MODE не задан, то есть фича спит — ровно как в проде после
+  // мероприятия. Поэтому сохранность режима проверяем по getStoredMode().
   it('переживает перезапуск', () => {
     setMode('off')
     __resetForTests()
     loadEventState()
+    expect(getStoredMode()).toBe('off')
+
+    setMode('on')
+    __resetForTests()
+    loadEventState()
+    expect(getStoredMode()).toBe('on')
+  })
+
+  it('спящая фича даёт off, что бы ни лежало в файле', () => {
+    expect(isEventFeatureEnabled()).toBe(false)
+
+    setMode('on')
+
+    // Главная защита: потерянный или подложенный файл состояния НЕ воскрешает
+    // законченное мероприятие в пользовательском сценарии.
+    expect(getStoredMode()).toBe('on')
     expect(getMode()).toBe('off')
   })
 })

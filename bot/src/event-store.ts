@@ -52,7 +52,28 @@ export type EventDraft = {
 }
 
 export const DEFAULT_CAPACITY = Number(process.env.EVENT_CAPACITY ?? 400)
-const DEFAULT_MODE: EventMode = (process.env.EVENT_MODE === 'off' ? 'off' : 'on')
+
+/**
+ * Главный выключатель всей фичи мероприятия.
+ *
+ * Шоурум 23–27 сентября 2026 прошёл, поэтому по умолчанию фича **спит**: код
+ * и данные на месте, но из пользовательского сценария она не видна совсем.
+ * Разбудить — задать `EVENT_MODE=on` в `/opt/bot/bot/.env` на VDS и
+ * перезапустить процесс; дальше в игру вступает `/event_mode on|off`.
+ *
+ * Выключатель живёт в env, а не только в `/event_mode`, намеренно: иначе
+ * выключать законченное мероприятие пришлось бы руками в боте, а потерянный
+ * или повреждённый файл состояния воскресил бы его обратно.
+ */
+const FEATURE_ENABLED = process.env.EVENT_MODE === 'on'
+
+export function isEventFeatureEnabled(): boolean {
+  return FEATURE_ENABLED
+}
+
+// Внутри разрешённой фичи режим по умолчанию включён: одного EVENT_MODE=on
+// достаточно, чтобы следующее мероприятие заработало без доп. команд.
+const DEFAULT_MODE: EventMode = 'on'
 
 /** Брошенные черновики старше суток удаляем — человек давно ушёл */
 export const DRAFT_TTL_MS = 24 * 60 * 60 * 1000
@@ -226,7 +247,17 @@ export function isFull(): boolean {
   return registrations.size >= capacity
 }
 
+/**
+ * Режим, которым руководствуется пользовательский сценарий. Пока фича спит,
+ * здесь всегда `off`, что бы ни лежало в файле состояния: это и есть защита
+ * от «мероприятие воскресло само».
+ */
 export function getMode(): EventMode {
+  return FEATURE_ENABLED ? mode : 'off'
+}
+
+/** Что записано в файле — для честного ответа менеджеру в /event_mode */
+export function getStoredMode(): EventMode {
   return mode
 }
 

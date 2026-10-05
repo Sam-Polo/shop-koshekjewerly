@@ -29,6 +29,7 @@ import {
   loadEventState, loadEventDrafts, getMode as getEventMode, setMode as setEventMode,
   setCapacity as setEventCapacity, getCapacity as getEventCapacity,
   registrationCount, deleteDraft as deleteEventDraft, getDraft as getEventDraft, flushDrafts,
+  isEventFeatureEnabled,
 } from './event-store.js'
 import {
   CB as EVENT_CB, SHOWROOM_BUTTON_TEXT, showOffer, resumeDraft,
@@ -729,6 +730,19 @@ bot.command('event_mode', async (ctx) => {
     await ctx.reply('❌ У вас нет доступа к этой команде.')
     return
   }
+  // Фича спит целиком (EVENT_MODE не выставлен в on) — не делаем вид, что
+  // команда что-то включила: менеджер должен понимать, почему ничего не изменилось.
+  if (!isEventFeatureEnabled()) {
+    await ctx.reply(
+      '💤 Мероприятие выключено полностью — в боте его нет, и команда этого не меняет.\n\n' +
+      'Код, список гостей и команды на месте: чтобы провести следующее мероприятие, ' +
+      'нужно задать <code>EVENT_MODE=on</code> в .env на VDS и перезапустить бота. ' +
+      'После этого /event_mode снова управляет приглашением.',
+      { parse_mode: 'HTML' }
+    )
+    return
+  }
+
   const arg = (ctx.match || '').trim().toLowerCase()
   if (arg !== 'on' && arg !== 'off') {
     await ctx.reply(
@@ -767,6 +781,18 @@ bot.command('event_broadcast', async (ctx) => {
     return
   }
   if (!chatId) return
+
+  // Рассылка — необратимое действие наружу по всей базе. Для законченного
+  // мероприятия она не должна быть доступна ни одним случайным нажатием.
+  if (!isEventFeatureEnabled()) {
+    await ctx.reply(
+      '💤 Мероприятие выключено — рассылать приглашение некуда.\n\n' +
+      'Для следующего: обновите текст в <code>BROADCAST_TEXT</code> и баннер, ' +
+      'задайте <code>EVENT_MODE=on</code> в .env на VDS и перезапустите бота.',
+      { parse_mode: 'HTML' }
+    )
+    return
+  }
 
   if (isBroadcastRunning()) {
     const p = currentProgress()!
@@ -1219,7 +1245,7 @@ function getHelpMessage(): string {
     '/users — показать количество пользователей\n' +
     '/test_order — тестовый заказ без оплаты\n' +
     '/cancel — отменить текущую операцию\n\n' +
-    '🐆 Шоурум (временное мероприятие):\n' +
+    `🐆 Шоурум (${isEventFeatureEnabled() ? 'идёт' : 'спит — см. /event_mode'}):\n` +
     '/event_stats — сколько записалось, по датам, статус выгрузки\n' +
     '/event_list — весь список гостей файлом (CSV)\n' +
     '/event_find <имя|@ник> — найти гостя\n' +
