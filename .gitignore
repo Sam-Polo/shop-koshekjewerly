@@ -33,3 +33,10 @@ convert-csv.js
 # локальные одноразовые скрипты (отладка, сверки) — не коммитим
 backend/src/scripts/local/
 temp/
+
+# артефакты сборки — попали в git через `git add .`, в репо им не место.
+# vite.config.js особенно: Vite предпочитает .js перед .ts, и залежавшаяся
+# скомпилированная копия молча переопределила бы правки в vite.config.ts
+*.tsbuildinfo
+admin/frontend/vite.config.js
+admin/frontend/vite.config.d.ts
