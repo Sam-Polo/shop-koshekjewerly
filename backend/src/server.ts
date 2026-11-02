@@ -13,7 +13,7 @@ import { createOrder, getOrder, updateOrderStatus, listOrders, restoreOrder, typ
 import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId, getOrderHistoryByChatId, advanceOrderStatusInSheet, statusRank, listPendingOrdersFromSheet, updateCdekInfoInSheet, updatePochtaInfoInSheet, type OrderCustomerStatus } from './orders-sheet.js'
 import { sendAlert } from './alerts.js';
 import { searchCities, getPickupPoints, calculateDelivery, triggerCdekOrderAsync, getCdekUuidByTrack, downloadCdekBarcode } from './cdek.js';
-import { calculateTariff as calculatePochtaTariff, triggerPochtaOrderAsync, downloadF7p, downloadF103, checkinBatch, getCountries as getPochtaCountries, createPochtaOrder, createBatch, getShpiFromBatch, checkRequiredPochtaEnv, pochtaFetch, _batchShipmentsPath } from './pochta.js';
+import { calculateTariff as calculatePochtaTariff, alertTariffFailure as alertPochtaTariffFailure, triggerPochtaOrderAsync, downloadF7p, downloadF103, checkinBatch, getCountries as getPochtaCountries, createPochtaOrder, createBatch, getShpiFromBatch, checkRequiredPochtaEnv, pochtaFetch, _batchShipmentsPath } from './pochta.js';
 import { uploadBufferToS3 } from './s3.js';
 import { triggerAmoCrmAsync, updateAmoCrmLeadTrack, updateAmoCrmLeadBarcode, createAmoCrmLead, syncCdekToLead } from './amocrm.js';
 import { buildPaymentForm, buildReceipt, verifyResultSignature, queryOrderState } from './robokassa.js';
@@ -2020,6 +2020,9 @@ app.get('/api/pochta/calculate', generalLimiter, async (req, res) => {
     return res.json({ delivery_sum: cost })
   } catch (e: any) {
     logger.warn({ error: e?.message, countryCode }, 'Pochta calculate error')
+    // без суммы доставки международный заказ не оформить — сбой обязан дойти до канала
+    // (02.11.2026 старый пароль на Render тихо держал международку закрытой, вероятно, с сентября)
+    alertPochtaTariffFailure(e, countryCode)
     return res.status(502).json({ error: 'pochta_unavailable', detail: e?.message?.slice(0, 300) })
   }
 })

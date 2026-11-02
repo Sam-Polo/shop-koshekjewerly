@@ -44,7 +44,7 @@ const REQUIRED_POCHTA_ENV_KEYS = [
 
 /**
  * Проверяет, заданы ли обязательные env Почты. Любая отсутствующая → критичный алерт
- * (sendAlert дедуплицирует по code, поэтому повторные вызовы не спамят канал).
+ * (sendAlert гасит одинаковый текст в течение 60 с, поэтому повторные вызовы не спамят канал).
  * Возвращает false, если чего-то не хватает (EMS-отправление создавать бессмысленно).
  */
 export function checkRequiredPochtaEnv(): boolean {
@@ -105,7 +105,11 @@ export async function pochtaFetch(method: string, path: string, body?: unknown):
     clearTimeout(timer)
     if (!resp.ok) {
       const text = await resp.text().catch(() => '')
-      throw new Error(`Pochta ${method} ${path} → HTTP ${resp.status}: ${text.slice(0, 300)}`)
+      // status — чтобы вызывающий код отличал отказ в доступе (креды) от сбоя самой Почты
+      throw Object.assign(
+        new Error(`Pochta ${method} ${path} → HTTP ${resp.status}: ${text.slice(0, 300)}`),
+        { status: resp.status },
+      )
     }
     return resp.json()
   } catch (e) {
@@ -143,6 +147,41 @@ export async function calculateTariff(countryCode: number, weight = PKG_WEIGHT_G
   const vat = typeof data?.['total-vat'] === 'number' ? data['total-vat'] : 0
   // копейки → рубли
   return Math.ceil((rate + vat) / 100)
+}
+
+/**
+ * Алерт о сбое расчёта стоимости для покупателя (ручка /api/pochta/calculate).
+ *
+ * Без суммы доставки мини-апп не даёт оформить международный заказ, так что каждый
+ * такой сбой — покупатель, упёршийся в «Ошибку расчёта». Пост-оплатные алерты
+ * (triggerPochtaOrderAsync) тут не помогут: до оплаты никто не доходит, им нечего ловить.
+ * Так и вышло 02.11.2026: на Render остался старый пароль ЛК, каждый расчёт получал 401,
+ * международка лежала, вероятно, с сентября — и в канале ни строчки.
+ *
+ * Отказ в доступе (401/403) и незаданные env сами не пройдут → critical.
+ * Остальное (таймаут, 5xx Почты) бывает разовым → high.
+ * «Страна недоступна» (нулевой тариф) сюда не попадает: это штатный 422 в ручке.
+ */
+export function alertTariffFailure(e: unknown, countryCode: number): void {
+  const status = typeof e === 'object' && e !== null ? (e as { status?: unknown }).status : undefined
+  const message = e instanceof Error ? e.message : String(e)
+  const configBroken =
+    status === 401 || status === 403 || REQUIRED_POCHTA_ENV_KEYS.some(k => !process.env[k])
+
+  sendAlert(
+    // постоянная часть — в начале: дедуп сравнивает первые 150 символов текста, и при
+    // массовом сбое попытки по разным странам схлопываются в один алерт
+    `Pochta: не удалось рассчитать стоимость доставки — покупатель не может оформить международный заказ. ${message} (код страны ${countryCode})`,
+    configBroken
+      ? {
+          tag: 'pochta', level: 'critical', code: 'POCHTA_TARIFF_CONFIG',
+          hint: 'не те креды или env Почты на Render (пароль ЛК меняют сразу в двух местах: локальный .env и Render)',
+        }
+      : {
+          tag: 'pochta', level: 'high', code: 'POCHTA_TARIFF_FAILED',
+          hint: 'Почта не ответила или вернула ошибку; если алерт повторяется — международное оформление лежит',
+        },
+  ).catch(() => {})
 }
 
 // ── Справочник стран (публичный калькулятор, без авторизации) ──────────────────

@@ -7,6 +7,11 @@ process.env.POCHTA_LOGIN = 'login@example.com'
 process.env.POCHTA_PASSWORD = 'secret'
 process.env.POCHTA_INDEX_FROM = '121471'
 
+// vi.fn(impl), а не vi.fn().mockResolvedValue(): restoreAllMocks в afterEach возвращает
+// реализацию к impl, и sendAlert(...).catch() в коде продолжает получать промис
+const sendAlert = vi.fn(async (..._a: any[]) => {})
+vi.mock('./alerts.js', () => ({ sendAlert: (...a: any[]) => sendAlert(...a) }))
+
 let pochta: typeof import('./pochta.js')
 
 const TARIFF_RESP = { 'total-rate': 50000, 'total-vat': 10000 } // 600 ₽
@@ -169,6 +174,66 @@ describe('calculateTariff', () => {
   it('throws on HTTP error', async () => {
     vi.stubGlobal('fetch', mockFetch([{ ok: false, body: { error: 'unauthorized' } }]))
     await expect(pochta.calculateTariff(276)).rejects.toThrow('HTTP 400')
+  })
+
+  it('HTTP error carries status (lets callers tell an auth failure from an outage)', async () => {
+    vi.stubGlobal('fetch', failingFetch(401, '{"code":"1001","desc":"ILLEGAL_CREDENTIALS"}'))
+    const err = await pochta.calculateTariff(860).catch(e => e)
+    expect(err.status).toBe(401)
+    expect(err.message).toContain('HTTP 401')
+  })
+})
+
+function failingFetch(status: number, body: string) {
+  return vi.fn(async () => ({ ok: false, status, text: async () => body, json: async () => ({}) }))
+}
+
+// инцидент 02.11.2026: старый пароль на Render → 401 на каждый расчёт, ни одного алерта
+describe('alertTariffFailure', () => {
+  beforeEach(() => sendAlert.mockClear())
+
+  it('401 (stale password on Render) → critical POCHTA_TARIFF_CONFIG', async () => {
+    vi.stubGlobal('fetch', failingFetch(401, '{"code":"1001","desc":"ILLEGAL_CREDENTIALS"}'))
+    const err = await pochta.calculateTariff(860).catch(e => e)
+    pochta.alertTariffFailure(err, 860)
+    expect(sendAlert).toHaveBeenCalledTimes(1)
+    const [text, opts] = sendAlert.mock.calls[0]
+    expect(opts).toMatchObject({ tag: 'pochta', level: 'critical', code: 'POCHTA_TARIFF_CONFIG' })
+    expect(text).toContain('ILLEGAL_CREDENTIALS')
+    expect(text).toContain('860')
+  })
+
+  it('missing env → critical POCHTA_TARIFF_CONFIG', async () => {
+    const orig = process.env.POCHTA_INDEX_FROM
+    delete process.env.POCHTA_INDEX_FROM
+    try {
+      const err = await pochta.calculateTariff(860).catch(e => e)
+      pochta.alertTariffFailure(err, 860)
+    } finally {
+      process.env.POCHTA_INDEX_FROM = orig
+    }
+    expect(sendAlert.mock.calls[0][1]).toMatchObject({ level: 'critical', code: 'POCHTA_TARIFF_CONFIG' })
+  })
+
+  it('network failure or Pochta 5xx → high POCHTA_TARIFF_FAILED', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('fetch failed') }))
+    pochta.alertTariffFailure(await pochta.calculateTariff(860).catch(e => e), 860)
+    vi.stubGlobal('fetch', failingFetch(503, 'Service Unavailable'))
+    pochta.alertTariffFailure(await pochta.calculateTariff(860).catch(e => e), 860)
+    expect(sendAlert.mock.calls.map(c => c[1])).toEqual([
+      expect.objectContaining({ level: 'high', code: 'POCHTA_TARIFF_FAILED' }),
+      expect.objectContaining({ level: 'high', code: 'POCHTA_TARIFF_FAILED' }),
+    ])
+  })
+
+  it('same failure across countries collapses in dedup (first 150 chars match)', async () => {
+    vi.stubGlobal('fetch', failingFetch(401, '{"code":"1001","desc":"ILLEGAL_CREDENTIALS"}'))
+    const err = await pochta.calculateTariff(860).catch(e => e)
+    pochta.alertTariffFailure(err, 860)
+    pochta.alertTariffFailure(err, 276)
+    const [a, b] = sendAlert.mock.calls.map(c => c[0] as string)
+    expect(a).not.toBe(b)
+    expect(a.slice(0, 150)).toBe(b.slice(0, 150))
   })
 })
 
