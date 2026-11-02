@@ -334,9 +334,8 @@ export interface PochtaBatchResult {
  * отделении) на аккаунте выключена — без флага ЛК отказывает по всей партии
  * («Оплата отправлений по классической схеме выключена»), проверено 04.08.2026.
  *
- * Печатные формы для мелкого пакета этим не чинятся: пока онлайн-баланс не
- * пополнен, документы не выдаются ни через API (403 `1007 UNAUTHORIZED`), ни в
- * ЛК («недостаточно средств»). Деньги = предоплата пересылки, а не доп. расход.
+ * Флаг здесь только помечает партию (в ответе `use-online-balance: true`), деньги
+ * списывает checkinBatch — и у него СВОЙ параметр с другим именем, см. там.
  * Подробности и матрица проверок: docs/integrations/pochta-ems.md.
  */
 export async function createBatch(resultIds: number[]): Promise<string> {
@@ -380,12 +379,14 @@ export function _batchShipmentsPath(batchName: string): string {
 export interface PochtaCheckinResult {
   /** сформирован ли ф.103 — единственный надёжный признак успеха */
   f103Sent: boolean
-  /** код отказа Почты, если checkin не прошёл (напр. OFFLINE_BALANCE_FORBIDDEN) */
+  /** код отказа Почты, если checkin не прошёл (напр. NOT_ENOUGH_FUNDS) */
   errorCode: string | null
 }
 
 /**
- * Регистрирует партию к сдаче: POST /1.0/batch/{name}/checkin.
+ * Регистрирует партию к сдаче: POST /1.0/batch/{name}/checkin?useOnlineBalance=true.
+ * По спеке: «присваивает уникальную версию партии для дальнейшего приёма этой
+ * партии сотрудниками ОПС; отправляет электронную форму Ф103 в ОПС для регистрации».
  *
  * ОБЯЗАТЕЛЬНЫЙ шаг, которого в пайплайне не было до 15.09.2026. Без него партии
  * навсегда остаются в статусе CREATED, номер списка не присваивается, ф.103 не
@@ -393,15 +394,18 @@ export interface PochtaCheckinResult {
  * зарегистрировано в системе отделения**: на пункте по ШПИ ничего не находят и
  * отказывают в приёме со словами «у вас партионка».
  *
- * Отвечает HTTP 200 и в случае отказа тоже — успех определяется полем f103-sent,
- * а не статусом ответа. Известный отказ: `OFFLINE_BALANCE_FORBIDDEN` (оплата
- * партии не проходит; на аккаунте online-balance-enabled=true, но списание
- * не выполняется — разбирается с техподдержкой Почты).
+ * Имя параметра — `useOnlineBalance` (camelCase), а НЕ `use-online-balance`, как у
+ * создания партии: в спеке у checkin параметр объявлен без prefix. С чужим именем
+ * Почта его молча игнорирует и пытается оплатить партию офлайн →
+ * `OFFLINE_BALANCE_FORBIDDEN` (классическая схема на аккаунте выключена). На этом
+ * застряли с 15.09 по 02.11.2026.
  *
- * Именно на этом шаге списываются деньги за пересылку.
+ * Отвечает HTTP 200 и в случае отказа тоже — успех определяется полем f103-sent,
+ * а не статусом ответа. Ожидаемый отказ: `NOT_ENOUGH_FUNDS` — на онлайн-балансе
+ * меньше стоимости пересылки партии. Именно на этом шаге списываются деньги.
  */
 export async function checkinBatch(batchName: string): Promise<PochtaCheckinResult> {
-  const data = await pochtaFetch('POST', `/1.0/batch/${encodeURIComponent(batchName)}/checkin`) as any
+  const data = await pochtaFetch('POST', `/1.0/batch/${encodeURIComponent(batchName)}/checkin?useOnlineBalance=true`) as any
   return {
     f103Sent: data?.['f103-sent'] === true,
     errorCode: (data?.['error-code'] as string) ?? null,
@@ -562,9 +566,11 @@ export async function triggerPochtaOrderAsync(
         `Ф.103 не сформирован — на почте отправление не найдут и посылку не примут.`,
         {
           tag: 'pochta', level: 'high',
-          hint: res.errorCode === 'OFFLINE_BALANCE_FORBIDDEN'
-            ? 'проверьте онлайн-баланс аккаунта Почты — на checkin списывается стоимость пересылки'
-            : 'сдайте партию вручную в ЛК Почты',
+          hint: res.errorCode === 'NOT_ENOUGH_FUNDS'
+            ? 'пополните онлайн-баланс в ЛК otpravka.pochta.ru и повторите «Подготовить к отправке» по партии'
+            : res.errorCode === 'OFFLINE_BALANCE_FORBIDDEN'
+              ? 'checkin ушёл без useOnlineBalance=true — регресс в checkinBatch (pochta.ts)'
+              : 'сдайте партию вручную в ЛК Почты',
           code: 'POCHTA_CHECKIN_FAILED',
         }
       ).catch(() => {})

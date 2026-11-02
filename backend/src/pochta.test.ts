@@ -338,10 +338,10 @@ describe('checkinBatch', () => {
   // Почта отвечает HTTP 200 и при отказе — судить об успехе можно ТОЛЬКО по f103-sent
   it('reports failure with error code on HTTP 200', async () => {
     vi.stubGlobal('fetch', mockFetch([
-      { ok: true, body: { 'error-code': 'OFFLINE_BALANCE_FORBIDDEN', 'f103-sent': false } },
+      { ok: true, body: { 'error-code': 'NOT_ENOUGH_FUNDS', 'f103-sent': false } },
     ]))
     const res = await pochta.checkinBatch('batch-1')
-    expect(res).toEqual({ f103Sent: false, errorCode: 'OFFLINE_BALANCE_FORBIDDEN' })
+    expect(res).toEqual({ f103Sent: false, errorCode: 'NOT_ENOUGH_FUNDS' })
   })
 
   it('posts to the batch checkin endpoint', async () => {
@@ -350,6 +350,17 @@ describe('checkinBatch', () => {
     const calls = (fetch as any).mock.calls as [string, RequestInit][]
     expect(calls[0][0]).toContain('/1.0/batch/batch-1/checkin')
     expect(calls[0][1].method).toBe('POST')
+  })
+
+  // Регрессия: у checkin параметр называется useOnlineBalance (camelCase), а не
+  // use-online-balance, как у создания партии. Чужое имя Почта молча игнорирует и
+  // отвечает OFFLINE_BALANCE_FORBIDDEN — на этом застряли с 15.09 по 02.11.2026.
+  it('pays from the online balance using the camelCase flag', async () => {
+    vi.stubGlobal('fetch', mockFetch([{ ok: true, body: { 'f103-sent': true } }]))
+    await pochta.checkinBatch('batch-1')
+    const url = ((fetch as any).mock.calls as [string, RequestInit][])[0][0]
+    expect(url).toContain('useOnlineBalance=true')
+    expect(url).not.toContain('use-online-balance')
   })
 })
 
