@@ -41,13 +41,6 @@ import 'swiper/css/navigation'
 
 // изображения из public/assets с учетом base path
 const baseUrl = import.meta.env.BASE_URL
-const berriesImage = `${baseUrl}assets/berries-category.jpg`
-const neckImage = `${baseUrl}assets/neck-category.jpg`
-const handsImage = `${baseUrl}assets/hands-category.jpg`
-const earsImage = `${baseUrl}assets/ears-category.jpg`
-const bakeryImage = `${baseUrl}assets/bakery-category.jpg`
-const petsImage = `${baseUrl}assets/pets-category.jpg`
-const certificateImage = `${baseUrl}assets/certificate-category.jpg`
 const logoImage = `${baseUrl}assets/logo_.PNG`
 const backgroundImage = `${baseUrl}assets/background.jpg`
 
@@ -275,7 +268,6 @@ const IconHeart = ({ size = 22, filled = false }: { size?: number; filled?: bool
   </svg>
 )
 
-// fallback категории (если API не отдаёт)
 // категория сертификатов — товары из неё можно купить электронно (только промокод)
 const CERTIFICATE_CATEGORY = 'сертификаты'
 
@@ -294,15 +286,62 @@ function buildPayPageUrl(payment: { actionUrl?: string; fields?: Record<string, 
   return url.toString()
 }
 
-const defaultCategories: Category[] = [
-  { key: 'ягоды', title: 'Ягоды (special)', description: 'Эксклюзивная коллекция KOSHEK, украшения в виде реалистичных ягод из полимерной глины', image: berriesImage },
-  { key: 'выпечка', title: 'Выпечка', description: 'Эксклюзивная коллекция КОШЕК, украшения в виде реалистичной выпечки из полимерной глины', image: bakeryImage },
-  { key: 'pets', title: 'FOR PETS', description: 'Украшения для ваших питомцев.', image: petsImage },
-  { key: 'шея', title: 'Шея', description: 'Чокеры, колье, подвески, кулоны', image: neckImage },
-  { key: 'руки', title: 'Руки', description: 'Браслеты, кольца', image: handsImage },
-  { key: 'уши', title: 'Уши', description: 'Серьги, каффы', image: earsImage },
-  { key: 'сертификаты', title: 'Сертификаты', image: certificateImage },
-]
+// Категорий в коде нет намеренно: захардкоженный список отставал от листа categories
+// (менеджер правит его из админки), и при входе устаревшие карточки рывком подменялись
+// актуальными. Источник один — /api/categories, а между визитами его ответ лежит в
+// localStorage: вернувшийся покупатель видит категории сразу, первый визит ждёт API под
+// лоадером, а если API не ответил — честная ошибка с повтором, без выдуманных данных.
+const CATEGORIES_CACHE_KEY = 'koshek:categories:v1'
+
+/** категория из /api/categories (и из кэша — там тот же формат) */
+type ApiCategory = { key?: string; title?: string; description?: string; image?: string; image_position?: string }
+
+function toCategories(list: ApiCategory[]): Category[] {
+  return list
+    .filter((c): c is ApiCategory & { key: string; title: string } =>
+      !!c && typeof c.key === 'string' && c.key !== '' && typeof c.title === 'string')
+    .map(c => ({
+      key: c.key,
+      title: c.title,
+      description: c.description || undefined,
+      image: rewriteImageUrl(c.image || ''),
+      image_position: c.image_position || 'center',
+    }))
+}
+
+// localStorage бывает пуст или недоступен (вебвью почистил данные, приватный режим) —
+// тогда просто живём без кэша: первый экран ждёт API под лоадером
+function readCachedCategories(): Category[] | null {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(CATEGORIES_CACHE_KEY) || 'null')
+    const list = Array.isArray(parsed) ? toCategories(parsed) : []
+    return list.length > 0 ? list : null
+  } catch {
+    return null
+  }
+}
+
+function writeCachedCategories(list: Category[]): void {
+  try {
+    localStorage.setItem(CATEGORIES_CACHE_KEY, JSON.stringify(list))
+  } catch {
+    // переполнено или запрещено — не страшно, в следующий раз подождём API
+  }
+}
+
+// Бэкенд при сбое Google Sheets отвечает 200 с ПУСТЫМ списком, а не ошибкой, поэтому
+// пустой ответ повторяем с теми же паузами — fetchWithRetry смотрит только на статус
+async function fetchCategories(url: string): Promise<Category[]> {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetchWithRetry(url)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json()
+    const list = toCategories(Array.isArray(data?.categories) ? data.categories : [])
+    if (list.length > 0) return list
+    if (attempt >= FETCH_RETRY_DELAYS_MS.length) throw new Error('пустой список категорий')
+    await new Promise<void>(r => setTimeout(r, FETCH_RETRY_DELAYS_MS[attempt]))
+  }
+}
 
 const ImageWithLoader = ({ src, alt }: { src: string, alt: string }) => {
   const { loading, error } = useImageLoader(src)
@@ -2676,8 +2715,12 @@ function useImagePreload(src: string) {
   const [error, setError] = useState(false)
 
   useEffect(() => {
+    // новый src — заново ждём загрузки: иначе у карточки, получившей другую картинку,
+    // та подменила бы старую рывком, без проявления
+    setLoaded(false)
+    setError(false)
     if (!src) return
-    
+
     const img = new Image()
     img.onload = () => setLoaded(true)
     img.onerror = () => {
@@ -2760,6 +2803,15 @@ const CategoryCard = ({ card, onSelect }: { card: Category, onSelect: () => void
     </button>
   )
 }
+
+// API не ответил: прямо говорим об этом и даём повторить — без выдуманных данных
+const CatalogError = ({ text, onRetry }: { text: string, onRetry: () => void }) => (
+  <div className="catalog-error" role="alert">
+    <p className="catalog-error__text">{text}</p>
+    <p className="catalog-error__hint">Проверьте соединение и попробуйте ещё раз</p>
+    <button className="catalog-error__retry" onClick={onRetry}>Повторить</button>
+  </div>
+)
 
 const ThumbnailButton = ({ 
   src, 
@@ -3010,9 +3062,14 @@ export default function App() {
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
-  const [categories, setCategories] = useState<Category[]>(defaultCategories)
+  // null — показать пока нечего: первый визит без кэша, ждём API под лоадером
+  const [categories, setCategories] = useState<Category[] | null>(readCachedCategories)
+  // API так и не отдал категории, а показать нечего — экран ошибки с повтором
+  const [categoriesFailed, setCategoriesFailed] = useState(false)
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
+  // товары не пришли — ошибка вместо обманчивого «Товары скоро появятся»
+  const [productsError, setProductsError] = useState(false)
   const [cart, setCart] = useState<CartItem[]>([])
   // preview-карточка компонента из корзины (только просмотр, без действий)
   const [cartPreview, setCartPreview] = useState<ConstructorDetailView>(null)
@@ -3077,32 +3134,26 @@ export default function App() {
     }
   }, [])
 
-  // загрузка категорий из API
-  useEffect(() => {
-    const loadCategories = async () => {
-      try {
-        const apiUrl = import.meta.env.VITE_API_URL || '/api'
-        const url = apiUrl.endsWith('/api') ? `${apiUrl}/categories` : `${apiUrl}/api/categories`
-        const response = await fetchWithRetry(url)
-        if (response.ok) {
-          const data = await response.json()
-          const list = data.categories || []
-          if (list.length > 0) {
-            setCategories(list.map((c: { key: string; title: string; description?: string; image: string; image_position?: string }) => ({
-              key: c.key,
-              title: c.title,
-              description: c.description,
-              image: rewriteImageUrl(c.image),
-              image_position: c.image_position || 'center'
-            })))
-          }
-        }
-      } catch {
-        // оставляем defaultCategories
-      }
-    }
-    loadCategories()
-  }, [])
+  // загрузка категорий из API. Пока ждём, на экране категории из кэша прошлого визита
+  // (а без кэша — лоадер); свежий ответ заменяет их и сам ложится в кэш
+  const loadCategories = () => {
+    setCategoriesFailed(false)
+    const apiUrl = import.meta.env.VITE_API_URL || '/api'
+    const url = apiUrl.endsWith('/api') ? `${apiUrl}/categories` : `${apiUrl}/api/categories`
+    fetchCategories(url)
+      .then(list => {
+        writeCachedCategories(list)
+        // совпало с кэшем — оставляем прежний массив, чтобы сетка не перерисовывалась
+        setCategories(prev => prev && JSON.stringify(prev) === JSON.stringify(list) ? prev : list)
+      })
+      .catch(err => {
+        // категории из кэша, если были, остаются: это реальные данные прошлого визита
+        console.error('[mini-app] ошибка загрузки категорий:', err)
+        setCategoriesFailed(true)
+      })
+  }
+
+  useEffect(() => { loadCategories() }, [])
 
   // загрузка статуса заказов и баннера
   useEffect(() => {
@@ -3279,11 +3330,16 @@ export default function App() {
     setSelectedProduct(null) // закрываем модалку товара
   }
 
-  // загрузка товаров с бэкенда
-  useEffect(() => {
+  // загрузка товаров с бэкенда (повторно — по кнопке «Повторить» на экране ошибки)
+  const loadProducts = () => {
+    setLoading(true)
+    setProductsError(false)
     const apiUrl = import.meta.env.VITE_API_URL || '/api'
     fetchWithRetry(`${apiUrl}/api/products`)
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.json()
+      })
       .then(data => {
         setProducts((data.items || []).map((p: Product) => ({
           ...p,
@@ -3293,9 +3349,12 @@ export default function App() {
       })
       .catch(err => {
         console.error('ошибка загрузки товаров:', err)
+        setProductsError(true)
         setLoading(false)
       })
-  }, [])
+  }
+
+  useEffect(() => { loadProducts() }, [])
 
   useEffect(() => {
     // инициализируем тему и кнопку назад
@@ -3788,24 +3847,50 @@ export default function App() {
               </button>
             </motion.section>
           ) : !selectedCategory ? (
-            // сетка категорий
-            <motion.section
-              key="categories"
-              className="category-grid"
-              variants={pageVariants}
-              initial="initial"
-              animate="in"
-              exit="out"
-              transition={{ duration: 0.3 }}
-            >
-              {categories.map(card => (
-                <CategoryCard
-                  key={card.key}
-                  card={card}
-                  onSelect={() => setSelectedCategory(card.key)}
-                />
-              ))}
-            </motion.section>
+            categories ? (
+              // сетка категорий
+              <motion.section
+                key="categories"
+                className="category-grid"
+                variants={pageVariants}
+                initial="initial"
+                animate="in"
+                exit="out"
+                transition={{ duration: 0.3 }}
+              >
+                {categories.map(card => (
+                  <CategoryCard
+                    key={card.key}
+                    card={card}
+                    onSelect={() => setSelectedCategory(card.key)}
+                  />
+                ))}
+              </motion.section>
+            ) : (
+              // категорий ещё нет (первый визит без кэша): лоадер, а не дошёл API — ошибка
+              <motion.section
+                key="categories-status"
+                className="catalog-status"
+                variants={pageVariants}
+                initial="initial"
+                animate="in"
+                exit="out"
+                transition={{ duration: 0.3 }}
+              >
+                {categoriesFailed ? (
+                  <CatalogError
+                    text="Не удалось загрузить каталог"
+                    onRetry={() => {
+                      loadCategories()
+                      // раз API не ответил, товары, скорее всего, тоже не пришли
+                      if (productsError) loadProducts()
+                    }}
+                  />
+                ) : (
+                  <div className="catalog-loader" role="progressbar" aria-label="Загружаем каталог" />
+                )}
+              </motion.section>
+            )
           ) : selectedCategory === CONSTRUCTOR_CATEGORY_KEY ? (
             <Constructor
               key="constructor"
@@ -3832,10 +3917,12 @@ export default function App() {
               }}
             >
               <h2 ref={productsTitleRef} className="products-section__title">
-                {categories.find(c => c.key === selectedCategory)?.title}
+                {categories?.find(c => c.key === selectedCategory)?.title}
               </h2>
               {loading ? (
                 <p className="products-loading">Загрузка...</p>
+              ) : productsError ? (
+                <CatalogError text="Не удалось загрузить товары" onRetry={loadProducts} />
               ) : filteredProducts.length === 0 ? (
                 <p className="products-empty">Товары скоро появятся</p>
               ) : (
