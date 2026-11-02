@@ -370,7 +370,11 @@ const ImageWithLoader = ({ src, alt }: { src: string, alt: string }) => {
 // единственный контрол — пауза/плей по тапу. Анимация-индикатор play показывается,
 // пока видео не играет (до старта autoplay + после ручной паузы) — она же служит
 // fallback'ом, если браузер заблокировал autoplay (iOS low-power). см. docs/VIDEO_SUPPORT.md
-const VideoPlayer = ({ src, isActive, onFullscreen }: { src: string, isActive: boolean, onFullscreen?: () => void }) => {
+// Сам <video> создаётся только на активном слайде и соседних (near): каждый элемент тянет
+// данные и держит декодер, а у товара бывает 5+ роликов плюс их копии в полноэкранном режиме
+const VideoPlayer = React.memo(({ src, isActive, near = true, onFullscreen }: {
+  src: string, isActive: boolean, near?: boolean, onFullscreen?: (src: string) => void
+}) => {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [playing, setPlaying] = useState(false)
   const [userPaused, setUserPaused] = useState(false)
@@ -395,7 +399,16 @@ const VideoPlayer = ({ src, isActive, onFullscreen }: { src: string, isActive: b
       v.pause()
       if (!isActive && userPaused) setUserPaused(false)
     }
-  }, [isActive, userPaused])
+  }, [isActive, userPaused, near])
+
+  // элемент сняли со слайда — onPause уже не придёт, сбрасываем состояние вручную,
+  // иначе при возврате индикатор и полоса загрузки покажут старое
+  useEffect(() => {
+    if (!near) {
+      setPlaying(false)
+      setLoadProgress(0)
+    }
+  }, [near])
 
   const togglePlay = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -412,25 +425,27 @@ const VideoPlayer = ({ src, isActive, onFullscreen }: { src: string, isActive: b
 
   const handleFullscreen = (e: React.MouseEvent) => {
     e.stopPropagation()
-    onFullscreen?.()
+    onFullscreen?.(src)
   }
 
   return (
     <div className="product-modal__video" onClick={togglePlay}>
-      <video
-        ref={videoRef}
-        src={src}
-        muted
-        loop
-        playsInline
-        preload={isActive ? 'auto' : 'metadata'}
-        autoPlay={isActive}
-        onPlaying={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
-        onProgress={handleProgress}
-        onLoadedMetadata={handleProgress}
-        onTimeUpdate={handleProgress}
-      />
+      {near && (
+        <video
+          ref={videoRef}
+          src={src}
+          muted
+          loop
+          playsInline
+          preload={isActive ? 'auto' : 'metadata'}
+          autoPlay={isActive}
+          onPlaying={() => setPlaying(true)}
+          onPause={() => setPlaying(false)}
+          onProgress={handleProgress}
+          onLoadedMetadata={handleProgress}
+          onTimeUpdate={handleProgress}
+        />
+      )}
       <div className={`product-modal__video-indicator ${playing ? 'is-hidden' : ''}`} aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
           <rect x="6" y="4" width="4.5" height="16" />
@@ -457,27 +472,59 @@ const VideoPlayer = ({ src, isActive, onFullscreen }: { src: string, isActive: b
       )}
     </div>
   )
-}
+})
 
-// миниатюра видео: первый кадр (#t=0.1 подсказывает браузеру показать кадр) + бейдж play
-const VideoThumbnail = ({
-  src, isActive, onClick, 'aria-label': ariaLabel
+// фото-слайд галереи. Картинка подключается, когда слайд оказался рядом с текущим, и дальше
+// остаётся: при открытии карточки телефон не качает и не декодирует все фото разом. Состояние
+// загрузки у каждого слайда своё, поэтому переход на уже показанное фото не заставляет его
+// мигать заглушкой и перерисовываться заново.
+// Именно <img>, а не background-image: снимки с камеры приходят с EXIF-поворотом, и фон
+// такой картинки Chrome декодирует и поворачивает в основном потоке на каждой отрисовке —
+// на фото 24 МП это секунды фриза при листании. <img> делает то же самое вне основного потока
+const GalleryPhoto = React.memo(({ src, near, onOpen }: {
+  src: string, near: boolean, onOpen: (src: string) => void
+}) => {
+  const [wanted, setWanted] = useState<string | null>(near ? src : null)
+  if (near && wanted !== src) setWanted(src)
+  const active = wanted === src
+  const { loading } = useImageLoader(active ? src : '')
+  const ready = active && !loading
+
+  return (
+    <div
+      className={`product-modal__image ${active && loading ? 'shimmer-bg' : ''}`}
+      onClick={() => onOpen(src)}
+    >
+      {ready && <img className="product-modal__photo fade-in-image" src={src} alt="" draggable={false} />}
+    </div>
+  )
+})
+
+// миниатюра видео: первый кадр (#t=0.1 подсказывает браузеру показать кадр) + бейдж play.
+// <video> живёт, только пока миниатюра видна в ленте — по той же причине, что и в галерее
+const VideoThumbnail = React.memo(({
+  src, index, isActive, onSelect, 'aria-label': ariaLabel
 }: {
-  src: string, isActive: boolean, onClick: () => void, 'aria-label': string
-}) => (
-  <button
-    className={`product-modal__thumbnail product-modal__thumbnail--video ${isActive ? 'active' : ''}`}
-    onClick={onClick}
-    aria-label={ariaLabel}
-  >
-    <video src={`${src}#t=0.1`} muted playsInline preload="metadata" tabIndex={-1} />
-    <span className="product-modal__thumbnail-play" aria-hidden="true">
-      <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-        <path d="M8 5v14l11-7L8 5z" />
-      </svg>
-    </span>
-  </button>
-)
+  src: string, index: number, isActive: boolean, onSelect: (index: number) => void, 'aria-label': string
+}) => {
+  const { ref, inView } = useInView<HTMLButtonElement>(false)
+
+  return (
+    <button
+      ref={ref}
+      className={`product-modal__thumbnail product-modal__thumbnail--video ${isActive ? 'active' : ''}`}
+      onClick={() => onSelect(index)}
+      aria-label={ariaLabel}
+    >
+      {inView && <video src={`${src}#t=0.1`} muted playsInline preload="metadata" tabIndex={-1} />}
+      <span className="product-modal__thumbnail-play" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+          <path d="M8 5v14l11-7L8 5z" />
+        </svg>
+      </span>
+    </button>
+  )
+})
 
 const AccordionItem = ({ question, children }: { question: string, children: React.ReactNode }) => {
   const [isOpen, setIsOpen] = useState(false)
@@ -752,19 +799,23 @@ const FullscreenImage = ({
           onNavigate(swiper.activeIndex)
         }}
       >
-        {images.map((media, idx) => (
-          <SwiperSlide key={idx} onClick={(e) => e.stopPropagation()}>
-            {isVideo(media) ? (
-              <div className="fullscreen-image__video">
-                <VideoPlayer src={media} isActive={activeIndex === idx} />
-              </div>
-            ) : (
-              <div className="swiper-zoom-container">
-                <img src={media} alt={`Товар (${idx + 1})`} />
-              </div>
-            )}
-          </SwiperSlide>
-        ))}
+        {images.map((media, idx) => {
+          // как и в галерее: оригиналы и ролики грузим только для текущего слайда и соседей
+          const near = Math.abs(activeIndex - idx) <= 1
+          return (
+            <SwiperSlide key={idx} onClick={(e) => e.stopPropagation()}>
+              {isVideo(media) ? (
+                <div className="fullscreen-image__video">
+                  <VideoPlayer src={media} isActive={activeIndex === idx} near={near} />
+                </div>
+              ) : (
+                <div className="swiper-zoom-container">
+                  {near && <img src={media} alt={`Товар (${idx + 1})`} />}
+                </div>
+              )}
+            </SwiperSlide>
+          )
+        })}
       </Swiper>
     </div>
   )
@@ -804,9 +855,6 @@ const ProductModal = ({
   const [addedState, setAddedState] = useState(false)
   const swiperRef = useRef<SwiperClass | null>(null)
   const thumbnailsRef = useRef<HTMLDivElement>(null)
-  const currentMedia = product.images?.[selectedImageIndex] || ''
-  // image-loader только для фото; для видео отдаём '' (Image() не грузит видео)
-  const { loading: mainImageLoading } = useImageLoader(isVideo(currentMedia) ? '' : currentMedia)
   // остаток общий на все опции, поэтому считаем уже занятое количество по всем
   // строкам корзины с этим товаром, независимо от выбранного размера
   const currentQuantity = cart.reduce(
@@ -828,10 +876,11 @@ const ProductModal = ({
     setSelectedOption(null)
   }, [product.slug])
 
-  // синхронизация свайпера с выбранной миниатюрой
+  // синхронизация свайпера с выбранной миниатюрой. Под полноэкранным режимом галерея
+  // не видна — переставляем её без анимации, чтобы не гонять её впустую
   useEffect(() => {
     if (swiperRef.current && swiperRef.current.activeIndex !== selectedImageIndex) {
-      swiperRef.current.slideTo(selectedImageIndex)
+      swiperRef.current.slideTo(selectedImageIndex, fullscreenImage ? 0 : undefined)
     }
   }, [selectedImageIndex])
 
@@ -907,29 +956,29 @@ const ProductModal = ({
               onSwiper={(swiper) => (swiperRef.current = swiper)}
               onSlideChange={(swiper) => setSelectedImageIndex(swiper.activeIndex)}
             >
-              {product.images.map((img, idx) => (
-                <SwiperSlide key={idx}>
-                  {isVideo(img) ? (
-                    <VideoPlayer
-                      src={img}
-                      isActive={selectedImageIndex === idx}
-                      onFullscreen={() => setFullscreenImage(img)}
-                    />
-                  ) : (
-                    <div
-                      className={`product-modal__image ${mainImageLoading && selectedImageIndex === idx ? 'shimmer-bg' : 'fade-in-image'}`}
-                      style={
-                        mainImageLoading && selectedImageIndex === idx
-                          ? {}
-                          : { backgroundImage: `url(${img})` }
-                      }
-                      onClick={() => setFullscreenImage(img)}
-                    />
-                  )}
-                </SwiperSlide>
-              ))}
+              {product.images.map((img, idx) => {
+                // слайды получают только флаги близости и стабильные колбэки: при свайпе
+                // перерисовываются лишь те, у кого флаг поменялся, а не вся галерея
+                const near = Math.abs(selectedImageIndex - idx) <= 1
+                return (
+                  <SwiperSlide key={idx}>
+                    {isVideo(img) ? (
+                      <VideoPlayer
+                        src={img}
+                        // под полноэкранным режимом ролик ставим на паузу и снимаем элементы:
+                        // иначе один и тот же ролик играет дважды — там и под подложкой
+                        isActive={selectedImageIndex === idx && !fullscreenImage}
+                        near={near && !fullscreenImage}
+                        onFullscreen={setFullscreenImage}
+                      />
+                    ) : (
+                      <GalleryPhoto src={img} near={near} onOpen={setFullscreenImage} />
+                    )}
+                  </SwiperSlide>
+                )
+              })}
             </Swiper>
-            
+
             {product.images.length > 1 && (
               <div className="product-modal__thumbnails" ref={thumbnailsRef}>
                 {product.images.map((img, idx) => (
@@ -937,16 +986,18 @@ const ProductModal = ({
                     <VideoThumbnail
                       key={idx}
                       src={img}
+                      index={idx}
                       isActive={selectedImageIndex === idx}
-                      onClick={() => setSelectedImageIndex(idx)}
+                      onSelect={setSelectedImageIndex}
                       aria-label={`Видео ${idx + 1}`}
                     />
                   ) : (
                     <ThumbnailButton
                       key={idx}
                       src={img}
+                      index={idx}
                       isActive={selectedImageIndex === idx}
-                      onClick={() => setSelectedImageIndex(idx)}
+                      onSelect={setSelectedImageIndex}
                       aria-label={`Фото ${idx + 1}`}
                     />
                   )
@@ -2770,6 +2821,37 @@ function useImageLoader(src: string) {
   return { loading, error }
 }
 
+// виден ли элемент на экране (с запасом по горизонтали — для ленты миниатюр).
+// sticky: раз попав в видимую область, считается видимым навсегда — для картинок, которые
+// незачем выгружать; без sticky флаг снимается, когда элемент уходит из вида
+function useInView<T extends Element>(sticky: boolean) {
+  const ref = useRef<T>(null)
+  const [inView, setInView] = useState(false)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    // старые вебвью без IntersectionObserver — грузим сразу, как было раньше
+    if (typeof IntersectionObserver === 'undefined') {
+      setInView(true)
+      return
+    }
+    const observer = new IntersectionObserver(entries => {
+      const visible = entries[entries.length - 1].isIntersecting
+      if (visible) {
+        setInView(true)
+        if (sticky) observer.disconnect()
+      } else if (!sticky) {
+        setInView(false)
+      }
+    }, { rootMargin: '0px 120px' })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [sticky])
+
+  return { ref, inView }
+}
+
 // нормализуем background-position: старые некорректные значения (623.5% и т.п.) → center
 function normalizeBgPosition(pos: string | undefined): string {
   if (!pos || pos === 'center') return 'center'
@@ -2813,28 +2895,37 @@ const CatalogError = ({ text, onRetry }: { text: string, onRetry: () => void }) 
   </div>
 )
 
-const ThumbnailButton = ({ 
-  src, 
-  isActive, 
-  onClick,
+// миниатюра фото грузится, когда впервые попала в видимую часть ленты: у товаров с 15–20
+// медиа иначе все оригиналы качаются разом при открытии карточки. <img> вместо фона —
+// по той же причине, что в GalleryPhoto (EXIF-поворот фона считается в основном потоке)
+const ThumbnailButton = React.memo(({
+  src,
+  index,
+  isActive,
+  onSelect,
   'aria-label': ariaLabel
-}: { 
+}: {
   src: string
+  index: number
   isActive: boolean
-  onClick: () => void
+  onSelect: (index: number) => void
   'aria-label': string
 }) => {
-  const { loading } = useImageLoader(src)
+  const { ref, inView } = useInView<HTMLButtonElement>(true)
+  const { loading } = useImageLoader(inView ? src : '')
+  const ready = inView && !loading
 
   return (
     <button
-      className={`product-modal__thumbnail ${isActive ? 'active' : ''} ${loading ? 'shimmer-bg' : 'fade-in-image'}`}
-      onClick={onClick}
-      style={loading ? {} : { backgroundImage: `url(${src})` }}
+      ref={ref}
+      className={`product-modal__thumbnail product-modal__thumbnail--photo ${isActive ? 'active' : ''} ${inView && loading ? 'shimmer-bg' : ''}`}
+      onClick={() => onSelect(index)}
       aria-label={ariaLabel}
-    />
+    >
+      {ready && <img className="fade-in-image" src={src} alt="" draggable={false} />}
+    </button>
   )
-}
+})
 
 // та же схема, что у грида товаров (gridVariants/itemVariants в App()): контейнер
 // придерживает детей до начала анимации (stagger), карточки въезжают снизу по одной.

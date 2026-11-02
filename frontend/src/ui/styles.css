@@ -421,7 +421,10 @@ button, input, select, textarea { font-family: inherit; }
   font-size: 16px;
 }
 .product-modal__image-wrapper { position: relative; }
-.product-modal__image { width: 100%; aspect-ratio: 4 / 5; background-size: cover; background-position: center; background-repeat: no-repeat; background-color: #f0f0f0; cursor: zoom-in; }
+.product-modal__image { width: 100%; aspect-ratio: 4 / 5; background-size: cover; background-position: center; background-repeat: no-repeat; background-color: #f0f0f0; cursor: zoom-in; overflow: hidden; }
+/* фото галереи и миниатюр — <img> с обрезкой как у background-size: cover (почему не фон —
+   см. GalleryPhoto в App.tsx) */
+.product-modal__photo { display: block; width: 100%; height: 100%; object-fit: cover; }
 .product-modal__arrow { position: absolute; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; background: rgba(255, 255, 255, 0.1) !important; border: none !important; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s; z-index: 10; }
 .product-modal__arrow:hover { background: rgba(255, 255, 255, 0.3) !important; }
 .product-modal__arrow:active { transform: translateY(-50%) scale(0.95); }
@@ -433,6 +436,13 @@ button, input, select, textarea { font-family: inherit; }
 .product-modal__thumbnail { width: 60px; height: 75px; flex-shrink: 0; border: 2px solid transparent; border-radius: 4px; background-size: cover; background-position: center; cursor: pointer; transition: all 0.2s; opacity: 0.6; background-color: #f0f0f0; }
 .product-modal__thumbnail:hover { opacity: 0.8; }
 .product-modal__thumbnail.active { border-color: #d480e0; opacity: 1; }
+/* фото-миниатюра — <img> вместо фона (см. ThumbnailButton). Фон раньше заходил под
+   прозрачную рамку, поэтому картинка растянута и на её место, а рамку активной миниатюры
+   рисует ::after поверх картинки — выглядит ровно как было */
+.product-modal__thumbnail--photo { position: relative; padding: 0; }
+.product-modal__thumbnail--photo img { position: absolute; inset: -2px; width: calc(100% + 4px); height: calc(100% + 4px); object-fit: cover; border-radius: 4px; display: block; }
+.product-modal__thumbnail--photo::after { content: ''; position: absolute; inset: -2px; border: 2px solid transparent; border-radius: 4px; transition: border-color 0.2s; pointer-events: none; }
+.product-modal__thumbnail--photo.active::after { border-color: #d480e0; }
 
 /* видео в галерее товара (см. docs/VIDEO_SUPPORT.md) */
 .product-modal__video { position: relative; width: 100%; aspect-ratio: 4 / 5; background-color: #f0f0f0; cursor: pointer; overflow: hidden; }
