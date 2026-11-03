@@ -263,6 +263,7 @@ export default function ShipmentsPage({ onNavigate }: { onNavigate?: (page: Admi
           <button className="nav-btn" onClick={() => onNavigate?.('bases')}>Конструктор</button>
           <button className="nav-btn" onClick={() => onNavigate?.('statistics')}>Статистика</button>
           <button className="nav-btn active" onClick={() => onNavigate?.('shipments')}>Учёт</button>
+          <button className="nav-btn" onClick={() => onNavigate?.('ems')}>EMS</button>
           <button className="nav-btn" onClick={() => onNavigate?.('customers')}>Клиенты</button>
           <button className="nav-btn" onClick={() => onNavigate?.('settings')}>Настройки</button>
         </div>

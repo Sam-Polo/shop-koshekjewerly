@@ -346,6 +346,47 @@ export const api = {
     return fetchWithAuth('/api/stats/categories')
   },
 
+  // ── EMS (Почта России): раздел отправки международных заказов ──────────────
+  async getEmsOrders(): Promise<{ orders: any[]; today: string }> {
+    return fetchWithAuth('/api/ems')
+  },
+
+  async getEmsCountries(): Promise<{ countries: Array<{ code: number; name: string }> }> {
+    return fetchWithAuth('/api/ems/countries')
+  },
+
+  /**
+   * Назначить/перенести дату отправки. Отказы Почты (не хватает денег, не та дата)
+   * приходят с ok:false и текстом для менеджера — их не бросаем, а возвращаем как есть.
+   */
+  async shipEms(orderId: string, sendingDate: string): Promise<{ ok: boolean; pending?: boolean; message?: string; code?: string | null; warnings?: string[]; error?: string }> {
+    const token = getToken()
+    const response = await fetch(`${API_URL}/api/ems/${encodeURIComponent(orderId)}/ship`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ sendingDate })
+    })
+    if (response.status === 401) {
+      removeToken()
+      window.location.href = '/'
+      throw new Error('unauthorized')
+    }
+    const data = await response.json().catch(() => null)
+    if (data && typeof data === 'object') {
+      if (response.ok || data.message) return data
+      throw new Error(data.detail ? `${data.error}: ${data.detail}` : (data.error || `Ошибка ${response.status}`))
+    }
+    throw new Error(`Ошибка ${response.status}: ${response.statusText}`)
+  },
+
+  async createManualEmsOrder(payload: any): Promise<{ ok: boolean; orderId: string; total: number; deliveryCost: number; result: string }> {
+    return fetchWithAuth('/api/ems/manual-order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+  },
+
   async getShipments(params: { from?: string; to?: string; source?: string; priority?: string; nocache?: boolean } = {}) {
     const qs = new URLSearchParams()
     const { nocache, ...rest } = params

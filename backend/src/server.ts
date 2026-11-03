@@ -10,10 +10,11 @@ import rateLimit from 'express-rate-limit';
 import { fetchProductsFromSheet, decreaseStockInSheet } from './sheets.js';
 import { listProducts, upsertProducts, decreaseProductStock, getProductCategories } from './store.js';
 import { createOrder, getOrder, updateOrderStatus, listOrders, restoreOrder, type Order, type Platform, type DeliveryMethod } from './orders.js';
-import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId, getOrderHistoryByChatId, advanceOrderStatusInSheet, statusRank, listPendingOrdersFromSheet, updateCdekInfoInSheet, updatePochtaInfoInSheet, type OrderCustomerStatus } from './orders-sheet.js'
+import { appendOrderToSheet, updateOrderStatusInSheet, ensureOrderSheets, getOrderFromSheet, updateOrderAdminNoteInSheet, getOrdersByCustomerChatId, getOrderHistoryByChatId, advanceOrderStatusInSheet, statusRank, listPendingOrdersFromSheet, updateCdekInfoInSheet, type OrderCustomerStatus } from './orders-sheet.js'
 import { sendAlert } from './alerts.js';
 import { searchCities, getPickupPoints, calculateDelivery, triggerCdekOrderAsync, getCdekUuidByTrack, downloadCdekBarcode } from './cdek.js';
-import { calculateTariff as calculatePochtaTariff, alertTariffFailure as alertPochtaTariffFailure, triggerPochtaOrderAsync, downloadF7p, downloadF103, checkinBatch, getCountries as getPochtaCountries, createPochtaOrder, createBatch, getShpiFromBatch, checkRequiredPochtaEnv, pochtaFetch, _batchShipmentsPath } from './pochta.js';
+import { calculateTariff as calculatePochtaTariff, alertTariffFailure as alertPochtaTariffFailure, downloadF7p, downloadF103, checkinBatch, getCountries as getPochtaCountries, createPochtaOrder, createBatch, getShpiFromBatch, checkRequiredPochtaEnv, pochtaFetch, _batchShipmentsPath } from './pochta.js';
+import { prepareEmsOrder, shipEmsOrder, isShipRunning, listEmsOrders, parsePochtaState, type EmsMessaging } from './ems-shipping.js';
 import { uploadBufferToS3 } from './s3.js';
 import { triggerAmoCrmAsync, updateAmoCrmLeadTrack, updateAmoCrmLeadBarcode, createAmoCrmLead, syncCdekToLead } from './amocrm.js';
 import { buildPaymentForm, buildReceipt, verifyResultSignature, queryOrderState } from './robokassa.js';
@@ -703,6 +704,11 @@ async function sendOrderNotifications(order: any) {
     : dm === 'pickup'
     ? `${deliveryLabel}:\n${escapeHtml(order.orderData.address)}`
     : `${deliveryLabel}:\n${escapeHtml(order.orderData.country)}, ${escapeHtml(order.orderData.city)}\n${escapeHtml(order.orderData.address)}`
+  // EMS: трек и документы появляются только после назначения даты отправки —
+  // без напоминания в посте заказа про раздел будут забывать
+  const emsManagerHint = dm === 'ems'
+    ? '\n\n📅 Назначьте дату отправки: админка → EMS. До этого у покупателя нет трека, а у почты — документов.'
+    : ''
 
   const customerMessage = `
 🎉 <b>Ваш заказ оформлен!</b>
@@ -743,7 +749,7 @@ ${order.platform === 'max'
   : `TG: ${order.orderData.username ? escapeHtml(order.orderData.username) : 'не указан'}`
 }
 
-${managerDeliveryBlock}
+${managerDeliveryBlock}${emsManagerHint}
 
 Товары:
 ${itemsTextForManager}
@@ -1444,85 +1450,10 @@ export async function processPaidOrder(
     // электронный сертификат — физической отправки нет, промокод уже в лиде
     logger.info({ orderId, certPromocode }, 'электронный сертификат: отправление не создаётся')
   } else if (order.orderData.deliveryMethod === 'ems') {
-    // fire-and-forget: создаём международное EMS-отправление и отправляем трек покупателю
-    triggerPochtaOrderAsync(order, async (shpi, batchName, pochtaOrderId, checkedIn) => {
-      updatePochtaInfoInSheet(orderId, shpi).catch(() => {})
-      const trackingUrl = `https://www.pochta.ru/tracking#${shpi}`
-
-      // ф.103 (партионный реестр) — его несут на почту, без него партию не примут.
-      // Доступен только после успешного checkin, поэтому при checkedIn=false даже
-      // не пробуем: причина уже отправлена алертом POCHTA_CHECKIN_FAILED.
-      let f103Url: string | null = null
-      if (checkedIn) {
-        try {
-          const pdf = await downloadF103(batchName)
-          f103Url = await uploadBufferToS3(`pochta-labels/f103-${batchName}.pdf`, pdf, 'application/pdf')
-        } catch (e: any) {
-          sendAlert(
-            `Pochta: checkin партии ${batchName} прошёл, но ф.103 не скачался (заказ ${orderId}): ${e?.message}`,
-            { tag: 'pochta', level: 'high', hint: 'распечатайте ф.103 в ЛК Почты вручную', code: 'POCHTA_F103_FAILED' }
-          ).catch(() => {})
-        }
-      }
-
-      if (amoCrmLeadId) {
-        updateAmoCrmLeadTrack(amoCrmLeadId, shpi, trackingUrl).catch((e: any) => {
-          sendAlert(
-            `amoCRM: не удалось обновить ШПИ ${shpi} в лиде ${amoCrmLeadId} (заказ ${orderId}): ${e?.message}`,
-            { tag: 'amocrm', level: 'low', code: 'AMOCRM_TRACK_UPDATE_FAILED' }
-          ).catch(() => {})
-        })
-        // Бандл CN22 + адресный ярлык по id заказа Почты (не по ШПИ) — то, что клеится
-        // на посылку. От checkin не зависит, работает сам по себе. Партионный реестр
-        // ф.103 — отдельный документ, он уходит менеджеру ссылкой ниже.
-        // Уровень high: без ярлыка менеджеру нечего печатать и посылку не примут на почте
-        // (именно на low этот сбой месяц оставался незамеченным, июль–август 2026).
-        updateAmoCrmLeadBarcode(amoCrmLeadId, String(pochtaOrderId), downloadF7p, 'pochta-labels').catch((e: any) => {
-          sendAlert(
-            `amoCRM: не удалось прикрепить ярлык Ф7п к лиду ${amoCrmLeadId} (заказ ${orderId}): ${e?.message}`,
-            { tag: 'amocrm', level: 'high', hint: 'менеджер должен распечатать формы из ЛК Почты вручную', code: 'AMOCRM_BARCODE_FAILED' }
-          ).catch(() => {})
-        })
-      }
-      const trackMsg = trackMessageTemplate
-        .replace(/\{\{track\}\}/g, shpi)
-        .replace(/\{\{track-link\}\}/g, trackingUrl)
-        .replace(/\{\{ord\}\}/g, orderId)
-      if (order.customerChatId) {
-        const result = order.platform === 'max'
-          ? await sendMaxMessage(order.customerChatId, trackMsg)
-          : await sendTelegramMessage(order.customerChatId, trackMsg)
-        if (result.ok) {
-          updateOrderAdminNoteInSheet(orderId, `track: ${trackingUrl}`).catch(() => {})
-          logger.info({ orderId, shpi }, 'EMS трек отправлен покупателю')
-        } else {
-          sendAlert(
-            `EMS трек для ${orderId} получен (${shpi}), но не доставлен покупателю: ${result.errorDescription ?? 'неизвестно'}`,
-            { tag: 'pochta', level: 'moderate', code: 'POCHTA_TRACK_SEND_FAILED' }
-          ).catch(() => {})
-        }
-      }
-
-      const mgrChatId = order.platform === 'max'
-        ? process.env.MAX_MANAGER_CHAT_ID
-        : (process.env.TG_ORDERS_CHANNEL_ID || process.env.TG_MANAGER_CHAT_ID)
-      if (mgrChatId) {
-        const sendMgr = order.platform === 'max' ? sendMaxMessage : sendTelegramMessage
-        // ф.103 обязателен при сдаче партии — если его нет, менеджер должен знать сразу,
-        // а не узнавать об этом от сотрудника почты на стойке.
-        const f103Line = f103Url
-          ? `\n\n📄 Ф.103 (распечатать и взять на почту):\n${f103Url}`
-          : `\n\n⚠️ Ф.103 не сформирован — партию на почте не примут, разбирайтесь до отправки`
-        sendMgr(mgrChatId,
-          `📦 EMS Почта России, ШПИ по заказу <code>${escapeHtml(orderId)}</code>:\n<code>${shpi}</code>\n${trackingUrl}${f103Line}`
-        ).catch(() => {})
-      }
-    }).catch((e: any) => {
-      sendAlert(
-        `Pochta: необработанная ошибка при запуске triggerPochtaOrderAsync для ${orderId}: ${e?.message}`,
-        { tag: 'pochta', level: 'high', code: 'POCHTA_TRIGGER_UNHANDLED' }
-      ).catch(() => {})
-    })
+    // При оплате — только заказ в backlog Почты (бесплатно, Почта сразу проверяет адрес).
+    // Партия, ШПИ, checkin (списание тарифа) и трек покупателю — когда менеджер назначит
+    // дату отправки в админке, раздел EMS (ems-shipping.ts, docs/integrations/pochta-ems.md).
+    void prepareEmsOrder(order)
   } else {
     // СДЭК (по умолчанию) — fire-and-forget: создаём отправление и отправляем трек покупателю
     triggerCdekOrderAsync(order, async (uuid, cdekNumber) => {
@@ -2689,7 +2620,14 @@ app.post('/admin/notify-shipped', express.json(), async (req, res) => {
 
   const deliveryMethod = sheetOrder.orderData.deliveryMethod
   const cdekTrack = sheetOrder.cdekTrackNumber || ''
-  const emsTrack = sheetOrder.pochtaShpi || ''
+  // EMS: трек выпускается, когда менеджер назначает дату отправки (раздел EMS админки);
+  // фолбэк на pochta_state — на случай, если запись в pochta_shpi при выпуске не прошла
+  const emsState = parsePochtaState(sheetOrder.pochtaState)
+  const emsTrack = sheetOrder.pochtaShpi || (emsState.releasedAt ? emsState.shpi ?? '' : '')
+  if (deliveryMethod === 'ems' && !emsTrack) {
+    // иначе покупатель получил бы «заказ отправлен» с пустой ссылкой
+    return res.status(422).json({ error: 'no_track' })
+  }
   const trackNumber = deliveryMethod === 'ems' ? emsTrack : cdekTrack
   const trackLink = deliveryMethod === 'ems'
     ? `https://www.pochta.ru/tracking#${emsTrack}`
@@ -2731,6 +2669,216 @@ app.post('/admin/notify-shipped', express.json(), async (req, res) => {
   }
 
   res.json({ ok: true, alreadyNotified })
+})
+
+// ── Раздел EMS админки ─────────────────────────────────────────────────────────
+// Админка (VDS РФ) ходит сюда с x-admin-key, сама в Почту не ходит: креды Почты живут
+// только на Render (третья копия пароля — повтор инцидента 02.11, docs/integrations/pochta-ems.md).
+
+const emsMessaging: EmsMessaging = {
+  sendToCustomer: (platform, chatId, html) =>
+    platform === 'max' ? sendMaxMessage(chatId, html) : sendTelegramMessage(chatId, html),
+  sendToManagers: async (platform, html) => {
+    const chatId = platform === 'max'
+      ? process.env.MAX_MANAGER_CHAT_ID
+      : (process.env.TG_ORDERS_CHANNEL_ID || process.env.TG_MANAGER_CHAT_ID)
+    if (!chatId) return
+    const r = platform === 'max' ? await sendMaxMessage(chatId, html) : await sendTelegramMessage(chatId, html)
+    if (!r.ok) logger.warn({ error: r.errorDescription }, 'EMS: сообщение в канал заказов не доставлено')
+  },
+  trackTemplate: async () => {
+    try {
+      const sheetId = process.env.IMPORT_SHEET_ID
+      if (sheetId) {
+        const settings = await getCachedOrdersSettings(sheetId)
+        if (settings.trackMessage) return settings.trackMessage
+      }
+    } catch {
+      // настройки недоступны — шлём дефолтный текст
+    }
+    return DEFAULT_TRACK_MESSAGE
+  },
+}
+
+// GET /admin/pochta/orders — EMS-заказы с живым статусом у Почты
+app.get('/admin/pochta/orders', async (req, res) => {
+  const key = req.header('x-admin-key')
+  if (!key || key !== process.env.ADMIN_IMPORT_KEY) {
+    return res.status(401).json({ error: 'unauthorized' })
+  }
+  try {
+    res.json(await listEmsOrders())
+  } catch (e: any) {
+    logger.error({ error: e?.message }, 'EMS: не удалось собрать список заказов')
+    sendAlert(`EMS: раздел админки не загрузился: ${e?.message}`,
+      { tag: 'admin', level: 'moderate', hint: 'чаще всего Sheets недоступен или квота', code: 'EMS_LIST_FAILED' }).catch(() => {})
+    res.status(500).json({ error: 'ems_list_failed', detail: e?.message })
+  }
+})
+
+// Почта бывает медленной: ждём результат не дольше этого, дальше оформление идёт в фоне,
+// а админка видит итог при следующем обновлении списка (прокси nginx режет долгие ответы)
+const EMS_SHIP_WAIT_MS = 45_000
+
+// POST /admin/pochta/ship { orderId, sendingDate: 'yyyy-MM-dd' } — назначить/перенести дату
+// отправки: партия → ШПИ → checkin (списание с онлайн-баланса) → документы → трек покупателю.
+// Бизнес-отказы (не хватает денег, Почта не приняла дату) — HTTP 200 с ok:false и текстом
+// для менеджера; 4xx — только ошибки самого запроса.
+app.post('/admin/pochta/ship', express.json(), async (req, res) => {
+  const key = req.header('x-admin-key')
+  if (!key || key !== process.env.ADMIN_IMPORT_KEY) {
+    return res.status(401).json({ error: 'unauthorized' })
+  }
+  const { orderId, sendingDate } = req.body ?? {}
+  if (typeof orderId !== 'string' || !orderId) return res.status(400).json({ error: 'orderId required' })
+  if (typeof sendingDate !== 'string' || !sendingDate) return res.status(400).json({ error: 'sendingDate required' })
+
+  if (isShipRunning(orderId)) {
+    return res.status(409).json({ ok: false, error: 'already_running', message: 'Оформление этого заказа уже идёт — обновите список через минуту' })
+  }
+
+  const job = shipEmsOrder(orderId, sendingDate, emsMessaging)
+  let timer: NodeJS.Timeout | undefined
+  const result = await Promise.race([
+    job,
+    new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), EMS_SHIP_WAIT_MS) }),
+  ])
+  clearTimeout(timer)
+  if (!result) {
+    return res.status(202).json({ ok: true, pending: true, message: 'Почта отвечает долго — оформление продолжается, обновите список через минуту' })
+  }
+  if (result.ok) return res.json(result)
+  return res.status(result.httpStatus).json(result)
+})
+
+// латиница в загран-адресе и имени — тот же фильтр, что в мини-аппе (Почта отклоняет кириллицу)
+const LATIN_TEXT_RE = /^[A-Za-z0-9\s.,'\-/()#&]+$/
+
+// POST /admin/orders/manual — оплаченный EMS-заказ, пришедший не через мини-апп (личка,
+// переписка с менеджером). Дальше — вся обычная воронка: Sheets, остатки, уведомления
+// покупателю и в канал, лид amoCRM, заказ в Почте и раздел EMS. Цены товаров — из каталога,
+// доставка — по тарифу Почты, если менеджер не указал, сколько покупатель за неё заплатил.
+app.post('/admin/orders/manual', express.json(), async (req, res) => {
+  const key = req.header('x-admin-key')
+  if (!key || key !== process.env.ADMIN_IMPORT_KEY) {
+    return res.status(401).json({ error: 'unauthorized' })
+  }
+  const b = req.body ?? {}
+  const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
+  const bad = (field: string, detail: string) => res.status(400).json({ error: 'invalid_field', field, detail })
+
+  const platform: Platform = b.platform === 'max' ? 'max' : 'telegram'
+  const chatId = str(b.customerChatId)
+  if (chatId && !/^\d{3,20}$/.test(chatId)) return bad('customerChatId', 'chat_id — только цифры')
+  const rawUsername = str(b.username).replace(/^@+/, '')
+  if (rawUsername && !/^[A-Za-z0-9_]{3,40}$/.test(rawUsername)) return bad('username', 'ник без пробелов: буквы, цифры, _')
+  const fullName = str(b.fullName)
+  if (!fullName || fullName.length > 100 || !LATIN_TEXT_RE.test(fullName)) return bad('fullName', 'ФИО латиницей, как в загранпаспорте')
+  const phone = normalizePhone(str(b.phone))
+  if (phone.replace(/\D/g, '').length < 7) return bad('phone', 'телефон с кодом страны')
+
+  const r = b.recipient ?? {}
+  const countryCode = Number(r.countryCode)
+  if (!Number.isInteger(countryCode) || countryCode <= 0) return bad('countryCode', 'выберите страну')
+  const region = str(r.region)
+  const city = str(r.city)
+  const street = str(r.street)
+  const index = str(r.index)
+  if (region && !LATIN_TEXT_RE.test(region)) return bad('region', 'регион латиницей')
+  if (!city || !LATIN_TEXT_RE.test(city)) return bad('city', 'город латиницей')
+  if (!street || !LATIN_TEXT_RE.test(street)) return bad('street', 'улица, дом, квартира латиницей')
+  if (!/^[A-Za-z0-9\- ]{2,12}$/.test(index)) return bad('index', 'почтовый индекс')
+  const comment = str(b.comments).slice(0, 500)
+
+  // товары: по артикулу или slug; цена — только из каталога
+  const reqItems = Array.isArray(b.items) ? b.items : []
+  if (reqItems.length === 0 || reqItems.length > 20) return bad('items', 'от 1 до 20 позиций')
+  const products = listProducts().filter(p => p.active)
+  const normArticle = (a: string) => (/^\d+$/.test(a) ? a.padStart(4, '0') : a)
+  const items: Order['orderData']['items'] = []
+  for (const it of reqItems) {
+    const quantity = Number(it?.quantity)
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 99) return bad('items', 'количество — целое от 1 до 99')
+    const slug = str(it?.slug)
+    const article = normArticle(str(it?.article))
+    const matches = slug
+      ? products.filter(p => p.slug === slug)
+      : products.filter(p => p.article && normArticle(String(p.article)) === article)
+    // один товар бывает в нескольких категориях (одна строка на каждую) — считаем по slug
+    const slugs = [...new Set(matches.map(p => p.slug))]
+    if (slugs.length === 0) return bad('items', `товар ${slug || article} не найден или неактивен`)
+    if (slugs.length > 1) return bad('items', `артикул ${article} у нескольких товаров: ${slugs.join(', ')} — укажите slug`)
+    const product = matches[0]
+    let option: string | undefined
+    if (product.options) {
+      const picked = str(it?.option)
+      const known = product.options.values.find(v => v === picked)
+      if (!known) return bad('items', `для «${product.title}» укажите «${product.options.name}»: ${product.options.values.join(', ')}`)
+      option = `${product.options.name}: ${known}`
+    }
+    const price = product.discount_price_rub !== undefined && product.discount_price_rub > 0
+      ? product.discount_price_rub
+      : product.price_rub
+    items.push({ slug: product.slug, title: product.title, price, quantity, article: product.article, option })
+  }
+  const itemsTotal = items.reduce((s, it) => s + it.price * it.quantity, 0)
+
+  let countryName = `код ${countryCode}`
+  try {
+    countryName = (await getPochtaCountries()).find(c => c.code === countryCode)?.name ?? countryName
+  } catch {
+    // справочник недоступен — название страны для людей не критично, код уйдёт в Почту
+  }
+
+  let deliveryCost: number
+  if (b.deliveryCost !== undefined && b.deliveryCost !== null && b.deliveryCost !== '') {
+    deliveryCost = Number(b.deliveryCost)
+    if (!Number.isFinite(deliveryCost) || deliveryCost < 0) return bad('deliveryCost', 'доставка — число ≥ 0')
+  } else {
+    try {
+      deliveryCost = await calculatePochtaTariff(countryCode)
+    } catch (e: any) {
+      return res.status(502).json({ error: 'pochta_unavailable', detail: e?.message?.slice(0, 300) })
+    }
+    if (!(deliveryCost > 0)) return res.status(422).json({ error: 'delivery_unavailable', detail: 'Почта не возит в эту страну' })
+  }
+  const total = itemsTotal + deliveryCost
+
+  const timestamp = Date.now()
+  const orderId = `ORD-${timestamp}`
+  const order = createOrder(orderId, {
+    items,
+    fullName,
+    phone,
+    username: rawUsername ? `@${rawUsername}` : undefined,
+    country: countryName,
+    city,
+    address: [index, region, city, street].filter(Boolean).join(', '),
+    deliveryRegion: '',
+    deliveryMethod: 'ems',
+    deliveryCost,
+    total,
+    comments: comment ? `Заказ вне мини-аппа. ${comment}` : 'Заказ вне мини-аппа (заведён в админке)',
+    recipientCountry: countryName,
+    recipientCountryCode: countryCode,
+    recipientRegion: region || undefined,
+    recipientCity: city,
+    recipientStreet: street,
+    recipientIndex: index,
+  }, chatId || null, platform, null)
+
+  // без строки в Sheets заказ потеряется при рестарте и не попадёт в раздел EMS —
+  // поэтому проверяем запись, прежде чем считать его оплаченным
+  await appendOrderToSheet(order)
+  const written = await getOrderFromSheet(orderId).catch(() => null)
+  if (!written) {
+    updateOrderStatus(orderId, 'cancelled')
+    return res.status(500).json({ error: 'sheet_append_failed', detail: 'заказ не записался в таблицу — ничего не списано, попробуйте ещё раз' })
+  }
+
+  const result = await processPaidOrder(order, String(total), String(timestamp), orderId)
+  logger.info({ orderId, total, deliveryCost, result }, 'ручной EMS-заказ заведён')
+  res.json({ ok: result === 'ok', orderId, total, deliveryCost, result })
 })
 
 // 1.2: проверяем статус pending-заказов через Robokassa OpStateExt

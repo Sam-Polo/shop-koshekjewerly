@@ -10,8 +10,9 @@ const logger = pino()
 const ORDERS_SHEET = 'orders'
 const ORDER_ITEMS_SHEET = 'order_items'
 
-// order_status (AC) дописан В КОНЕЦ намеренно: индексы колонок захардкожены
-// в getOrderFromSheet и остальных читателях, вставка в середину сдвинула бы всё.
+// order_status (AC) и колонки EMS (AD, AE) дописаны В КОНЕЦ намеренно: индексы колонок
+// захардкожены в getOrderFromSheet и остальных читателях (и в админке), вставка в
+// середину сдвинула бы всё.
 const ORDERS_HEADERS = [
   'order_id', 'created_at', 'updated_at', 'status', 'platform',
   'customer_chat_id', 'customer_name', 'full_name', 'phone', 'username',
@@ -19,7 +20,7 @@ const ORDERS_HEADERS = [
   'items_total', 'promocode_code', 'promocode_discount',
   'priority_order', 'priority_fee', 'total', 'client_comment', 'admin_note',
   'cdek_uuid', 'cdek_track_number', 'delivery_method', 'pochta_shpi', 'pd_consent',
-  'order_status'
+  'order_status', 'ems_recipient', 'pochta_state'
 ]
 
 /** колонка order_status в листе orders (0-based индекс 28 = буква AC) */
@@ -27,6 +28,18 @@ const ORDER_STATUS_COL = 'AC'
 const ORDER_STATUS_INDEX = 28
 /** колонка delivery_method (0-based индекс 25 = буква Z) */
 const DELIVERY_METHOD_COL = 'Z'
+/**
+ * ems_recipient (AD, индекс 29) — JSON зарубежного адреса EMS-заказа. Пишется при
+ * создании заказа: без него заказ, восстановленный из Sheets после рестарта Render,
+ * не создать в Почте (в country/city/address лежит склеенная строка для людей).
+ */
+const EMS_RECIPIENT_INDEX = 29
+/**
+ * pochta_state (AE, индекс 30) — JSON состояния оформления у Почты (id в backlog,
+ * партия, дата сдачи, документы, выпуск трека). Пишет только ems-shipping.ts.
+ */
+const POCHTA_STATE_COL = 'AE'
+const POCHTA_STATE_INDEX = 30
 
 export type OrderCustomerStatus =
   | 'Принят' | 'В сборке' | 'В пути' | 'Отправлен' | 'Уже у вас' | 'Не вручен - возврат'
@@ -165,7 +178,8 @@ function colLetter(n: number): string {
   return s
 }
 
-async function ensureSheet(api: any, spreadsheetId: string, sheetName: string, headers: string[]): Promise<void> {
+/** Создаёт лист при необходимости и подгоняет под заголовки. false — подогнать не вышло (алерт уже ушёл). */
+async function ensureSheet(api: any, spreadsheetId: string, sheetName: string, headers: string[]): Promise<boolean> {
   const meta = await api.spreadsheets.get({ spreadsheetId })
   const exists = meta.data.sheets?.some((s: any) => s.properties?.title === sheetName)
   if (!exists) {
@@ -182,34 +196,69 @@ async function ensureSheet(api: any, spreadsheetId: string, sheetName: string, h
       requestBody: { values: [headers] }
     })
     logger.info({ sheetName }, 'лист создан')
-    return
+    return true
   }
-  const range = `${sheetName}!A1:${colLetter(headers.length)}1`
-  const res = await api.spreadsheets.values.get({ spreadsheetId, range })
-  const row0 = res.data.values?.[0] || []
-  const ok = headers.every((h, i) => row0[i] === h)
-  if (!ok) {
-    await api.spreadsheets.values.update({
-      spreadsheetId,
-      range,
-      valueInputOption: 'RAW',
-      requestBody: { values: [headers] }
-    })
-    logger.info({ sheetName }, 'заголовки листа обновлены')
+  // Ниже — только оформление листа под новые колонки. Ни один сбой здесь не должен
+  // помешать записи заказа (вызывающий appendOrderToSheet проглотил бы ошибку вместе
+  // с заказом), поэтому оба шага не бросают, а алертят.
+  try {
+    // Сетка листа бывает ровно по старым заголовкам (orders на 04.11.2026 — 29 колонок,
+    // A..AC): ячейку за её краем Sheets отклоняет («exceeds grid limits») — расширяем заранее
+    const sheet = meta.data.sheets?.find((s: any) => s.properties?.title === sheetName)
+    const columnCount = sheet?.properties?.gridProperties?.columnCount
+    if (typeof columnCount === 'number' && columnCount < headers.length) {
+      await api.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          requests: [{
+            appendDimension: { sheetId: sheet.properties.sheetId, dimension: 'COLUMNS', length: headers.length - columnCount },
+          }],
+        },
+      })
+      logger.info({ sheetName, from: columnCount, to: headers.length }, 'сетка листа расширена под новые колонки')
+    }
+    const range = `${sheetName}!A1:${colLetter(headers.length)}1`
+    const res = await api.spreadsheets.values.get({ spreadsheetId, range })
+    const row0 = res.data.values?.[0] || []
+    const ok = headers.every((h, i) => row0[i] === h)
+    if (!ok) {
+      await api.spreadsheets.values.update({
+        spreadsheetId,
+        range,
+        valueInputOption: 'RAW',
+        requestBody: { values: [headers] }
+      })
+      logger.info({ sheetName }, 'заголовки листа обновлены')
+    }
+    return true
+  } catch (e: any) {
+    logger.warn({ sheetName, error: e?.message }, 'не удалось расширить лист или обновить заголовки')
+    sendAlert(
+      `Лист ${sheetName}: не удалось расширить сетку или обновить заголовки: ${e?.message}`,
+      {
+        tag: 'sheets', level: 'moderate', code: 'SHEETS_LAYOUT_UPDATE_FAILED',
+        hint: 'заказы пишутся как обычно; не запишутся только новые колонки (у orders — EMS: ems_recipient, pochta_state)',
+      },
+    ).catch(() => {})
+    return false
   }
 }
 
 let sheetsEnsured = false
+// подогнать лист не вышло — повторяем не чаще раза в 10 минут, а не на каждой записи
+let layoutRetryAt = 0
 
 export async function ensureOrderSheets(): Promise<void> {
   const spreadsheetId = getSheetId()
   if (!spreadsheetId) return
   if (sheetsEnsured) return
+  if (Date.now() < layoutRetryAt) return
   const auth = getAuth()
   const api = google.sheets({ version: 'v4', auth })
-  await ensureSheet(api, spreadsheetId, ORDERS_SHEET, ORDERS_HEADERS)
-  await ensureSheet(api, spreadsheetId, ORDER_ITEMS_SHEET, ORDER_ITEMS_HEADERS)
-  sheetsEnsured = true
+  const ordersOk = await ensureSheet(api, spreadsheetId, ORDERS_SHEET, ORDERS_HEADERS)
+  const itemsOk = await ensureSheet(api, spreadsheetId, ORDER_ITEMS_SHEET, ORDER_ITEMS_HEADERS)
+  if (ordersOk && itemsOk) sheetsEnsured = true
+  else layoutRetryAt = Date.now() + 10 * 60_000
 }
 
 function buildOrderRow(order: Order): (string | number)[] {
@@ -244,7 +293,87 @@ function buildOrderRow(order: Order): (string | number)[] {
     d.deliveryMethod ?? '',
     order.pochtaShpi ?? '',
     d.consent ? 'true' : 'false', // pd_consent — согласие на обработку ПДн (152-ФЗ)
+    // order_status (AC) ставится после оплаты; ems_recipient (AD) пишется отдельным
+    // запросом (writeEmsRecipient) — строка заказа не должна зависеть от новых колонок
   ]
+}
+
+type EmsRecipient = {
+  country?: string
+  countryCode: number
+  region?: string
+  city?: string
+  street?: string
+  index?: string
+}
+
+/** Зарубежный адрес EMS-заказа → JSON для колонки ems_recipient; '' для остальных заказов. */
+export function serializeEmsRecipient(d: Order['orderData']): string {
+  if (d.deliveryMethod !== 'ems' || !d.recipientCountryCode) return ''
+  const r: EmsRecipient = {
+    country: d.recipientCountry,
+    countryCode: d.recipientCountryCode,
+    region: d.recipientRegion,
+    city: d.recipientCity,
+    street: d.recipientStreet,
+    index: d.recipientIndex,
+  }
+  return JSON.stringify(r)
+}
+
+/**
+ * Возвращает в orderData реквизиты получателя из колонки ems_recipient.
+ * Битый JSON не роняет чтение заказа: такой заказ просто не создастся в Почте
+ * (это поймает алерт POCHTA_NO_COUNTRY), а остальная обработка оплаты пройдёт.
+ */
+export function applyEmsRecipient(d: Order['orderData'], raw: string): void {
+  if (!raw) return
+  try {
+    const r = JSON.parse(raw) as Partial<EmsRecipient>
+    const code = Number(r.countryCode)
+    if (!Number.isInteger(code) || code <= 0) return
+    d.recipientCountryCode = code
+    d.recipientCountry = r.country || undefined
+    d.recipientRegion = r.region || undefined
+    d.recipientCity = r.city || undefined
+    d.recipientStreet = r.street || undefined
+    d.recipientIndex = r.index || undefined
+  } catch {
+    logger.warn({ raw: raw.slice(0, 100) }, 'ems_recipient: битый JSON — реквизиты получателя не восстановлены')
+  }
+}
+
+/**
+ * Пишет ems_recipient (AD) только что добавленной строки заказа. Никогда не бросает:
+ * без этой ячейки теряется только восстановление EMS-заказа после рестарта Render
+ * (заказ из памяти создастся в Почте при оплате как обычно), а сам заказ уже записан.
+ */
+async function writeEmsRecipient(api: any, spreadsheetId: string, orderId: string, updatedRange: string | null | undefined, json: string): Promise<void> {
+  try {
+    // append отвечает диапазоном вида orders!A1642:AB1642 — номер строки берём оттуда
+    let rowNumber = Number(/![A-Z]+(\d+)/.exec(updatedRange ?? '')?.[1] ?? NaN)
+    if (!Number.isInteger(rowNumber) || rowNumber < 2) {
+      const res = await api.spreadsheets.values.get({ spreadsheetId, range: `${ORDERS_SHEET}!A:A` })
+      const rows = res.data.values || []
+      rowNumber = rows.findIndex((r: string[]) => r?.[0] === orderId) + 1
+    }
+    if (rowNumber < 2) throw new Error('строка заказа не найдена')
+    await api.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${ORDERS_SHEET}!AD${rowNumber}`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [[json]] },
+    })
+  } catch (e: any) {
+    logger.warn({ orderId, error: e?.message }, 'ems_recipient не записан')
+    sendAlert(
+      `EMS-заказ ${orderId}: адрес получателя не сохранён в Sheets (колонка ems_recipient): ${e?.message}`,
+      {
+        tag: 'sheets', level: 'low', code: 'EMS_RECIPIENT_WRITE_FAILED',
+        hint: 'важно только если Render перезапустится до оплаты — тогда заказ придётся оформить в ЛК Почты вручную',
+      },
+    ).catch(() => {})
+  }
 }
 
 function buildItemsRows(order: Order): (string | number)[][] {
@@ -267,13 +396,17 @@ export async function appendOrderToSheet(order: Order): Promise<void> {
     await ensureOrderSheets()
     const auth = getAuth()
     const api = google.sheets({ version: 'v4', auth })
-    await api.spreadsheets.values.append({
+    const appended = await api.spreadsheets.values.append({
       spreadsheetId,
       range: `${ORDERS_SHEET}!A:Y`,
       valueInputOption: 'RAW',
       insertDataOption: 'INSERT_ROWS',
       requestBody: { values: [buildOrderRow(order)] }
     })
+    const recipient = serializeEmsRecipient(order.orderData)
+    if (recipient) {
+      await writeEmsRecipient(api, spreadsheetId, order.orderId, appended?.data?.updates?.updatedRange, recipient)
+    }
     const itemsRows = buildItemsRows(order)
     if (itemsRows.length > 0) {
       await api.spreadsheets.values.append({
@@ -331,12 +464,19 @@ export async function updateOrderStatusInSheet(orderId: string, status: string, 
   }
 }
 
+export type SheetOrder = Order & {
+  sheetStatus: string
+  adminNote: string
+  /** сырой JSON колонки pochta_state ('' если оформления у Почты ещё не было) */
+  pochtaState: string
+}
+
 /**
  * Читает заказ из Google Sheets по orderId (для восстановления после рестарта бэкенда).
  * Возвращает null если заказ не найден или Sheets недоступен.
  * Поля `status` из Sheets используются для idempotency-проверки на стороне вызывающего кода.
  */
-export async function getOrderFromSheet(orderId: string): Promise<(Order & { sheetStatus: string; adminNote: string }) | null> {
+export async function getOrderFromSheet(orderId: string): Promise<SheetOrder | null> {
   const spreadsheetId = getSheetId()
   if (!spreadsheetId) return null
   try {
@@ -349,10 +489,11 @@ export async function getOrderFromSheet(orderId: string): Promise<(Order & { she
     // 10=country, 11=city, 12=address, 13=delivery_region, 14=delivery_cost,
     // 15=items_total, 16=promocode_code, 17=promocode_discount,
     // 18=priority_order, 19=priority_fee, 20=total, 21=client_comment, 22=admin_note
-    // 23=cdek_uuid, 24=cdek_track_number, 25=delivery_method, 26=pochta_shpi
+    // 23=cdek_uuid, 24=cdek_track_number, 25=delivery_method, 26=pochta_shpi,
+    // 27=pd_consent, 28=order_status, 29=ems_recipient, 30=pochta_state
     const ordersRes = await api.spreadsheets.values.get({
       spreadsheetId,
-      range: `${ORDERS_SHEET}!A:AA`
+      range: `${ORDERS_SHEET}!A:${POCHTA_STATE_COL}`
     })
     const orderRows = ordersRes.data.values || []
     let orderRow: string[] | null = null
@@ -400,11 +541,12 @@ export async function getOrderFromSheet(orderId: string): Promise<(Order & { she
     const promocodeCode = col(16)
     const promocodeDiscount = parseFloat(col(17)) || 0
 
-    const order: Order & { sheetStatus: string; adminNote: string } = {
+    const order: SheetOrder = {
       orderId,
       status: (sheetStatus as OrderStatus) || 'pending',
       sheetStatus,
       adminNote: col(22),
+      pochtaState: col(POCHTA_STATE_INDEX),
       createdAt: col(1) ? new Date(col(1)).getTime() : Date.now(),
       updatedAt: col(2) ? new Date(col(2)).getTime() : Date.now(),
       customerChatId: col(5) || null,
@@ -438,6 +580,8 @@ export async function getOrderFromSheet(orderId: string): Promise<(Order & { she
           : undefined,
       },
     }
+    // EMS: без реквизитов получателя восстановленный заказ не создать в Почте
+    applyEmsRecipient(order.orderData, col(EMS_RECIPIENT_INDEX))
 
     logger.info({ orderId, sheetStatus, itemsCount: items.length }, 'getOrderFromSheet: заказ восстановлен из Sheets')
     return order
@@ -567,7 +711,7 @@ async function getOrdersSnapshot(spreadsheetId: string): Promise<OrdersSnapshot>
     const auth = getAuth()
     const api = google.sheets({ version: 'v4', auth })
     const [ordersRes, itemsRes] = await Promise.all([
-      api.spreadsheets.values.get({ spreadsheetId, range: `${ORDERS_SHEET}!A:AC` }),
+      api.spreadsheets.values.get({ spreadsheetId, range: `${ORDERS_SHEET}!A:${POCHTA_STATE_COL}` }),
       api.spreadsheets.values.get({ spreadsheetId, range: `${ORDER_ITEMS_SHEET}!A:H` }),
     ])
     return {
@@ -810,6 +954,119 @@ export async function updateCdekInfoInSheet(orderId: string, cdekUuid: string, c
   }
 }
 
+/**
+ * Записывает состояние оформления у Почты (JSON) в колонку pochta_state (AE).
+ *
+ * В отличие от остальных update*-функций файла БРОСАЕТ при ошибке: вызывающий шаг
+ * оформления должен знать, что состояние не сохранилось. Потеря записи не опасна —
+ * при следующем нажатии ems-shipping.ts находит партию и заказ у самой Почты по номеру
+ * заказа, — но менеджер должен увидеть, что шаг не завершён.
+ */
+export async function updatePochtaStateInSheet(orderId: string, stateJson: string): Promise<void> {
+  const spreadsheetId = getSheetId()
+  if (!spreadsheetId) throw new Error('IMPORT_SHEET_ID not set')
+  await ensureOrderSheets()
+  const auth = getAuth()
+  const api = google.sheets({ version: 'v4', auth })
+  const res = await api.spreadsheets.values.get({ spreadsheetId, range: `${ORDERS_SHEET}!A:A` })
+  const rows = res.data.values || []
+  let rowNumber = -1
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i]?.[0] === orderId) { rowNumber = i + 1; break }
+  }
+  if (rowNumber === -1) throw new Error(`строка заказа ${orderId} не найдена в Sheets`)
+  await api.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${ORDERS_SHEET}!${POCHTA_STATE_COL}${rowNumber}`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [[stateJson]] },
+  })
+  invalidateOrdersSnapshot()
+}
+
+export type EmsSheetOrder = {
+  orderId: string
+  createdAt: string
+  /** updated_at: для оплаченного заказа это момент оплаты (статус пишет только оплата) */
+  paidAt: string
+  platform: string
+  customerChatId: string
+  customerName: string
+  fullName: string
+  phone: string
+  username: string
+  country: string
+  city: string
+  address: string
+  deliveryCost: number
+  total: number
+  clientComment: string
+  adminNote: string
+  /** выпущенный покупателю трек (pochta_shpi); пусто, пока дата отправки не назначена */
+  shpi: string
+  pochtaState: string
+  items: OrderHistoryItem[]
+}
+
+/**
+ * Оплаченные EMS-заказы для раздела EMS в админке: оплаченные начиная с `sinceIso`
+ * (заказы старого пайплайна июля–августа разбирались вручную, им тут не место)
+ * либо уже имеющие состояние оформления. Читает общий снимок листов.
+ */
+export async function listEmsOrdersFromSheet(sinceIso: string): Promise<EmsSheetOrder[]> {
+  const spreadsheetId = getSheetId()
+  if (!spreadsheetId) throw new Error('IMPORT_SHEET_ID not set')
+  const { orderRows, itemRows } = await getOrdersSnapshot(spreadsheetId)
+  const since = new Date(sinceIso).getTime()
+
+  const picked: string[][] = []
+  for (let i = 1; i < orderRows.length; i++) {
+    const row = orderRows[i] as string[]
+    if (!row?.[0] || row[25] !== 'ems' || row[3] !== 'paid') continue
+    const paidAt = new Date(row[2] ?? '').getTime()
+    if (!(paidAt >= since) && !row[POCHTA_STATE_INDEX]) continue
+    picked.push(row)
+  }
+  const wanted = new Set(picked.map(r => r[0]))
+  const itemsByOrder = new Map<string, OrderHistoryItem[]>()
+  for (let i = 1; i < itemRows.length; i++) {
+    const row = itemRows[i] as string[]
+    if (!row?.[0] || !wanted.has(row[0])) continue
+    const bucket = itemsByOrder.get(row[0]) ?? []
+    bucket.push({
+      title: row[2] ?? '',
+      price: parseFloat(row[3]) || 0,
+      quantity: parseInt(row[4], 10) || 1,
+      option: row[7] || undefined,
+    })
+    itemsByOrder.set(row[0], bucket)
+  }
+
+  return picked
+    .map(row => ({
+      orderId: row[0],
+      createdAt: row[1] ?? '',
+      paidAt: row[2] ?? '',
+      platform: row[4] || 'telegram',
+      customerChatId: row[5] ?? '',
+      customerName: row[6] ?? '',
+      fullName: row[7] ?? '',
+      phone: row[8] ?? '',
+      username: row[9] ?? '',
+      country: row[10] ?? '',
+      city: row[11] ?? '',
+      address: row[12] ?? '',
+      deliveryCost: parseFloat(row[14]) || 0,
+      total: parseFloat(row[20]) || 0,
+      clientComment: row[21] ?? '',
+      adminNote: row[22] ?? '',
+      shpi: row[26] ?? '',
+      pochtaState: row[POCHTA_STATE_INDEX] ?? '',
+      items: itemsByOrder.get(row[0]) ?? [],
+    }))
+    .sort((a, b) => new Date(b.paidAt).getTime() - new Date(a.paidAt).getTime())
+}
+
 /** Записывает ШПИ (трек EMS Почты России) в колонку pochta_shpi (AA). */
 export async function updatePochtaInfoInSheet(orderId: string, shpi: string): Promise<void> {
   const spreadsheetId = getSheetId()
@@ -889,9 +1146,10 @@ export async function listPendingOrdersFromSheet(
     const api = google.sheets({ version: 'v4', auth })
     const now = Date.now()
 
+    // до AD (ems_recipient): EMS-заказ, оплаченный после рестарта, иначе не создать в Почте
     const ordersRes = await api.spreadsheets.values.get({
       spreadsheetId,
-      range: `${ORDERS_SHEET}!A:Y`
+      range: `${ORDERS_SHEET}!A:AD`
     })
     const orderRows = ordersRes.data.values || []
 
@@ -943,7 +1201,7 @@ export async function listPendingOrdersFromSheet(
       const promocodeDiscount = parseFloat(col(17)) || 0
       const priorityFee = parseFloat(col(19)) || 0
 
-      result.push({
+      const restored: Order = {
         orderId,
         status: 'pending',
         createdAt: col(1) ? new Date(col(1)).getTime() : now,
@@ -970,7 +1228,9 @@ export async function listPendingOrdersFromSheet(
             ? { code: promocodeCode, type: 'amount', value: promocodeDiscount, discount: promocodeDiscount }
             : undefined,
         },
-      })
+      }
+      applyEmsRecipient(restored.orderData, col(EMS_RECIPIENT_INDEX))
+      result.push(restored)
     }
 
     logger.info({ count: result.length }, 'listPendingOrdersFromSheet: найдено pending заказов в Sheets')

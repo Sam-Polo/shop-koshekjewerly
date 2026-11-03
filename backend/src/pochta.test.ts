@@ -326,6 +326,89 @@ describe('createBatch', () => {
     const calls = (fetch as any).mock.calls as [string, RequestInit][]
     expect(calls[0][0]).toContain('use-online-balance=true')
   })
+
+  // дата сдачи печатается на документах; без параметра Почта ставит день создания партии
+  it('passes the sending date in kebab-case when given', async () => {
+    vi.stubGlobal('fetch', mockFetch([{ ok: true, body: { batches: [{ 'batch-name': '24' }] } }]))
+    const batch = await pochta.createBatch([777], '2026-11-05')
+    expect(batch).toBe('24')
+    const url = ((fetch as any).mock.calls as [string, RequestInit][])[0][0]
+    expect(url).toContain('sending-date=2026-11-05')
+    expect(url).toContain('use-online-balance=true')
+  })
+
+  it('omits the sending date when not given', async () => {
+    vi.stubGlobal('fetch', mockFetch([{ ok: true, body: BATCH_RESP }]))
+    await pochta.createBatch([777])
+    expect(((fetch as any).mock.calls as [string, RequestInit][])[0][0]).not.toContain('sending-date')
+  })
+
+  // отказ приходит HTTP 200 со списком errors — код нужен админке (просроченная дата и т.п.)
+  it('carries the Pochta error code when the batch is refused', async () => {
+    vi.stubGlobal('fetch', mockFetch([{ ok: true, body: { batches: [], errors: [{ 'error-code': 'PAST_DUE_DATE' }] } }]))
+    await expect(pochta.createBatch([777], '2026-01-01')).rejects.toMatchObject({ code: 'PAST_DUE_DATE' })
+  })
+})
+
+describe('getBatch', () => {
+  it('maps status, list number and sending date', async () => {
+    vi.stubGlobal('fetch', mockFetch([{ ok: true, body: {
+      'batch-name': '24', 'batch-status': 'CREATED', 'batch-status-date': '2026-11-04T10:00:00Z',
+      'list-number': 5, 'list-number-date': '2026-11-05',
+    } }]))
+    expect(await pochta.getBatch('24')).toEqual({
+      name: '24', status: 'CREATED', statusDate: '2026-11-04T10:00:00Z', listNumber: 5, sendingDate: '2026-11-05',
+    })
+    expect(((fetch as any).mock.calls as [string, RequestInit][])[0][0]).toContain('/1.0/batch/24')
+  })
+
+  // номер ф.103 — признак пройденного checkin; у несданной партии его нет, а дата есть
+  // (так выглядит боевая партия 23 на 04.11.2026)
+  it('no list number before checkin', async () => {
+    vi.stubGlobal('fetch', mockFetch([{ ok: true, body: { 'batch-name': '23', 'batch-status': 'CREATED', 'list-number-date': '2026-08-08' } }]))
+    const info = await pochta.getBatch('23')
+    expect(info.listNumber).toBeNull()
+    expect(info.sendingDate).toBe('2026-08-08')
+  })
+})
+
+describe('setBatchSendingDate', () => {
+  it('posts year/month/day path segments', async () => {
+    vi.stubGlobal('fetch', mockFetch([{ ok: true, body: { 'f103-sent': true } }]))
+    const res = await pochta.setBatchSendingDate('24', '2026-11-05')
+    expect(res).toEqual({ f103Sent: true, errorCode: null })
+    const [url, init] = ((fetch as any).mock.calls as [string, RequestInit][])[0]
+    expect(url).toContain('/1.0/batch/24/sending/2026/11/5')
+    expect(init.method).toBe('POST')
+  })
+})
+
+describe('findShipmentByOrderNum / findBacklogOrderByOrderNum', () => {
+  it('finds the shipment by exact order number', async () => {
+    vi.stubGlobal('fetch', mockFetch([{ ok: true, body: [
+      { id: 1, 'order-num': 'ORD-1', barcode: 'X', 'batch-name': '1' },
+      { id: 2340000001, 'order-num': 'ORD-1786000000001', barcode: 'LS000000094RU', 'batch-name': '23', 'batch-status': 'CREATED' },
+    ] }]))
+    const s = await pochta.findShipmentByOrderNum('ORD-1786000000001')
+    expect(s).toMatchObject({ id: 2340000001, barcode: 'LS000000094RU', batchName: '23', batchStatus: 'CREATED' })
+    expect(((fetch as any).mock.calls as [string, RequestInit][])[0][0]).toContain('/1.0/shipment/search?query=ORD-1786000000001')
+  })
+
+  it('null when nothing matches exactly', async () => {
+    vi.stubGlobal('fetch', mockFetch([{ ok: true, body: [{ id: 1, 'order-num': 'ORD-17', 'batch-name': '1' }] }]))
+    expect(await pochta.findShipmentByOrderNum('ORD-1')).toBeNull()
+  })
+
+  it('finds a backlog order id by order number', async () => {
+    vi.stubGlobal('fetch', mockFetch([{ ok: true, body: [{ id: 555, 'order-num': 'ORD-9' }] }]))
+    expect(await pochta.findBacklogOrderByOrderNum('ORD-9')).toBe(555)
+    expect(((fetch as any).mock.calls as [string, RequestInit][])[0][0]).toContain('/1.0/backlog/search?query=ORD-9')
+  })
+
+  it('backlog: null when absent', async () => {
+    vi.stubGlobal('fetch', mockFetch([{ ok: true, body: [] }]))
+    expect(await pochta.findBacklogOrderByOrderNum('ORD-9')).toBeNull()
+  })
 })
 
 describe('checkinBatch', () => {

@@ -154,7 +154,7 @@ export async function calculateTariff(countryCode: number, weight = PKG_WEIGHT_G
  *
  * Без суммы доставки мини-апп не даёт оформить международный заказ, так что каждый
  * такой сбой — покупатель, упёршийся в «Ошибку расчёта». Пост-оплатные алерты
- * (triggerPochtaOrderAsync) тут не помогут: до оплаты никто не доходит, им нечего ловить.
+ * (ems-shipping.ts) тут не помогут: до оплаты никто не доходит, им нечего ловить.
  * Так и вышло 02.11.2026: на Render остался старый пароль ЛК, каждый расчёт получал 401,
  * международка лежала, вероятно, с сентября — и в канале ни строчки.
  *
@@ -338,15 +338,105 @@ export interface PochtaBatchResult {
  * списывает checkinBatch — и у него СВОЙ параметр с другим именем, см. там.
  * Подробности и матрица проверок: docs/integrations/pochta-ems.md.
  */
-export async function createBatch(resultIds: number[]): Promise<string> {
-  const data = await pochtaFetch('POST', '/1.0/user/shipment?use-online-balance=true', resultIds) as any
+export async function createBatch(resultIds: number[], sendingDate?: string): Promise<string> {
+  // дата сдачи печатается на документах и задаёт день, когда отделение ждёт партию;
+  // без неё Почта ставит день создания партии
+  const query = `use-online-balance=true${sendingDate ? `&sending-date=${sendingDate}` : ''}`
+  const data = await pochtaFetch('POST', `/1.0/user/shipment?${query}`, resultIds) as any
   const batchName = Array.isArray(data)
     ? data[0]?.['batch-name']
     : data?.['batch-name'] ?? data?.batches?.[0]?.['batch-name']
   if (!batchName) {
-    throw new Error(`Pochta createBatch: no batch-name. Response: ${JSON.stringify(data).slice(0, 300)}`)
+    // отказ приходит HTTP 200 со списком errors (например PAST_DUE_DATE) — код нужен админке
+    const code = data?.errors?.[0]?.['error-code']
+    throw Object.assign(
+      new Error(`Pochta createBatch: no batch-name. Response: ${JSON.stringify(data).slice(0, 300)}`),
+      { code: typeof code === 'string' ? code : null },
+    )
   }
   return batchName as string
+}
+
+export interface PochtaBatchInfo {
+  name: string
+  /** CREATED → FROZEN (идёт приём) → ACCEPTED (принята в отделении) → SENT (есть трекинг) → ARCHIVED */
+  status: string
+  statusDate: string | null
+  /** номер ф.103 — присваивается только успешным checkin'ом */
+  listNumber: number | null
+  /** дата сдачи в отделение (yyyy-MM-dd); есть и до checkin */
+  sendingDate: string | null
+}
+
+/** Метаданные партии: GET /1.0/batch/{name}. ШПИ здесь нет — он у заказов партии. */
+export async function getBatch(batchName: string): Promise<PochtaBatchInfo> {
+  const data = await pochtaFetch('GET', `/1.0/batch/${encodeURIComponent(batchName)}`) as any
+  if (!data?.['batch-name']) {
+    throw new Error(`Pochta getBatch ${batchName}: пустой ответ ${JSON.stringify(data).slice(0, 200)}`)
+  }
+  return {
+    name: String(data['batch-name']),
+    status: String(data['batch-status'] ?? ''),
+    statusDate: data['batch-status-date'] ?? null,
+    listNumber: typeof data['list-number'] === 'number' ? data['list-number'] : null,
+    sendingDate: data['list-number-date'] ?? null,
+  }
+}
+
+/**
+ * Меняет дату сдачи партии: POST /1.0/batch/{name}/sending/{год}/{месяц}/{день}.
+ * Если checkin уже был, Почта заново шлёт ф.103 в отделение (f103-sent: true) —
+ * документы с прежней датой после этого недействительны, их надо перекачать.
+ */
+export async function setBatchSendingDate(batchName: string, date: string): Promise<PochtaCheckinResult> {
+  const [y, m, d] = date.split('-').map(Number)
+  const data = await pochtaFetch('POST', `/1.0/batch/${encodeURIComponent(batchName)}/sending/${y}/${m}/${d}`) as any
+  return {
+    f103Sent: data?.['f103-sent'] === true,
+    errorCode: (data?.['error-code'] as string) ?? null,
+  }
+}
+
+export interface PochtaShipmentInfo {
+  /** внутренний id отправления — тот же, что result-id заказа в backlog */
+  id: number
+  orderNum: string
+  barcode: string | null
+  batchName: string | null
+  batchStatus: string | null
+  /** последняя операция трекинга (появляется после приёма в отделении) */
+  operationName: string | null
+  lastOperDate: string | null
+}
+
+/**
+ * Ищет отправление (заказ, уже перенесённый в партию) по нашему номеру заказа.
+ * GET /1.0/shipment/search?query= ищет по order-num или ШПИ точным совпадением
+ * (проверено 04.11.2026: обрезанный номер не находит ничего). Заказ, который ещё
+ * лежит в backlog, здесь не виден — для него findBacklogOrderByOrderNum.
+ */
+export async function findShipmentByOrderNum(orderNum: string): Promise<PochtaShipmentInfo | null> {
+  const data = await pochtaFetch('GET', `/1.0/shipment/search?query=${encodeURIComponent(orderNum)}`) as any
+  const list: any[] = Array.isArray(data) ? data : []
+  const hit = list.find(x => x?.['order-num'] === orderNum)
+  if (!hit || typeof hit.id !== 'number') return null
+  return {
+    id: hit.id,
+    orderNum,
+    barcode: hit.barcode ?? null,
+    batchName: hit['batch-name'] != null ? String(hit['batch-name']) : null,
+    batchStatus: hit['batch-status'] ?? null,
+    operationName: hit['human-operation-name'] ?? null,
+    lastOperDate: hit['last-oper-date'] ?? null,
+  }
+}
+
+/** Ищет заказ в backlog (ещё без партии) по нашему номеру заказа → его result-id. */
+export async function findBacklogOrderByOrderNum(orderNum: string): Promise<number | null> {
+  const data = await pochtaFetch('GET', `/1.0/backlog/search?query=${encodeURIComponent(orderNum)}`) as any
+  const list: any[] = Array.isArray(data) ? data : []
+  const hit = list.find(x => x?.['order-num'] === orderNum)
+  return typeof hit?.id === 'number' ? hit.id : null
 }
 
 /** Путь к заказам партии (с ШПИ). /1.0/batch/{name} — это метаданные партии, а заказы — на /shipment. */
@@ -446,10 +536,6 @@ export async function downloadF103(batchName: string): Promise<Buffer> {
 
 // ── Печать ярлыка Ф7п (PDF) ─────────────────────────────────────────────────
 
-async function sleep(ms: number) {
-  return new Promise<void>(r => setTimeout(r, ms))
-}
-
 /**
  * Скачивает печатные формы заказа (PDF) по идентификатору ЗАКАЗА (backlog id).
  * GET /1.0/forms/{order-id}/forms — общий комплект форм заказа; для международных
@@ -474,125 +560,5 @@ export async function downloadF7p(orderId: string | number): Promise<Buffer> {
   } catch (e) {
     clearTimeout(timer)
     throw e
-  }
-}
-
-// ── High-level: создать отправление с ретраями + поллингом ШПИ ─────────────────
-
-const RETRY_DELAYS_MS = [2_000, 4_000]
-
-/**
- * Создаёт EMS-отправление и вызывает onTrackReady(shpi, batchName) при получении ШПИ.
- * Зеркало triggerCdekOrderAsync: 3 попытки на создание, поллинг ШПИ, алерты при сбоях.
- * Никогда не бросает (все ошибки → sendAlert).
- */
-export async function triggerPochtaOrderAsync(
-  order: Order,
-  onTrackReady: (shpi: string, batchName: string, pochtaOrderId: number, checkedIn: boolean) => Promise<void>
-): Promise<void> {
-  // обязательные env должны быть заданы — иначе отправление не создать
-  if (!checkRequiredPochtaEnv()) return
-
-  if (!order.orderData.recipientCountryCode) {
-    sendAlert(
-      `Pochta: recipientCountryCode не задан для заказа ${order.orderId}`,
-      { tag: 'pochta', level: 'high', hint: 'EMS-отправление не создано — менеджер должен создать вручную', code: 'POCHTA_NO_COUNTRY' }
-    ).catch(() => {})
-    return
-  }
-
-  // 1. создать заказ в backlog (до 3 попыток)
-  let resultId: number | null = null
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      const r = await createPochtaOrder(order)
-      resultId = r.id
-      break
-    } catch (e: any) {
-      if (attempt < 3) {
-        await sleep(RETRY_DELAYS_MS[attempt - 1])
-      } else {
-        sendAlert(
-          `Pochta: не удалось создать EMS-заказ ${order.orderId} после 3 попыток: ${e?.message}`,
-          { tag: 'pochta', level: 'high', hint: 'менеджер должен создать отправление в ЛК Почты вручную', code: 'POCHTA_ORDER_CREATE_FAILED' }
-        ).catch(() => {})
-        return
-      }
-    }
-  }
-  if (resultId === null) return
-
-  // 2. сформировать партию (присваивается ШПИ) — до 3 попыток
-  let batchName: string | null = null
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      batchName = await createBatch([resultId])
-      break
-    } catch (e: any) {
-      if (attempt < 3) {
-        await sleep(RETRY_DELAYS_MS[attempt - 1])
-      } else {
-        sendAlert(
-          `Pochta: заказ ${order.orderId} создан (id=${resultId}), но партия не сформирована за 3 попытки: ${e?.message}`,
-          { tag: 'pochta', level: 'high', hint: 'сформируйте партию в ЛК Почты вручную, чтобы получить ШПИ', code: 'POCHTA_BATCH_FAILED' }
-        ).catch(() => {})
-        return
-      }
-    }
-  }
-  if (!batchName) return
-
-  // 3. получить ШПИ (поллинг до 5 раз с интервалом 5с)
-  let shpi: string | null = null
-  for (let i = 0; i < 5; i++) {
-    try {
-      shpi = await getShpiFromBatch(batchName)
-      if (shpi) break
-    } catch {}
-    await sleep(5_000)
-  }
-
-  // 4. checkin — регистрируем партию к сдаче и получаем номер списка.
-  // Без него отделение не видит отправление и не принимает его (см. checkinBatch).
-  // Не блокирует отправку трека покупателю: ШПИ уже есть, а проблема с checkin —
-  // операционная, её разгребает менеджер.
-  let checkedIn = false
-  try {
-    const res = await checkinBatch(batchName)
-    checkedIn = res.f103Sent
-    if (!checkedIn) {
-      sendAlert(
-        `Pochta: партия ${batchName} (заказ ${order.orderId}) не прошла checkin: ${res.errorCode ?? 'причина не указана'}. ` +
-        `Ф.103 не сформирован — на почте отправление не найдут и посылку не примут.`,
-        {
-          tag: 'pochta', level: 'high',
-          hint: res.errorCode === 'NOT_ENOUGH_FUNDS'
-            ? 'пополните онлайн-баланс в ЛК otpravka.pochta.ru и повторите «Подготовить к отправке» по партии'
-            : res.errorCode === 'OFFLINE_BALANCE_FORBIDDEN'
-              ? 'checkin ушёл без useOnlineBalance=true — регресс в checkinBatch (pochta.ts)'
-              : 'сдайте партию вручную в ЛК Почты',
-          code: 'POCHTA_CHECKIN_FAILED',
-        }
-      ).catch(() => {})
-    }
-  } catch (e: any) {
-    sendAlert(
-      `Pochta: checkin партии ${batchName} (заказ ${order.orderId}) упал с ошибкой: ${e?.message}`,
-      { tag: 'pochta', level: 'high', hint: 'сдайте партию вручную в ЛК Почты', code: 'POCHTA_CHECKIN_ERROR' }
-    ).catch(() => {})
-  }
-
-  if (shpi) {
-    await onTrackReady(shpi, batchName, resultId, checkedIn).catch((e: any) => {
-      sendAlert(
-        `Pochta: ШПИ ${shpi} получен для ${order.orderId}, но onTrackReady упал: ${e?.message}`,
-        { tag: 'pochta', level: 'moderate', code: 'POCHTA_TRACK_CALLBACK_FAILED' }
-      ).catch(() => {})
-    })
-  } else {
-    sendAlert(
-      `Pochta: заказ ${order.orderId} создан (партия ${batchName}), ШПИ не присвоен за 25с. Трек придёт позже.`,
-      { tag: 'pochta', level: 'info', hint: 'проверьте ШПИ в ЛК Почты через несколько минут', code: 'POCHTA_NO_TRACK_YET' }
-    ).catch(() => {})
   }
 }

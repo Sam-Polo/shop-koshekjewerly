@@ -320,6 +320,14 @@ async function setBarcodeUrlInLead(leadId: number, url: string): Promise<void> {
   await amoFetch('PATCH', `/leads/${leadId}`, { custom_fields_values: [f] })
 }
 
+/**
+ * Ставит в поле штрихкода лида ссылку на уже загруженный PDF. Для Почты бланки
+ * качаются при назначении даты отправки (ems-shipping.ts) — второй раз не скачиваем.
+ */
+export async function setAmoCrmLeadBarcodeUrl(leadId: number, url: string): Promise<void> {
+  await setBarcodeUrlInLead(leadId, url)
+}
+
 // ── Find lead by «Номер заказа» + sync CDEK data (used by CDEK webhook) ───────
 
 /** Читает значение текстового кастомного поля из объекта лида (или null если пусто). */

@@ -133,6 +133,7 @@ function NavBar({ active, onNavigate, onLogout }: { active: 'statistics' | 'cust
         {navBtn('bases', 'Конструктор')}
         {navBtn('statistics', 'Статистика', active === 'statistics')}
         {navBtn('shipments', 'Учёт')}
+        {navBtn('ems', 'EMS')}
         {navBtn('customers', 'Клиенты', active === 'customers')}
         {navBtn('settings', 'Настройки')}
       </div>
@@ -342,6 +343,8 @@ function OrdersTab({
       const msg = e?.message || ''
       if (msg === 'no_chat_id') {
         alert('❌ У покупателя нет chat_id — уведомить невозможно')
+      } else if (msg === 'no_track') {
+        alert('❌ У EMS-заказа ещё нет трека — сначала назначьте дату отправки в разделе EMS')
       } else if (msg === 'send_failed') {
         alert('❌ Telegram не доставил сообщение (алерт уже отправлен в канал ошибок)')
       } else if (msg === 'order_not_found') {

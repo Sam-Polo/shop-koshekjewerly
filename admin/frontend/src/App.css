@@ -4356,3 +4356,76 @@
   .sh-table th, .sh-table td { padding: 0.5rem 0.6rem; font-size: 0.78rem; }
   .sh-name { max-width: 130px; }
 }
+
+/* ── EMS (Почта России) ───────────────────────────────────────────── */
+.ems-page { padding: 1.5rem 2rem 3rem; max-width: 1200px; margin: 0 auto; }
+.ems-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.ems-head h2 { margin: 0 0 0.2rem; color: #333; font-size: 1.4rem; }
+.ems-head-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+
+.ems-btn-primary { background: #667eea; color: white; padding: 0.55rem 1.1rem; font-size: 0.92rem; }
+.ems-btn-primary:hover:not(:disabled) { background: #5a67d8; }
+.ems-btn-primary:disabled { background: #b4bcef; cursor: default; }
+.ems-btn-ghost { background: white; color: #4c51bf; border: 1px solid #c3c8f5; padding: 0.5rem 1rem; font-size: 0.9rem; }
+.ems-btn-ghost:hover:not(:disabled) { background: #f4f5ff; }
+.ems-btn-ghost:disabled { opacity: 0.6; cursor: default; }
+.ems-btn-attention { border-color: #25883b; color: #25883b; font-weight: 600; }
+
+.ems-cheatsheet { background: #fffaf0; border: 1px solid #f5dfb0; border-radius: 10px; padding: 0.75rem 1.1rem; margin-bottom: 1.25rem; color: #5b4a26; font-size: 0.9rem; }
+.ems-cheatsheet summary { cursor: pointer; font-weight: 600; color: #8a6a1f; }
+.ems-cheatsheet ol { margin: 0.6rem 0 0.2rem; padding-left: 1.3rem; }
+.ems-cheatsheet li { margin: 0.3rem 0; line-height: 1.4; }
+
+.ems-card { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 1.25rem; background: white; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.07); padding: 1rem 1.25rem; margin-bottom: 1rem; border-left: 4px solid #ccc; }
+.ems-card--ok { border-left-color: #2f9e4a; }
+.ems-card--warn { border-left-color: #e0a12a; }
+.ems-card--bad { border-left-color: #d64545; }
+.ems-card--done { border-left-color: #667eea; }
+.ems-card--muted { border-left-color: #bbb; }
+.ems-card-main { min-width: 0; display: flex; flex-direction: column; gap: 0.3rem; }
+.ems-card-title { display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; }
+.ems-card-title code { font-size: 0.95rem; color: #333; }
+.ems-chip { font-size: 0.7rem; padding: 1px 7px; border-radius: 8px; background: #f0e9ff; color: #6b46c1; }
+.ems-customer { color: #333; overflow-wrap: anywhere; }
+.ems-address { color: #555; font-size: 0.9rem; overflow-wrap: anywhere; }
+.ems-items { margin: 0.2rem 0; padding-left: 1.1rem; color: #444; font-size: 0.9rem; }
+.ems-comment { overflow-wrap: anywhere; }
+
+.ems-card-side { display: flex; flex-direction: column; gap: 0.5rem; align-items: stretch; }
+.ems-stage { align-self: flex-start; font-weight: 600; font-size: 0.85rem; padding: 3px 10px; border-radius: 10px; }
+.ems-stage--ok { background: #e6f7e8; color: #25883b; }
+.ems-stage--warn { background: #fff7e6; color: #b87b08; }
+.ems-stage--bad { background: #fde8e8; color: #b32626; }
+.ems-stage--done { background: #eef0ff; color: #4c51bf; }
+.ems-stage--muted { background: #f3f3f3; color: #666; }
+.ems-stage-detail { color: #555; font-size: 0.85rem; line-height: 1.35; }
+.ems-warn-inline { color: #b87b08; font-size: 0.85rem; }
+.ems-links { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.9rem; }
+.ems-links a { color: #4c51bf; }
+.ems-date-row { display: flex; gap: 0.5rem; }
+.ems-date-row input[type='date'] { flex: 1; min-width: 0; padding: 0.45rem 0.5rem; border: 1px solid #d5d8f0; border-radius: 6px; font-size: 0.9rem; }
+
+.ems-result { border-radius: 8px; padding: 0.55rem 0.75rem; font-size: 0.87rem; line-height: 1.35; }
+.ems-result ul { margin: 0.35rem 0 0; padding-left: 1.1rem; }
+.ems-result--ok { background: #e6f7e8; color: #1f6f31; }
+.ems-result--warn { background: #fff7e6; color: #8a5d06; }
+.ems-result--bad { background: #fde8e8; color: #9b2121; }
+
+.ems-modal { max-width: 760px; }
+.ems-modal h2 { margin: 0 2rem 0.4rem 0; color: #333; }
+.ems-form { display: flex; flex-direction: column; gap: 1rem; margin-top: 0.8rem; }
+.ems-form fieldset { border: 1px solid #eceefa; border-radius: 10px; padding: 0.6rem 0.9rem 0.9rem; margin: 0; }
+.ems-form legend { padding: 0 0.3rem; color: #4c51bf; font-weight: 600; font-size: 0.9rem; }
+.ems-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem 0.9rem; }
+.ems-form-grid label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.82rem; color: #555; }
+.ems-form-wide { grid-column: 1 / -1; }
+.ems-form input, .ems-form select { padding: 0.5rem 0.6rem; border: 1px solid #d5d8f0; border-radius: 6px; font-size: 0.92rem; min-width: 0; }
+.ems-item-row { display: grid; grid-template-columns: 1.2fr 0.5fr 1.3fr auto; gap: 0.5rem; margin-bottom: 0.5rem; }
+.ems-form-actions { display: flex; justify-content: flex-end; gap: 0.6rem; }
+
+@media (max-width: 768px) {
+  .ems-page { padding: 1rem 0.75rem 2rem; }
+  .ems-card { grid-template-columns: 1fr; }
+  .ems-form-grid { grid-template-columns: 1fr; }
+  .ems-item-row { grid-template-columns: 1fr 0.6fr; }
+}

@@ -44,7 +44,7 @@ vi.mock('./store.js', () => ({
   listProducts: vi.fn().mockReturnValue([]),
 }))
 
-import { getOrderFromSheet, isOrderShipped, statusRank, labelForDelivery } from './orders-sheet.js'
+import { getOrderFromSheet, isOrderShipped, statusRank, labelForDelivery, serializeEmsRecipient, applyEmsRecipient } from './orders-sheet.js'
 import { customerStatusForStage } from './amocrm-lead-processor.js'
 
 const ORDER_ID = 'ORD-1717000000000'
@@ -267,5 +267,57 @@ describe('getOrderFromSheet', () => {
 
     const result = await getOrderFromSheet(ORDER_ID)
     expect(result).toBeNull()
+  })
+
+  // EMS-заказ, восстановленный из Sheets после рестарта Render, должен суметь создаться
+  // в Почте — для этого нужен структурный адрес, а не склеенная строка из address
+  it('EMS: восстанавливает адрес получателя и состояние оформления у Почты', async () => {
+    const recipient = '{"country":"Узбекистан","countryCode":860,"city":"Tashkent","street":"Street 1","index":"100000"}'
+    const state = '{"orderId":777,"batch":"24"}'
+    const row = [...ORDER_ROW]
+    row[25] = 'ems'
+    row[29] = recipient
+    row[30] = state
+    valuesGetMock
+      .mockResolvedValueOnce({ data: { values: [['headers'], row] } })
+      .mockResolvedValueOnce({ data: { values: [['headers'], ITEM_ROW] } })
+
+    const order = await getOrderFromSheet(ORDER_ID)
+
+    expect(order!.orderData.recipientCountryCode).toBe(860)
+    expect(order!.orderData.recipientCity).toBe('Tashkent')
+    expect(order!.orderData.recipientIndex).toBe('100000')
+    expect(order!.pochtaState).toBe(state)
+    // range обязан захватывать новые колонки, иначе values.get их просто не вернёт
+    expect(valuesGetMock.mock.calls[0][0].range).toBe('orders!A:AE')
+  })
+})
+
+describe('ems_recipient', () => {
+  const ems = {
+    items: [], fullName: 'Petrov Ivan', phone: '+998900000000', country: 'Узбекистан', city: 'Tashkent',
+    address: '100000, Tashkent, Street 1', deliveryRegion: '', deliveryCost: 1281, total: 11271,
+    deliveryMethod: 'ems' as const, recipientCountry: 'Узбекистан', recipientCountryCode: 860,
+    recipientCity: 'Tashkent', recipientStreet: 'Street 1', recipientIndex: '100000',
+  }
+
+  it('туда и обратно без потерь', () => {
+    const raw = serializeEmsRecipient(ems)
+    const restored: any = { ...ems, recipientCountryCode: undefined, recipientCity: undefined, recipientStreet: undefined, recipientIndex: undefined }
+    applyEmsRecipient(restored, raw)
+    expect(restored.recipientCountryCode).toBe(860)
+    expect(restored.recipientCity).toBe('Tashkent')
+    expect(restored.recipientStreet).toBe('Street 1')
+    expect(restored.recipientIndex).toBe('100000')
+  })
+
+  it('не-EMS заказ колонку не заполняет', () => {
+    expect(serializeEmsRecipient({ ...ems, deliveryMethod: 'cdek' })).toBe('')
+  })
+
+  it('битый JSON не роняет чтение заказа', () => {
+    const d: any = { ...ems, recipientCountryCode: undefined }
+    expect(() => applyEmsRecipient(d, '{oops')).not.toThrow()
+    expect(d.recipientCountryCode).toBeUndefined()
   })
 })

@@ -42,6 +42,7 @@ import ordersRoutes from './routes/orders.js'
 import customersRoutes from './routes/customers.js'
 import statsRoutes from './routes/stats.js'
 import shipmentsRoutes from './routes/shipments.js'
+import emsRoutes from './routes/ems.js'
 
 app.use('/api/auth', authRoutes)
 app.use('/api/products', productRoutes)
@@ -56,6 +57,7 @@ app.use('/api/orders', ordersRoutes)
 app.use('/api/customers', customersRoutes)
 app.use('/api/stats', statsRoutes)
 app.use('/api/shipments', shipmentsRoutes)
+app.use('/api/ems', emsRoutes)
 
 app.listen(PORT, () => {
   logger.info(`Админ-панель бэкенд запущен на порту ${PORT}`)

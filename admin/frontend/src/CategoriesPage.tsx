@@ -337,6 +337,9 @@ function CategoriesPage({
           <button className="nav-btn" onClick={() => onNavigate?.('shipments')}>
             Учёт
           </button>
+          <button className="nav-btn" onClick={() => onNavigate?.('ems')}>
+            EMS
+          </button>
           <button className="nav-btn" onClick={() => onNavigate?.('customers')}>
             Клиенты
           </button>
