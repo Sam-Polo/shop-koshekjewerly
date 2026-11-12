@@ -265,7 +265,10 @@ export async function createAmoCrmLead(order: Order, certPromocode?: string): Pr
 
   const leadBody: Record<string, unknown> = {
     name: `${order.orderData.fullName} — ${order.orderData.total}₽`,
-    price: order.orderData.total,
+    // бюджет amoCRM — только целое: дробь отбивается 400 InvalidType на весь лид. Копейки в
+    // total даёт процентный промокод (BLACKFRIDAY 11.2026: 20% от 6283 = 1256.6 → итог 5026.4) —
+    // так за сутки в CRM не доехал 21 оплаченный заказ.
+    price: Math.round(order.orderData.total),
     custom_fields_values: buildLeadFields(order, certPromocode),
     _embedded: {
       contacts: [{ id: contactId, is_main: true }],

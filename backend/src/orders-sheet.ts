@@ -161,6 +161,18 @@ function toIso(ms: number): string {
   return new Date(ms).toISOString()
 }
 
+/**
+ * Число из ячейки листа. values.get отдаёт ОТФОРМАТИРОВАННЫЕ значения, а таблица в русской
+ * локали — дробная сумма приходит как «8262,4», и parseFloat молча отрезал копейки (8262).
+ * Заказ, восстановленный из Sheets после рестарта Render, получал заниженный total, и его
+ * оплату (Робокасса шлёт 8262.40) processPaidOrder отбивал как AMOUNT_MISMATCH.
+ * Дробные суммы даёт процентный промокод (BLACKFRIDAY, 11.2026).
+ */
+function sheetNumber(raw: unknown): number {
+  const n = parseFloat(String(raw ?? '').replace(/\s/g, '').replace(',', '.'))
+  return Number.isFinite(n) ? n : 0
+}
+
 function resolveItemCategory(slug: string): string {
   if (slug.startsWith('composer-')) return 'constructor'
   const product = listProducts().find(p => p.slug === slug)
@@ -525,7 +537,7 @@ export async function getOrderFromSheet(orderId: string): Promise<SheetOrder | n
       items.push({
         slug: row[1] ?? '',
         title: row[2] ?? '',
-        price: parseFloat(row[3]) || 0,
+        price: sheetNumber(row[3]),
         quantity: parseInt(row[4], 10) || 1,
         article: row[5] || undefined,
         // опция обязана пережить рестарт Render: уведомления и лид amoCRM создаются
@@ -534,12 +546,12 @@ export async function getOrderFromSheet(orderId: string): Promise<SheetOrder | n
       })
     }
 
-    const deliveryCost = parseFloat(col(14)) || 0
-    const total = parseFloat(col(20)) || 0
+    const deliveryCost = sheetNumber(col(14))
+    const total = sheetNumber(col(20))
     const priorityOrder = col(18) === 'true'
-    const priorityFee = parseFloat(col(19)) || 0
+    const priorityFee = sheetNumber(col(19))
     const promocodeCode = col(16)
-    const promocodeDiscount = parseFloat(col(17)) || 0
+    const promocodeDiscount = sheetNumber(col(17))
 
     const order: SheetOrder = {
       orderId,
@@ -623,7 +635,7 @@ export async function getOrdersByCustomerChatId(chatId: string, limit = 10): Pro
         createdAt: row[1] ?? '',
         status: row[3] ?? '',
         platform: row[4] ?? 'telegram',
-        total: parseFloat(row[20]) || 0,
+        total: sheetNumber(row[20]),
       })
     }
     results.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
@@ -788,7 +800,7 @@ export async function getOrderHistoryByChatId(chatId: string, limit = 20): Promi
       const bucket = itemsByOrder.get(oid) ?? []
       bucket.push({
         title: row[2] ?? '',
-        price: parseFloat(row[3]) || 0,
+        price: sheetNumber(row[3]),
         quantity: parseInt(row[4], 10) || 1,
         option: row[7] || undefined,
       })
@@ -811,7 +823,7 @@ export async function getOrderHistoryByChatId(chatId: string, limit = 20): Promi
         orderId,
         createdAt: row[1] ?? '',
         status: row[3] ?? '',
-        total: parseFloat(row[20]) || 0,
+        total: sheetNumber(row[20]),
         deliveryMethod,
         trackNumber,
         trackUrl,
@@ -1035,7 +1047,7 @@ export async function listEmsOrdersFromSheet(sinceIso: string): Promise<EmsSheet
     const bucket = itemsByOrder.get(row[0]) ?? []
     bucket.push({
       title: row[2] ?? '',
-      price: parseFloat(row[3]) || 0,
+      price: sheetNumber(row[3]),
       quantity: parseInt(row[4], 10) || 1,
       option: row[7] || undefined,
     })
@@ -1056,8 +1068,8 @@ export async function listEmsOrdersFromSheet(sinceIso: string): Promise<EmsSheet
       country: row[10] ?? '',
       city: row[11] ?? '',
       address: row[12] ?? '',
-      deliveryCost: parseFloat(row[14]) || 0,
-      total: parseFloat(row[20]) || 0,
+      deliveryCost: sheetNumber(row[14]),
+      total: sheetNumber(row[20]),
       clientComment: row[21] ?? '',
       adminNote: row[22] ?? '',
       shpi: row[26] ?? '',
@@ -1182,7 +1194,7 @@ export async function listPendingOrdersFromSheet(
       bucket.push({
         slug: row[1] ?? '',
         title: row[2] ?? '',
-        price: parseFloat(row[3]) || 0,
+        price: sheetNumber(row[3]),
         quantity: parseInt(row[4], 10) || 1,
         article: row[5] || undefined,
         option: row[7] || undefined,
@@ -1198,8 +1210,8 @@ export async function listPendingOrdersFromSheet(
       if (items.length === 0) continue
 
       const promocodeCode = col(16)
-      const promocodeDiscount = parseFloat(col(17)) || 0
-      const priorityFee = parseFloat(col(19)) || 0
+      const promocodeDiscount = sheetNumber(col(17))
+      const priorityFee = sheetNumber(col(19))
 
       const restored: Order = {
         orderId,
@@ -1218,9 +1230,9 @@ export async function listPendingOrdersFromSheet(
           city: col(11),
           address: col(12),
           deliveryRegion: col(13),
-          deliveryCost: parseFloat(col(14)) || 0,
+          deliveryCost: sheetNumber(col(14)),
           deliveryMethod: (col(25) as DeliveryMethod) || undefined,
-          total: parseFloat(col(20)) || 0,
+          total: sheetNumber(col(20)),
           comments: col(21) || undefined,
           priorityOrder: col(18) === 'true' || undefined,
           priorityFee: priorityFee > 0 ? priorityFee : undefined,

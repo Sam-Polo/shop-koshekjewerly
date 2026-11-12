@@ -255,6 +255,25 @@ describe('getOrderFromSheet', () => {
     expect(order!.orderData.items[0].article).toBe('ART-001')
   })
 
+  // Таблица в русской локали отдаёт дробные суммы через запятую. parseFloat('5026,4') === 5026 —
+  // восстановленный заказ получал заниженный total, и его оплату отбивало как AMOUNT_MISMATCH
+  it('не теряет копейки в суммах с запятой (процентный промокод)', async () => {
+    const row = [...ORDER_ROW]
+    row[14] = '293'
+    row[16] = 'BLACKFRIDAY'
+    row[17] = '1256,6'
+    row[20] = '5026,4'
+    valuesGetMock
+      .mockResolvedValueOnce({ data: { values: [['headers'], row] } })
+      .mockResolvedValueOnce({ data: { values: [['headers'], ITEM_ROW] } })
+
+    const order = await getOrderFromSheet(ORDER_ID)
+
+    expect(order!.orderData.total).toBe(5026.4)
+    expect(order!.orderData.promocode?.discount).toBe(1256.6)
+    expect(order!.orderData.deliveryCost).toBe(293)
+  })
+
   it('возвращает null при ошибке googleapis', async () => {
     valuesGetMock.mockRejectedValueOnce(new Error('googleapis network error'))
 
