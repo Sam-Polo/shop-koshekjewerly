@@ -354,14 +354,17 @@ export function validatePromocode(
   }
   // если productSlugs пусто или null - промокод действует на все товары
   
-  // вычисляем скидку
-  if (promocode.type === 'amount') {
-    // скидка по сумме (не может быть больше суммы заказа)
-    return Math.min(promocode.value, orderTotal)
-  } else {
-    // скидка по проценту
-    const discount = (orderTotal * promocode.value) / 100
-    return Math.round(discount * 100) / 100 // округляем до 2 знаков
-  }
+  // скидка по сумме или по проценту
+  const raw = promocode.type === 'amount'
+    ? promocode.value
+    : (orderTotal * promocode.value) / 100
+  // Скидка всегда в целых рублях: копейки отбрасываем в пользу покупателя (округляем
+  // скидку вверх), чтобы в заказе их не было вовсе. Раньше процентную скидку считали до
+  // копеек: BLACKFRIDAY −20% от 6283 = 1256.6 давал итог 5026.4, а копейки ломали
+  // интеграции (amoCRM принимает бюджет лида только целым — 11.2026 не доехал 21 лид).
+  // Округление до миллионных перед ceil срезает шум float (998.0000000000001 ≠ 999 ₽ скидки).
+  const discount = Math.ceil(Math.round(raw * 1e6) / 1e6)
+  // скидка не может быть больше суммы заказа
+  return Math.min(discount, orderTotal)
 }
 

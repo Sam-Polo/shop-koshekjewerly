@@ -58,9 +58,22 @@ describe('validatePromocode', () => {
     expect(validatePromocode({ ...base, value: 5000 }, 1000)).toBe(1000)
   })
 
-  it('процентная скидка округляется до копеек', () => {
+  // копеек в заказе быть не должно: скидка всегда в целых рублях, округление — в пользу покупателя
+  it('процентная скидка — целыми рублями, копейки в пользу покупателя', () => {
     const percent: Promocode = { ...base, type: 'percent', value: 15 }
-    expect(validatePromocode(percent, 333)).toBe(49.95)
+    expect(validatePromocode(percent, 333)).toBe(50) // 49.95 → 50
+    const blackFriday: Promocode = { ...base, type: 'percent', value: 20 }
+    expect(validatePromocode(blackFriday, 6283)).toBe(1257) // 1256.6 → 1257: итог 5026, а не 5026.4
+  })
+
+  it('ровная процентная скидка не получает лишний рубль из-за погрешности float', () => {
+    // 3000 * 1.1 / 100 в float = 33.00000000000001 — голый Math.ceil дал бы 34
+    expect(validatePromocode({ ...base, type: 'percent', value: 1.1 }, 3000)).toBe(33)
+    expect(validatePromocode({ ...base, type: 'percent', value: 20 }, 4990)).toBe(998)
+  })
+
+  it('скидка суммой с копейками тоже округляется в пользу покупателя', () => {
+    expect(validatePromocode({ ...base, value: 499.5 }, 1000)).toBe(500)
   })
 
   it('привязка к товарам: нет совпадений — нет скидки', () => {
